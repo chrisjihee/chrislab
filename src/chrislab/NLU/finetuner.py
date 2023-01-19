@@ -95,7 +95,7 @@ class MyFinetuner(LightningLite):
     def __init__(
             self, config, prefix=None, postfix=None,
             milestones=("INIT", "LOAD", "TRAIN", "METER", "APPLY", "SAVE"),
-            cuda_paths=("/usr/local/cuda-11", "/usr/local/cuda-11.4", "/usr/local/cuda-11.3", "/usr/local/cuda-11.1")
+            cuda_paths=("/usr/local/cuda-12.0", "/usr/local/cuda-11.4", "/usr/local/cuda-11.3", "/usr/local/cuda-11.1")  # check for your environment
     ):
         self.state: AttrDict = load_attrs(config)
         self.state = merge_attrs(self.state, post={
