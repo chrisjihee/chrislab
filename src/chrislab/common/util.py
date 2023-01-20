@@ -1,11 +1,34 @@
-from sys import stdout
+import torch
+import tqdm.std as tqdm_std
 
 import datasets
-import torch
-from chrisbase.io import get_current_path
-from chrisbase.time import now
-from chrisbase.util import tupled, number_only
-from tqdm import std as tqdm_std
+from chrisbase.io import *
+from chrisbase.time import *
+from chrisbase.util import *
+
+
+def copy_ipynb_for_run(infile, run_opts):
+    infile = Path(infile)
+    outdir = infile.with_name(f"{infile.stem}-{now('%m.%d')}")
+    run_command("rm", "-rf", outdir, bare=True)
+    for dst in sorted([make_dir(outdir / f"{s}-{r}") for s, rs in run_opts.items() for r in rs]):
+        run_command("cp", infile, dst, bare=True)
+    out_hr(title=f" * Input/Output Files [{', '.join(run_opts)}]")
+    out_table(files_info(infile, outdir / '*' / '*.ipynb'))
+    out_hr()
+
+
+def copy_ipynb_for_debug(infile, opts):
+    infile = Path(infile)
+    outfiles = [infile.with_name(f"{infile.stem}={opt}.py") for opt in opts]
+    for outfile in outfiles:
+        with outfile.open('w') as out:
+            for source in [x.source for x in load_attrs(infile).cells if x.cell_type == 'code']:
+                out.writelines(source)
+                out.writelines([hr(c='#', t=2, b=2)])
+    out_hr(title=f" * Input/Output Files [{', '.join(opts)}]")
+    out_table(files_info(infile, *outfiles))
+    out_hr()
 
 
 def get_options_from_path(strategy_d, precision_d, run_d, quick_d=False, valid_strategies=('dp', 'ddp', 'ddp_sharded', 'fsdp', 'deepspeed')):
