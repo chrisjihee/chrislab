@@ -7,14 +7,18 @@ from chrisbase.time import *
 from chrisbase.util import *
 
 
-def copy_ipynb_for_run(infile, run_opts):
+def copy_ipynb_for_run(infile, run_opts=None):
     infile = Path(infile)
     outdir = infile.with_name(f"{infile.stem}-{now('%m.%d')}")
     run_command("rm", "-rf", outdir, bare=True)
-    for dst in sorted([make_dir(outdir / f"{s}-{r}") for s, rs in run_opts.items() for r in rs]):
-        run_command("cp", infile, dst, bare=True)
-    out_hr(title=f" * Input/Output Files [{', '.join(run_opts)}]")
-    out_table(files_info(infile, outdir / '*' / '*.ipynb'))
+    if run_opts:
+        for dst in sorted([make_dir(outdir / f"{s}-{r}") for s, rs in run_opts.items() for r in rs]):
+            run_command("cp", infile, dst, bare=True)
+    else:
+        for dst in sorted([make_dir(outdir)]):
+            run_command("cp", infile, dst, bare=True)
+    out_hr(title=f" * Input/Output Files")
+    out_table(files_info(infile, outdir / '*.ipynb', outdir / '*' / '*.ipynb'))
     out_hr()
 
 
@@ -26,7 +30,7 @@ def copy_ipynb_for_debug(infile, opts):
             for source in [x.source for x in load_attrs(infile).cells if x.cell_type == 'code']:
                 out.writelines(source)
                 out.writelines([hr(c='#', t=2, b=2)])
-    out_hr(title=f" * Input/Output Files [{', '.join(opts)}]")
+    out_hr(title=f" * Input/Output Files")
     out_table(files_info(infile, *outfiles))
     out_hr()
 
