@@ -6,4 +6,5 @@ rm -rf build dist src/*.egg-info;
 
 sleep 3s; clear;
 conda create --name chrislab python=3.10 -y; conda activate chrislab;
+sleep 5s; clear;
 pip install --upgrade chrislab; pip list;
