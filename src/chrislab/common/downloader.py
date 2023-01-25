@@ -2,9 +2,7 @@ import argparse
 
 import datasets.utils.logging
 from chrisbase.morp import *
-from chrisbase.util import *
 from datasets import load_dataset, Dataset
-
 from .util import *
 
 time_tqdm = time_tqdm_cls(bar_size=40, desc_size=22)
@@ -27,12 +25,12 @@ def convert_json_lines(infile, outfile):
     return example_count
 
 
-def download_public_task_data(data_dir, data_name, task_name, remove_temporary=True, mute_progress_bar=True):
+def download_public_task_data(data_dir, data_name, sub_name, remove_temporary=True, mute_progress_bar=True):
     with MuteDatasetProgress(mute=mute_progress_bar):
         data_dir = Path(data_dir)
-        outdir = data_dir / data_name.upper() / task_name.upper()
-        tmpdir = data_dir / data_name.upper() / (task_name.upper() + "-temp")
-        raw_datasets = datasets.load_dataset(data_name, task_name)
+        outdir = data_dir / data_name / sub_name
+        tmpdir = data_dir / data_name / (sub_name + "-temp")
+        raw_datasets = datasets.load_dataset(data_name, sub_name)
         raw_datasets.save_to_disk(str(tmpdir))
 
         results = []
@@ -42,7 +40,7 @@ def download_public_task_data(data_dir, data_name, task_name, remove_temporary=T
             tmpfile, outfile = tmpdir / f'{k}.json', outdir / f'{k}.json'
             num_example = convert_json_lines(tmpfile, outfile)
             results.append({
-                'dataset': data_name.upper(), 'task': task_name.upper(), 'split': outfile.stem,
+                'data_name': data_name, 'sub_name': sub_name, 'split': outfile.stem,
                 '#example': f'{num_example:,d}', 'size': f'{file_size(outfile):,d}', 'time': file_mtime(outfile)
             })
         info_file = tmpdir / "train" / "dataset_info.json"
@@ -53,13 +51,13 @@ def download_public_task_data(data_dir, data_name, task_name, remove_temporary=T
         return to_dataframe(results)
 
 
-def download_public_dataset(data_dir, data_name, task_names):
-    return pd.concat([download_public_task_data(data_dir, data_name, task_name)
-                      for task_name in task_names]).reset_index(drop=True)
+def download_public_dataset(data_dir, data_name, sub_names):
+    return pd.concat([download_public_task_data(data_dir, data_name, sub_name)
+                      for sub_name in sub_names]).reset_index(drop=True)
 
 
-def reload_public_task_data(data_dir, data_name, task_name, uppered=False):
-    indir = data_dir / data_name.upper() / (task_name.upper() if not uppered else task_name)
+def reload_public_task_data(data_dir, data_name, sub_name):
+    indir = data_dir / data_name / sub_name
     data_files = {x.stem: str(x) for x in files(indir / "*.json") if x.stem != "info"}
     with MyTimer(verbose=False):
         datasets.utils.logging.tqdm = mute_tqdm
@@ -68,15 +66,15 @@ def reload_public_task_data(data_dir, data_name, task_name, uppered=False):
     for split in sorted(raw_datasets, key=lambda x: sorted_splits.index(x) if x in sorted_splits else 999):
         dataset: Dataset = raw_datasets[split]
         results.append({
-            'dataset': data_name.upper(), 'task': task_name.upper(), 'split': split,
+            'data_name': data_name, 'sub_name': sub_name, 'split': split,
             '#example': f'{dataset.num_rows:,d}', 'size': f'{file_size(data_files[split]):,d}', 'time': file_mtime(data_files[split])
         })
     return to_dataframe(results)
 
 
-def reload_public_dataset(data_dir, data_name, task_names, uppered=False):
-    return pd.concat([reload_public_task_data(data_dir, data_name, task_name, uppered=uppered)
-                      for task_name in task_names]).reset_index(drop=True)
+def reload_public_dataset(data_dir, data_name, sub_names):
+    return pd.concat([reload_public_task_data(data_dir, data_name, sub_name)
+                      for sub_name in sub_names]).reset_index(drop=True)
 
 
 def add_column_with_token_tag(infile, outfile, suffix, targets, netloc="129.254.164.137:7100"):
