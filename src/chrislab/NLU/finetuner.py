@@ -18,24 +18,23 @@ from collections import Counter
 from random import Random
 from typing import Dict
 
-import evaluate
 import torch.nn as nn
 import torch.optim as optim
-from chrisbase.io import *
+from tokenizers import ByteLevelBPETokenizer
+from torch.nn.modules.loss import _Loss
+from torch.optim import Optimizer
+from torch.utils.data import DataLoader
+
+import evaluate
 from datasets import Dataset, DatasetDict, Sequence, Value, load_dataset, arrow_dataset
 from datasets.metric import Metric
 from pytorch_lightning import seed_everything
 from pytorch_lightning.lite import LightningLite
 from pytorch_lightning.strategies import DataParallelStrategy, DDPStrategy, DDPShardedStrategy, DDPFullyShardedStrategy, DeepSpeedStrategy
-from tokenizers import ByteLevelBPETokenizer
-from torch.nn.modules.loss import _Loss
-from torch.optim import Optimizer
-from torch.utils.data import DataLoader
 from transformers import PreTrainedModel, PreTrainedTokenizer, AutoConfig, AutoModelForSequenceClassification
 from transformers.modeling_outputs import SequenceClassifierOutput
 from transformers.tokenization_utils_base import TruncationStrategy, BatchEncoding
 from transformers.utils import PaddingStrategy
-
 from ..common.tokenizer_korbert import *
 from ..common.util import *
 
@@ -144,7 +143,7 @@ class MyFinetuner(LightningLite):
                 columns=["key", "value"]), showindex=False, file=timer.file)
 
     def ready(self) -> None:
-        with MyTimer(f"Preparing({self.state.task_name})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero):
+        with MyTimer(f"Preparing({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero):
             # BEGIN
             with MyTimer(verbose=self.is_global_zero):
                 self.show_state_values(verbose=self.is_global_zero)
@@ -155,11 +154,11 @@ class MyFinetuner(LightningLite):
                 self.check_tokenizer(sample=self.is_global_zero)
 
     def run(self) -> None:
-        with MyTimer(f"Finetuning({self.state.task_name})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero):
+        with MyTimer(f"Finetuning({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero):
             # BEGIN
             with MyTimer(verbose=self.is_global_zero):
                 self.show_state_values(verbose=self.is_global_zero)
-                assert self.state.dataset_name and isinstance(self.state.dataset_name, (Path, str)), f"Invalid dataset_name: ({type(self.state.dataset_name).__qualname__}) {self.state.dataset_name}"
+                assert self.state.data_name and isinstance(self.state.data_name, (Path, str)), f"Invalid data_name: ({type(self.state.data_name).__qualname__}) {self.state.data_name}"
 
             # READY(data)
             with MyTimer(verbose=self.is_global_zero):
@@ -193,8 +192,8 @@ class MyFinetuner(LightningLite):
             # READY(output)
             assert self.state.finetuned_home and isinstance(self.state.finetuned_home, Path), f"Invalid finetuned_home: ({type(self.state.finetuned_home).__qualname__}) {self.state.finetuned_home}"
             assert isinstance(self.state.finetuned_sub, (type(None), Path, str)), f"Invalid finetuned_sub: ({type(self.state.finetuned_sub).__qualname__}) {self.state.finetuned_sub}"
-            finetuned_dir: Path = make_dir(self.state.finetuned_home / self.state.dataset_name / self.state.finetuned_sub) \
-                if self.state.finetuned_sub else make_dir(self.state.finetuned_home / self.state.dataset_name)
+            finetuned_dir: Path = make_dir(self.state.finetuned_home / self.state.data_name / self.state.finetuned_sub) \
+                if self.state.finetuned_sub else make_dir(self.state.finetuned_home / self.state.data_name)
             finetuned_files = {
                 "done": finetuned_dir / "finetuner_done.db",
                 "state": finetuned_dir / "finetuner_state.json",
@@ -476,7 +475,7 @@ class MyFinetuner(LightningLite):
             self.check_datasets(name="encoded_datasets")
         if counted_datasets:
             with MyTimer(verbose=verbose):
-                self.display_counts(counted_datasets, verbose=verbose, figure=self.state.mode == "preparing")
+                self.display_counts(counted_datasets, verbose=verbose, figure=self.state.command == "check")
 
         # sample examples
         if 'num_check_samples' in self.state and self.state.num_check_samples >= 1:

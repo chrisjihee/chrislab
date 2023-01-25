@@ -14,8 +14,6 @@
 from __future__ import annotations
 
 import evaluate
-from chrisbase.io import *
-
 from .finetuner import MyFinetuner, HeadModel
 from ..common.util import *
 
