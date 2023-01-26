@@ -28,11 +28,11 @@ class MyPredictor(MyFinetuner):
         super(MyPredictor, self).__init__(*args, **kwargs)
 
     def run(self):
-        with MyTimer(f"Predicting({self.state.task_name})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero):
+        with MyTimer(f"Predicting({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero):
             # BEGIN
             with MyTimer(verbose=self.is_global_zero):
                 self.show_state_values(verbose=self.is_global_zero)
-                assert self.state.dataset_name and isinstance(self.state.dataset_name, (Path, str)), f"Invalid dataset_name: ({type(self.state.dataset_name).__qualname__}) {self.state.dataset_name}"
+                assert self.state.data_name and isinstance(self.state.data_name, (Path, str)), f"Invalid data_name: ({type(self.state.data_name).__qualname__}) {self.state.data_name}"
 
             # READY(data)
             with MyTimer(verbose=self.is_global_zero):
@@ -64,7 +64,7 @@ class MyPredictor(MyFinetuner):
             assert self.state.finetuned_sub and isinstance(self.state.finetuned_sub, (Path, str)), f"Invalid finetuned_sub: ({type(self.state.finetuned_sub).__qualname__}) {self.state.finetuned_sub}"
             records_to_predict = []
             with MyTimer(verbose=self.is_global_zero, rb=1):
-                finetuned_dir: Path = self.state.finetuned_home / self.state.dataset_name / self.state.finetuned_sub
+                finetuned_dir: Path = self.state.finetuned_home / self.state.data_name / self.state.finetuned_sub
                 assert finetuned_dir and finetuned_dir.is_dir(), f"Invalid finetuned_dir: ({type(finetuned_dir).__qualname__}) {finetuned_dir}"
                 finetuner_state_path: Path or None = exists_or(finetuned_dir / 'finetuner_state.json')
                 assert finetuner_state_path and finetuner_state_path.is_file(), f"Invalid finetuner_state_path: ({type(finetuned_dir / 'finetuner_state.json').__qualname__}) {finetuned_dir / 'finetuner_state.json'}"
@@ -88,8 +88,8 @@ class MyPredictor(MyFinetuner):
             # READY(output)
             assert self.state.predicted_home and isinstance(self.state.predicted_home, Path), f"Invalid predicted_home: ({type(self.state.predicted_home).__qualname__}) {self.state.predicted_home}"
             assert isinstance(self.state.predicted_sub, (type(None), Path, str)), f"Invalid predicted_sub: ({type(self.state.predicted_sub).__qualname__}) {self.state.predicted_sub}"
-            predicted_dir: Path = make_dir(self.state.predicted_home / self.state.dataset_name / self.state.predicted_sub) \
-                if self.state.predicted_sub else make_dir(self.state.predicted_home / self.state.dataset_name)
+            predicted_dir: Path = make_dir(self.state.predicted_home / self.state.data_name / self.state.predicted_sub) \
+                if self.state.predicted_sub else make_dir(self.state.predicted_home / self.state.data_name)
             predicted_files = {
                 "done": predicted_dir / "predictor_done.db",
                 "state": predicted_dir / "predictor_state.json",
