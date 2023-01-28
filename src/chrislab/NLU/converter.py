@@ -2,7 +2,7 @@ from .cli import *
 
 
 def convert_mlt_rerank(prefix, infile, outdir, max_n, unit, score, splits, train_truth=True, test_truth=False, mini=-1, seed=0):
-    tqdm = time_tqdm_cls(bar_size=20, desc_size=50, aline='left')
+    tqdm = time_tqdm_cls(bar_size=20, desc_size=42, aline='left')
     with MyTimer(f"Make Dataset({outdir.stem})", prefix=prefix, mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True):
         assert files(infile), f"No input file: {infile}"
         infile = files(infile)[0] if files(infile) else None
