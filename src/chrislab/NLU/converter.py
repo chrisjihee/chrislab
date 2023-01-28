@@ -1,21 +1,24 @@
 from .cli import *
 
 
-def convert_mlt_rerank(prefix, infile, outdir, max_n, unit, score, splits, train_truth=True, test_truth=False, mini=-1, seed=0):
+def convert_mlt_rerank(prefix, infile, outdir, max_n, unit, score,
+                       split_rates={"train": 0.8, "valid": 0.1, "test": 0.1},
+                       include_truths={"train": True, "valid": False, "test": False},
+                       mini=-1, seed=0):
     tqdm = time_tqdm_cls(bar_size=20, desc_size=42, aline='left')
     with MyTimer(f"Make Dataset({outdir.stem})", prefix=prefix, mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True):
         assert files(infile), f"No input file: {infile}"
-        infile = files(infile)[0] if files(infile) else None
+        assert sum(x for x in split_rates.values()) == 1.0, "Sum of split rates should be 1.0"
+        infile = files(infile)[0]
         infile_size = num_lines(infile, mini)
         outdir = make_dir(outdir)
-        predicting_nbests = list(range(0 if test_truth else 1, max_n + 1))
-        finetuning_nbests = list(range(0 if train_truth else 1, max_n + 1))
+        nbest_ranges = {k: list(range(0 if v else 1, max_n + 1)) for k, v in include_truths.items()}
         with MyTimer(verbose=True, rb=1):
             print(f"- {'infile':30s} = {infile}")
             print(f"- {'outdir':30s} = {outdir}")
-            print(f"- {'nbests':30s} = finetuning={tuple(finetuning_nbests)} | predicting={tuple(predicting_nbests)}")
-            print(f"- {'splits':30s} = train={percent(splits[0], '3.0f')} | valid={percent(splits[1], '3.0f')} | test={percent(splits[2], '3.0f')}")
-            print(f"- {'options':30s} = unit={unit} | score=(cols[{score[0]}]**{score[1]})*{score[2]} | seed={seed}")
+            print(f"- {'split_rates':30s} = {' | '.join(k + ES + percent(v, '3.0f').strip() for k, v in split_rates.items())}")
+            print(f"- {'nbest_ranges':30s} = {' | '.join(k + ES + str(v) for k, v in nbest_ranges.items())}")
+            print(f"- {'other_options':30s} = unit={unit} | score=(cols[{score[0]}]**{score[1]})*{score[2]} | seed={seed}")
 
         sent_ids = set()
         with MyTimer(verbose=True, rb=1):
@@ -26,11 +29,11 @@ def convert_mlt_rerank(prefix, infile, outdir, max_n, unit, score, splits, train
                     meta['N'] = int(meta['N'])
                     meta['sid'] = int(meta['sid'])
                     sent_id = f"{meta['src']}_{meta['sid']:08d}"
-                    if meta['N'] in finetuning_nbests or meta['N'] > 20000:
+                    if meta['N'] in nbest_ranges['train'] or meta['N'] > 20000:
                         sent_ids.add(sent_id)
             sent_ids = shuffled(sent_ids, seed=seed)
-            num_test = int(len(sent_ids) * splits[2])
-            num_valid = int(len(sent_ids) * splits[1])
+            num_test = int(len(sent_ids) * split_rates['test'])
+            num_valid = int(len(sent_ids) * split_rates['valid'])
             split_ids = {
                 'test': sent_ids[: num_test],
                 'valid': sent_ids[num_test: num_test + num_valid],
@@ -55,7 +58,7 @@ def convert_mlt_rerank(prefix, infile, outdir, max_n, unit, score, splits, train
                     meta['sid'] = int(meta['sid'])
                     sent_id = f"{meta['src']}_{meta['sid']:08d}"
                     split_id = 'test' if sent_id in split_ids['test'] else ('valid' if sent_id in split_ids['valid'] else 'train')
-                    if meta['N'] in (finetuning_nbests if split_id == 'train' else predicting_nbests) or meta['N'] > 20000:
+                    if meta['N'] in nbest_ranges[split_id] or meta['N'] > 20000:
                         data_splits[split_id].append({
                             'id': eid,
                             'sentence1': sent,
