@@ -13,6 +13,7 @@ def check(config: str, prefix: str = "", postfix: str = ""):
 
 @app.command()
 def train(config: str, prefix: str = "", postfix: str = ""):
+    torch.set_float32_matmul_precision('high')
     with MyTimer(verbose=True, mute_logger=["pytorch_lightning.utilities.seed", "pytorch_lightning.utilities.distributed"]):
         MyFinetuner(config=config, prefix=prefix, postfix=postfix).run()
 

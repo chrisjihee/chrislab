@@ -154,7 +154,6 @@ class MyFinetuner(LightningLite):
                 self.check_tokenizer(sample=self.is_global_zero)
 
     def run(self) -> None:
-        torch.set_float32_matmul_precision('high')
         with MyTimer(f"Finetuning({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero):
             # BEGIN
             with MyTimer(verbose=self.is_global_zero):
