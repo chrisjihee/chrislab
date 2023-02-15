@@ -13,14 +13,13 @@
 """
 from __future__ import annotations
 
-import sqlite3 as db
 from collections import Counter
 from random import Random
 from typing import Dict
 
-import pymongo
 import torch.nn as nn
 import torch.optim as optim
+from pymongo import ASCENDING as ASC
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from tokenizers import ByteLevelBPETokenizer
@@ -297,68 +296,39 @@ class MyFinetuner(Fabric):
                             if self.is_global_zero and logs["model_path"].exists():
                                 print(self.time_tqdm.to_desc(pre=current, desc=f"exported #{self.global_rank + 1:01d}") + f": model | {logs['model_path']}")
 
-    def _init_done(self, stage, sleep_sec=1.0) -> None:
-        by = f'rank{self.global_rank}'
-        self.stage_collection.delete_many({'stage': stage, 'global_rank': self.global_rank})
+    def _done_funcs(self):
+        return [
+            lambda: f'#{self.global_rank + 1:01d}',
+            lambda: now('%Y/%m/%d %H:%M:%S'),
+            lambda show: f"\n{to_dataframe(self.stage_collection.find().sort([('stage', ASC), ('agent', ASC)]), index='_id')}" if show else "",
+            lambda what, at: self.stage_collection.count_documents({what: 1, 'stage': at}),
+        ]
+
+    def _init_done(self, stage, sleep_sec=1.0, debug=True, trace=True) -> None:
+        by, at, data = self._done_funcs()[:3]
+        self.stage_collection.delete_many({'stage': stage, 'agent': by()})
         self.stage_collection.insert_one(merge_dicts(
-            {'stage': stage, 'global_rank': self.global_rank},
-            {x: 0 for x in self.milestones.values()},
-            {'started': now('%Y/%m/%d %H:%M:%S'), 'updated': now('%Y/%m/%d %H:%M:%S')},
+            {'stage': stage, 'agent': by()},
+            {what: 0 for what in self.milestones.values()},
+            {'started': at(), 'updated': at()},
         ))
         sleep(sleep_sec * (1 if self.is_global_zero else 2))
-        print(f"[{now('%Y/%m/%d %H:%M:%S')}] by {by}:\n{to_dataframe(self.stage_collection.find().sort([('stage', pymongo.ASCENDING), ('global_rank', pymongo.ASCENDING)]), index='_id')}")
+        if debug:
+            print(f"[{by()}][{at()}]: inserted!{data(show=trace)}")
 
-        # ==================================================================================================
-        # if self.is_global_zero:
-        #     with db.connect(file) as con:
-        #         to_dataframe(
-        #             [merge_dicts(
-        #                 {'global_rank': x},
-        #                 {x: 0 for x in self.milestones.values()},
-        #                 {'started': now('%Y/%m/%d %H:%M:%S'),
-        #                  'updated': now('%Y/%m/%d %H:%M:%S')}
-        #             ) for x in range(self.world_size)]
-        #         ).to_sql(stage, index_label='global_rank', index=False, if_exists='replace', con=con)
-        # else:
-        #     sleep(sleep_sec * 3)
-
-    def _check_done(self, what, stage, sleep_sec=1.0, debug=True, trace=True) -> None:
-        by = f'rank{self.global_rank}'
-        self.stage_collection.update_many({'stage': stage, 'global_rank': self.global_rank}, {'$set': {what: 0, 'updated': now('%Y/%m/%d %H:%M:%S')}})
-        self.stage_collection.update_one({'stage': stage, 'global_rank': self.global_rank}, {'$set': {what: 1, 'updated': now('%Y/%m/%d %H:%M:%S')}})
-        while self.stage_collection.count_documents({'stage': stage, what: 1}) < self.world_size:  # TODO: if too slow, change into for range(max_times)
+    def _check_done(self, what, stage, sleep_sec=1.0, max_times=3600, debug=True, trace=True) -> None:
+        by, at, data, done = self._done_funcs()
+        self.stage_collection.update_many({'stage': stage, 'agent': by()}, {'$set': {what: 0, 'updated': at()}})
+        self.stage_collection.update_one({'stage': stage, 'agent': by()}, {'$set': {what: 1, 'updated': at()}})
+        for _ in range(max_times):
+            if done(what, at=stage) >= self.world_size:
+                break
             if debug:
-                print(f"[{now('%Y/%m/%d %H:%M:%S')}] by {by}: waiting for updating : {self.stage_collection.count_documents({'stage': stage, what: 1})} < {self.world_size}", file=sys_stdout)
+                print(f"[{by()}][{at()}]: waiting... (#done={done(what, at=stage)})", file=sys_stdout)
             sleep(sleep_sec)
         sleep(sleep_sec * (1 if self.is_global_zero else 2))
         if debug:
-            print(f"[{now('%Y/%m/%d %H:%M:%S')}] by {by}: finished updating : {self.stage_collection.count_documents({'stage': stage, what: 1})} >= {self.world_size}", file=sys_stdout)
-        if trace:
-            print(f"[{now('%Y/%m/%d %H:%M:%S')}] by {by}:\n{to_dataframe(self.stage_collection.find().sort([('stage', pymongo.ASCENDING), ('global_rank', pymongo.ASCENDING)]), index='_id')}")
-
-        # ==================================================================================================
-        # with db.connect(file) as con:
-        #     sql = f"SELECT COUNT(*) FROM 'sqlite_master' WHERE type='table' AND name='{stage}';"
-        #     while pd.read_sql_query(sql=sql, con=con).iloc[0].to_dict()['COUNT(*)'] < 1:
-        #         if debug:
-        #             print(f"({by}) [{file.name}] {stage} ({what}) waiting for creating : {pd.read_sql_query(sql=sql, con=con).iloc[0].to_dict()['COUNT(*)']} < 1", file=sys_stdout)
-        #         sleep(sleep_sec)
-        #     sql = f"UPDATE '{stage}' SET {what}=1, updated='{now('%Y/%m/%d %H:%M:%S')}' WHERE global_rank={self.global_rank};"
-        #     con.execute(sql)
-        #     con.commit()
-        #     sql = f"SELECT COUNT(*) FROM '{stage}' WHERE {what}=1;"
-        #     while pd.read_sql_query(sql=sql, con=con).iloc[0].to_dict()['COUNT(*)'] < self.world_size:
-        #         if debug:
-        #             print(f"({by}) [{file.name}] {stage} ({what}) waiting for updating : {pd.read_sql_query(sql=sql, con=con).iloc[0].to_dict()['COUNT(*)']} < {self.world_size}", file=sys_stdout)
-        #         sleep(sleep_sec)
-        #     if not self.is_global_zero:
-        #         sleep(sleep_sec)
-        #     if debug:
-        #         print(f"({by}) [{file.name}] {stage} ({what}) finished updating : {pd.read_sql_query(sql=sql, con=con).iloc[0].to_dict()['COUNT(*)']} >= {self.world_size}", file=sys_stdout)
-        #     if trace:
-        #         sql = f"SELECT * FROM '{stage}';"
-        #         df = pd.read_sql_query(sql=sql, con=con)
-        #         print(f"({by}) [{file.name}] {stage} ({what}) updated result :\n{df}\n{hr('-', w=100)}", file=sys_stdout)
+            print(f"[{by()}][{at()}]: finished~! (#done={done(what, at=stage)}){data(show=trace)}", file=sys_stdout)
 
     def configure_strategy(self):
         if self.state.strategy == "dp":
