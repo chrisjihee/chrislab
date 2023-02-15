@@ -7,7 +7,7 @@
 
 ##### 2. 코드
    - [Text classification examples (transformers)](https://github.com/huggingface/transformers/tree/main/examples/pytorch/text-classification)
-   - [MNIST Examples (lightning)](https://github.com/Lightning-AI/lightning/blob/master/examples/convert_from_pt_to_pl)
+   - [Image classification examples (lightning)](https://github.com/Lightning-AI/lightning/tree/master/examples/fabric/image_classifier)
    - [Finetuning (KoELECTRA)](https://github.com/monologg/KoELECTRA/tree/master/finetune)
    - [Process (datasets)](https://huggingface.co/docs/datasets/process)
 """
@@ -18,8 +18,11 @@ from collections import Counter
 from random import Random
 from typing import Dict
 
+import pymongo
 import torch.nn as nn
 import torch.optim as optim
+from pymongo import MongoClient
+from pymongo.collection import Collection
 from tokenizers import ByteLevelBPETokenizer
 from torch.nn.modules.loss import _Loss
 from torch.optim import Optimizer
@@ -28,9 +31,8 @@ from torch.utils.data import DataLoader
 import evaluate
 from datasets import Dataset, DatasetDict, Sequence, Value, load_dataset, arrow_dataset
 from datasets.metric import Metric
-from pytorch_lightning import seed_everything
-from pytorch_lightning.lite import LightningLite
-from pytorch_lightning.strategies import DataParallelStrategy, DDPStrategy, DDPShardedStrategy, DDPFullyShardedStrategy, DeepSpeedStrategy
+from lightning.fabric import Fabric, seed_everything
+from lightning.fabric.strategies import DataParallelStrategy, DDPStrategy, DeepSpeedStrategy
 from transformers import PreTrainedModel, PreTrainedTokenizer, AutoConfig, AutoModelForSequenceClassification
 from transformers.modeling_outputs import SequenceClassifierOutput
 from transformers.tokenization_utils_base import TruncationStrategy, BatchEncoding
@@ -85,10 +87,10 @@ class HeadModel(PreTrainedModel):
         return self.model(**x)
 
 
-class MyFinetuner(LightningLite):
+class MyFinetuner(Fabric):
     """
     Finetuner for sentence-level classification or regression tasks.
-    - Refer to `pytorch_lightning.lite.LightningLite`
+    - Refer to `lightning.fabric.Fabric`
     """
 
     def __init__(
@@ -121,6 +123,7 @@ class MyFinetuner(LightningLite):
         self.score_metric: Metric | None = None
         self.input_datasets: DatasetDict | None = None
         self.sample_dataset: Dataset | None = None
+        self.stage_collection: Collection | None = None
         self.time_tqdm = time_tqdm_cls(bar_size=40, desc_size=20, prefix=self.prefix)
         self.mute_tqdm = mute_tqdm_cls()
         self.milestones = dict(enumerate(milestones))
@@ -130,7 +133,7 @@ class MyFinetuner(LightningLite):
             set_torch_ext_path(dev=self.state.devices[0])
         super(MyFinetuner, self).__init__(precision=self.state.precision if 'precision' in self.state else 32,
                                           devices=self.state.devices if 'devices' in self.state else None,
-                                          accelerator='gpu', strategy=self.configure_strategy())
+                                          accelerator='auto', strategy=self.configure_strategy())
         self.state.device = self.device
 
     def show_state_values(self, verbose=True):
@@ -192,8 +195,9 @@ class MyFinetuner(LightningLite):
             # READY(output)
             assert self.state.finetuned_home and isinstance(self.state.finetuned_home, Path), f"Invalid finetuned_home: ({type(self.state.finetuned_home).__qualname__}) {self.state.finetuned_home}"
             assert isinstance(self.state.finetuned_sub, (type(None), Path, str)), f"Invalid finetuned_sub: ({type(self.state.finetuned_sub).__qualname__}) {self.state.finetuned_sub}"
-            finetuned_dir: Path = make_dir(self.state.finetuned_home / self.state.data_name / self.state.finetuned_sub) \
-                if self.state.finetuned_sub else make_dir(self.state.finetuned_home / self.state.data_name)
+            db_name: str = Path(self.state.project_path).name.replace('.', '_')
+            col_name: str = f"{self.state.data_name}/{self.state.finetuned_sub}" if self.state.finetuned_sub else self.state.data_name
+            finetuned_dir: Path = make_dir(self.state.finetuned_home / col_name)
             finetuned_files = {
                 "done": finetuned_dir / "finetuner_done.db",
                 "state": finetuned_dir / "finetuner_state.json",
@@ -208,12 +212,15 @@ class MyFinetuner(LightningLite):
 
             # EPOCH
             for epoch in range(1, self.state.num_train_epochs + 1):
-                with MyTimer(verbose=True, rb=1 if self.is_global_zero and epoch < self.state.num_train_epochs else 0, flush_sec=0.5):
+                with MyTimer(verbose=True, rb=1 if self.is_global_zero and epoch < self.state.num_train_epochs else 0, flush_sec=0.5), \
+                        MongoClient(host='localhost', port=27017) as mongo:
                     # INIT
                     metrics = {}
                     current = f"(Epoch {epoch:02d})"
-                    self._init_done(file=finetuned_files["done"], table=current)
-                    self._check_done("INIT", file=finetuned_files["done"], table=current)
+                    self.stage_collection = mongo.get_database(db_name).get_collection(col_name)
+                    self._init_done(stage=current)
+                    self._check_done("INIT", stage=current)
+                    exit(1)  # TODO: REMOVE THIS AND KEEP GOING!
                     with MyTimer(verbose=self.is_global_zero, flush_sec=0.5):
                         print(self.time_tqdm.to_desc(pre=current, desc=f"composed #{self.global_rank + 1:01d}") + f": learning_rate={self.get_learning_rate():.10f}")
 
@@ -290,55 +297,74 @@ class MyFinetuner(LightningLite):
                             if self.is_global_zero and logs["model_path"].exists():
                                 print(self.time_tqdm.to_desc(pre=current, desc=f"exported #{self.global_rank + 1:01d}") + f": model | {logs['model_path']}")
 
-    def _init_done(self, file, table, sleep_sec=1.0) -> None:
-        if self.is_global_zero:
-            with db.connect(file) as con:
-                to_dataframe(
-                    [merge_dicts(
-                        {'global_rank': x},
-                        {x: 0 for x in self.milestones.values()},
-                        {'started': now('%Y/%m/%d %H:%M:%S'),
-                         'updated': now('%Y/%m/%d %H:%M:%S')}
-                    ) for x in range(self.world_size)]
-                ).to_sql(table, index_label='global_rank', index=False, if_exists='replace', con=con)
-        else:
-            sleep(sleep_sec * 3)
-
-    # noinspection SqlResolve, SqlNoDataSourceInspection
-    def _check_done(self, what, file, table, sleep_sec=1.0, debug=False, trace=False) -> None:
+    def _init_done(self, stage, sleep_sec=1.0) -> None:
         by = f'rank{self.global_rank}'
-        with db.connect(file) as con:
-            sql = f"SELECT COUNT(*) FROM 'sqlite_master' WHERE type='table' AND name='{table}';"
-            while pd.read_sql_query(sql=sql, con=con).iloc[0].to_dict()['COUNT(*)'] < 1:
-                if debug:
-                    print(f"({by}) [{file.name}] {table} ({what}) waiting for creating : {pd.read_sql_query(sql=sql, con=con).iloc[0].to_dict()['COUNT(*)']} < 1", file=sys_stdout)
-                sleep(sleep_sec)
-            sql = f"UPDATE '{table}' SET {what}=1, updated='{now('%Y/%m/%d %H:%M:%S')}' WHERE global_rank={self.global_rank};"
-            con.execute(sql)
-            con.commit()
-            sql = f"SELECT COUNT(*) FROM '{table}' WHERE {what}=1;"
-            while pd.read_sql_query(sql=sql, con=con).iloc[0].to_dict()['COUNT(*)'] < self.world_size:
-                if debug:
-                    print(f"({by}) [{file.name}] {table} ({what}) waiting for updating : {pd.read_sql_query(sql=sql, con=con).iloc[0].to_dict()['COUNT(*)']} < {self.world_size}", file=sys_stdout)
-                sleep(sleep_sec)
-            if not self.is_global_zero:
-                sleep(sleep_sec)
+        self.stage_collection.delete_many({'stage': stage, 'global_rank': self.global_rank})
+        self.stage_collection.insert_one(merge_dicts(
+            {'stage': stage, 'global_rank': self.global_rank},
+            {x: 0 for x in self.milestones.values()},
+            {'started': now('%Y/%m/%d %H:%M:%S'), 'updated': now('%Y/%m/%d %H:%M:%S')},
+        ))
+        sleep(sleep_sec * (1 if self.is_global_zero else 2))
+        print(f"[{now('%Y/%m/%d %H:%M:%S')}] by {by}:\n{to_dataframe(self.stage_collection.find().sort([('stage', pymongo.ASCENDING), ('global_rank', pymongo.ASCENDING)]), index='_id')}")
+
+        # ==================================================================================================
+        # if self.is_global_zero:
+        #     with db.connect(file) as con:
+        #         to_dataframe(
+        #             [merge_dicts(
+        #                 {'global_rank': x},
+        #                 {x: 0 for x in self.milestones.values()},
+        #                 {'started': now('%Y/%m/%d %H:%M:%S'),
+        #                  'updated': now('%Y/%m/%d %H:%M:%S')}
+        #             ) for x in range(self.world_size)]
+        #         ).to_sql(stage, index_label='global_rank', index=False, if_exists='replace', con=con)
+        # else:
+        #     sleep(sleep_sec * 3)
+
+    def _check_done(self, what, stage, sleep_sec=1.0, debug=True, trace=True) -> None:
+        by = f'rank{self.global_rank}'
+        self.stage_collection.update_many({'stage': stage, 'global_rank': self.global_rank}, {'$set': {what: 0, 'updated': now('%Y/%m/%d %H:%M:%S')}})
+        self.stage_collection.update_one({'stage': stage, 'global_rank': self.global_rank}, {'$set': {what: 1, 'updated': now('%Y/%m/%d %H:%M:%S')}})
+        while self.stage_collection.count_documents({'stage': stage, what: 1}) < self.world_size:  # TODO: if too slow, change into for range(max_times)
             if debug:
-                print(f"({by}) [{file.name}] {table} ({what}) finished updating : {pd.read_sql_query(sql=sql, con=con).iloc[0].to_dict()['COUNT(*)']} >= {self.world_size}", file=sys_stdout)
-            if trace:
-                sql = f"SELECT * FROM '{table}';"
-                df = pd.read_sql_query(sql=sql, con=con)
-                print(f"({by}) [{file.name}] {table} ({what}) updated result :\n{df}\n{hr('-', w=100)}", file=sys_stdout)
+                print(f"[{now('%Y/%m/%d %H:%M:%S')}] by {by}: waiting for updating : {self.stage_collection.count_documents({'stage': stage, what: 1})} < {self.world_size}", file=sys_stdout)
+            sleep(sleep_sec)
+        sleep(sleep_sec * (1 if self.is_global_zero else 2))
+        if debug:
+            print(f"[{now('%Y/%m/%d %H:%M:%S')}] by {by}: finished updating : {self.stage_collection.count_documents({'stage': stage, what: 1})} >= {self.world_size}", file=sys_stdout)
+        if trace:
+            print(f"[{now('%Y/%m/%d %H:%M:%S')}] by {by}:\n{to_dataframe(self.stage_collection.find().sort([('stage', pymongo.ASCENDING), ('global_rank', pymongo.ASCENDING)]), index='_id')}")
+
+        # ==================================================================================================
+        # with db.connect(file) as con:
+        #     sql = f"SELECT COUNT(*) FROM 'sqlite_master' WHERE type='table' AND name='{stage}';"
+        #     while pd.read_sql_query(sql=sql, con=con).iloc[0].to_dict()['COUNT(*)'] < 1:
+        #         if debug:
+        #             print(f"({by}) [{file.name}] {stage} ({what}) waiting for creating : {pd.read_sql_query(sql=sql, con=con).iloc[0].to_dict()['COUNT(*)']} < 1", file=sys_stdout)
+        #         sleep(sleep_sec)
+        #     sql = f"UPDATE '{stage}' SET {what}=1, updated='{now('%Y/%m/%d %H:%M:%S')}' WHERE global_rank={self.global_rank};"
+        #     con.execute(sql)
+        #     con.commit()
+        #     sql = f"SELECT COUNT(*) FROM '{stage}' WHERE {what}=1;"
+        #     while pd.read_sql_query(sql=sql, con=con).iloc[0].to_dict()['COUNT(*)'] < self.world_size:
+        #         if debug:
+        #             print(f"({by}) [{file.name}] {stage} ({what}) waiting for updating : {pd.read_sql_query(sql=sql, con=con).iloc[0].to_dict()['COUNT(*)']} < {self.world_size}", file=sys_stdout)
+        #         sleep(sleep_sec)
+        #     if not self.is_global_zero:
+        #         sleep(sleep_sec)
+        #     if debug:
+        #         print(f"({by}) [{file.name}] {stage} ({what}) finished updating : {pd.read_sql_query(sql=sql, con=con).iloc[0].to_dict()['COUNT(*)']} >= {self.world_size}", file=sys_stdout)
+        #     if trace:
+        #         sql = f"SELECT * FROM '{stage}';"
+        #         df = pd.read_sql_query(sql=sql, con=con)
+        #         print(f"({by}) [{file.name}] {stage} ({what}) updated result :\n{df}\n{hr('-', w=100)}", file=sys_stdout)
 
     def configure_strategy(self):
         if self.state.strategy == "dp":
             return DataParallelStrategy()
         if self.state.strategy == "ddp":
             return DDPStrategy()
-        if self.state.strategy == "ddp_sharded":
-            return DDPShardedStrategy()
-        if self.state.strategy == "fsdp":
-            return DDPFullyShardedStrategy()
         if self.state.strategy == "deepspeed":
             return DeepSpeedStrategy(stage=2)
         return None

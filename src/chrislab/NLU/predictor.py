@@ -7,21 +7,21 @@
 
 ##### 2. 코드
    - [Text classification examples (transformers)](https://github.com/huggingface/transformers/tree/main/examples/pytorch/text-classification)
-   - [MNIST Examples (lightning)](https://github.com/Lightning-AI/lightning/blob/master/examples/convert_from_pt_to_pl)
+   - [Image classification examples (lightning)](https://github.com/Lightning-AI/lightning/tree/master/examples/fabric/image_classifier)
    - [Finetuning (KoELECTRA)](https://github.com/monologg/KoELECTRA/tree/master/finetune)
    - [Process (datasets)](https://huggingface.co/docs/datasets/process)
 """
 from __future__ import annotations
 
 import evaluate
-from .finetuner import MyFinetuner, HeadModel
+from .finetuner import MyFinetuner, HeadModel, MongoClient
 from ..common.util import *
 
 
 class MyPredictor(MyFinetuner):
     """
     Predictor for sentence-level classification or regression tasks.
-    - Refer to `pytorch_lightning.lite.LightningLite`
+    - Refer to `lightning.fabric.Fabric`
     """
 
     def __init__(self, *args, **kwargs):
@@ -99,7 +99,8 @@ class MyPredictor(MyFinetuner):
 
             # EPOCH
             for i, record in enumerate(records_to_predict):
-                with MyTimer(verbose=True, rb=1 if self.is_global_zero and i < len(records_to_predict) - 1 else 0, flush_sec=0.5):
+                with MyTimer(verbose=True, rb=1 if self.is_global_zero and i < len(records_to_predict) - 1 else 0, flush_sec=0.5), \
+                        MongoClient(host='localhost', port=27017) as cli:
                     # INIT
                     metrics = {}
                     predict = {}
