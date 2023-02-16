@@ -542,7 +542,7 @@ class MyFinetuner(Fabric):
             current = f"({split:<5s})"
             dataset: Dataset = dataset
             encoded_lengths = {
-                x.removeprefix('length-'): dataset[x]
+                x[len('length-'):]: dataset[x]
                 for x in dataset.column_names if x.startswith('length-')
             }
             if verbose and figure:
