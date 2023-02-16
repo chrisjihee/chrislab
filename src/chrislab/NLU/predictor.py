@@ -88,88 +88,87 @@ class MyPredictor(MyFinetuner):
             # READY(output)
             assert self.state.predicted_home and isinstance(self.state.predicted_home, Path), f"Invalid predicted_home: ({type(self.state.predicted_home).__qualname__}) {self.state.predicted_home}"
             assert isinstance(self.state.predicted_sub, (type(None), Path, str)), f"Invalid predicted_sub: ({type(self.state.predicted_sub).__qualname__}) {self.state.predicted_sub}"
-            predicted_dir: Path = make_dir(self.state.predicted_home / self.state.data_name / self.state.predicted_sub) \
-                if self.state.predicted_sub else make_dir(self.state.predicted_home / self.state.data_name)
+            tab_name: str = self.state.predicted_sub if self.state.predicted_sub else "default"
+            predicted_dir: Path = make_dir(self.state.predicted_home / self.state.data_name / tab_name)
             predicted_files = {
-                "done": predicted_dir / "predictor_done.db",
                 "state": predicted_dir / "predictor_state.json",
                 "preds": predicted_dir / "predict.tsv",
             }
             self.state["records"] = list()
 
             # EPOCH
-            for i, record in enumerate(records_to_predict):
-                with MyTimer(verbose=True, rb=1 if self.is_global_zero and i < len(records_to_predict) - 1 else 0, flush_sec=0.5), \
-                        MongoClient(host='localhost', port=27017) as cli:
-                    # INIT
-                    metrics = {}
-                    predict = {}
-                    current = f"(Epoch {record.epoch:02.0f})"
-                    self._init_done(file=predicted_files["done"], table=current)
-                    self._check_done("INIT", file=predicted_files["done"], table=current)
-                    with MyTimer(verbose=True, flush_sec=0.5):
-                        print(self.time_tqdm.to_desc(pre=current, desc=f"composed #{self.global_rank + 1:01d}") + f": model | {record.model_path}")
+            with StageMarker(self.global_rank, self.world_size, db_name=self.state.data_name, tab_name=tab_name, host="localhost", port=6382) as marker:
+                for i, record in enumerate(records_to_predict):
+                    with MyTimer(verbose=True, rb=1 if self.is_global_zero and i < len(records_to_predict) - 1 else 0, flush_sec=0.5):
+                        # INIT
+                        metrics = {}
+                        predict = {}
+                        current = f"(Epoch {record.epoch:02.0f})"
+                        marker.initialize(stage=current)
+                        marker.mark_done("INIT", stage=current)
+                        with MyTimer(verbose=True, flush_sec=0.5):
+                            print(self.time_tqdm.to_desc(pre=current, desc=f"composed #{self.global_rank + 1:01d}") + f": model | {record.model_path}")
 
-                    # LOAD
-                    assert not any(c in str(record.model_path) for c in ['*', '?', '[', ']']), f"Invalid model path: {record.model_path}"
-                    model_state_dict = self.load(record.model_path)
-                    self.finetuning_model.load_state_dict(model_state_dict, strict=False)
-                    self._check_done("LOAD", file=predicted_files["done"], table=current)
-                    with MyTimer(verbose=True, flush_sec=0.5):
-                        if self.is_global_zero and "metrics" in record:
-                            for name, score in record.metrics.items():
-                                print(self.time_tqdm.to_desc(pre=current, desc=f"reported as") +
+                        # LOAD
+                        assert not any(c in str(record.model_path) for c in ['*', '?', '[', ']']), f"Invalid model path: {record.model_path}"
+                        model_state_dict = self.load(record.model_path)
+                        self.finetuning_model.load_state_dict(model_state_dict, strict=False)
+                        marker.mark_done("LOAD", stage=current)
+                        with MyTimer(verbose=True, flush_sec=0.5):
+                            if self.is_global_zero and "metrics" in record:
+                                for name, score in record.metrics.items():
+                                    print(self.time_tqdm.to_desc(pre=current, desc=f"reported as") +
+                                          f": {name:<5s} | {', '.join(f'{k}={score[k]:.4f}' for k in append_intersection(score.keys(), ['runtime']))}")
+
+                        # APPLY
+                        self.finetuning_model.eval()
+                        with torch.no_grad():
+                            for k in self.input_datasets.keys():
+                                if k not in self.dataloader or not self.dataloader[k]:
+                                    continue
+                                if k not in self.state.predicting_splits or not self.state.predicting_splits[k]:
+                                    continue
+                                inputs = []
+                                outputs = []
+                                dataloader = self.dataloader[k]
+                                with MyTimer(flush_sec=0.5) as timer:
+                                    tqdm = self.time_tqdm if self.is_global_zero else self.mute_tqdm
+                                    for batch_idx, batch in enumerate(
+                                            tqdm(dataloader, position=self.global_rank,
+                                                 pre=current, desc=f"metering #{self.global_rank + 1:01d}", unit=f"x{dataloader.batch_size}")):
+                                        batch = to_tensor_batch(batch, input_keys=self.tokenizer.model_input_names)
+                                        output = self.each_step(batch, batch_idx, input_keys=self.tokenizer.model_input_names)
+                                        outputs.append(output)
+                                        inputs.append(batch)
+                                metrics[k] = self.outputs_to_metrics(outputs, timer=timer)
+                                predict[k] = self.outputs_to_predict(outputs, inputs=inputs, with_label=False)
+                        marker.mark_done("APPLY", stage=current)
+                        with MyTimer(verbose=True, flush_sec=0.5):
+                            for name, score in metrics.items():
+                                print(self.time_tqdm.to_desc(pre=current, desc=f"measured #{self.global_rank + 1:01d}") +
                                       f": {name:<5s} | {', '.join(f'{k}={score[k]:.4f}' for k in append_intersection(score.keys(), ['runtime']))}")
 
-                    # APPLY
-                    self.finetuning_model.eval()
-                    with torch.no_grad():
-                        for k in self.input_datasets.keys():
-                            if k not in self.dataloader or not self.dataloader[k]:
-                                continue
-                            if k not in self.state.predicting_splits or not self.state.predicting_splits[k]:
-                                continue
-                            inputs = []
-                            outputs = []
-                            dataloader = self.dataloader[k]
-                            with MyTimer(flush_sec=0.5) as timer:
-                                tqdm = self.time_tqdm if self.is_global_zero else self.mute_tqdm
-                                for batch_idx, batch in enumerate(
-                                        tqdm(dataloader, position=self.global_rank,
-                                             pre=current, desc=f"metering #{self.global_rank + 1:01d}", unit=f"x{dataloader.batch_size}")):
-                                    batch = to_tensor_batch(batch, input_keys=self.tokenizer.model_input_names)
-                                    output = self.each_step(batch, batch_idx, input_keys=self.tokenizer.model_input_names)
-                                    outputs.append(output)
-                                    inputs.append(batch)
-                            metrics[k] = self.outputs_to_metrics(outputs, timer=timer)
-                            predict[k] = self.outputs_to_predict(outputs, inputs=inputs, with_label=False)
-                    self._check_done("APPLY", file=predicted_files["done"], table=current)
-                    with MyTimer(verbose=True, flush_sec=0.5):
-                        for name, score in metrics.items():
-                            print(self.time_tqdm.to_desc(pre=current, desc=f"measured #{self.global_rank + 1:01d}") +
-                                  f": {name:<5s} | {', '.join(f'{k}={score[k]:.4f}' for k in append_intersection(score.keys(), ['runtime']))}")
-
-                    # SAVE
-                    if self.state.predicted_sub:
-                        for k in self.input_datasets.keys():
-                            if k not in self.dataloader or not self.dataloader[k]:
-                                continue
-                            if k not in self.state.predicting_splits or not self.state.predicting_splits[k]:
-                                continue
-                            if len(predict[k]) <= 0:
-                                continue
-                            data_prefix = Path(self.state.data_files[k]).parent.stem
-                            preds_path = new_path(new_path(predicted_files["preds"], post=f'{record.epoch:02.0f}e'), pre=data_prefix, sep='=')
-                            state_path = new_path(predicted_files["state"], pre=data_prefix, sep='=')
-                            if self.is_global_zero:
-                                record["metrics"][f"preds-{k}"] = metrics[k]
-                                record["preds_path"] = preds_path
-                                self.state["records"].append(record)
-                                save_attrs(self.state, file=state_path, keys=self.state.log_targets)
-                            save_rows(predict[k], file=preds_path, with_column_name=True)
-                            if preds_path.exists():
-                                print(self.time_tqdm.to_desc(pre=current, desc=f"exported #{self.global_rank + 1:01d}") + f": preds | {preds_path}")
-                        self._check_done("SAVE", file=predicted_files["done"], table=current)
+                        # SAVE
+                        if self.state.predicted_sub:
+                            for k in self.input_datasets.keys():
+                                if k not in self.dataloader or not self.dataloader[k]:
+                                    continue
+                                if k not in self.state.predicting_splits or not self.state.predicting_splits[k]:
+                                    continue
+                                if len(predict[k]) <= 0:
+                                    continue
+                                data_prefix = Path(self.state.data_files[k]).parent.stem
+                                preds_path = new_path(new_path(predicted_files["preds"], post=f'{record.epoch:02.0f}e'), pre=data_prefix, sep='=')
+                                state_path = new_path(predicted_files["state"], pre=data_prefix, sep='=')
+                                if self.is_global_zero:
+                                    record["metrics"][f"preds-{k}"] = metrics[k]
+                                    record["preds_path"] = preds_path
+                                    self.state["records"].append(record)
+                                    save_attrs(self.state, file=state_path, keys=self.state.log_targets)
+                                save_rows(predict[k], file=preds_path, with_column_name=True)
+                                if preds_path.exists():
+                                    print(self.time_tqdm.to_desc(pre=current, desc=f"exported #{self.global_rank + 1:01d}") + f": preds | {preds_path}")
+                            marker.mark_done("SAVE", stage=current)
 
     @staticmethod
     def outputs_to_predict(outputs, inputs, with_label=False):
