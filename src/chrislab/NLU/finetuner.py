@@ -456,8 +456,8 @@ class MyFinetuner(Fabric):
                         f"row={dataset.num_rows}",
                     ])
             )
-            encoded_dataset_path = None if not dataset_path else dataset_path.with_stem(f"encoded-{dataset_path.stem}")
-            counted_dataset_path = None if not dataset_path else dataset_path.with_stem(f"counted-{dataset_path.stem}")
+            encoded_dataset_path = None if not dataset_path else dataset_path.with_name(f"encoded-{dataset_path.name}")
+            counted_dataset_path = None if not dataset_path else dataset_path.with_name(f"counted-{dataset_path.name}")
             if dataset_path and encoded_dataset_path and encoded_dataset_path.exists():
                 encoded_datasets[split] = Dataset.load_from_disk(str(encoded_dataset_path))
                 print(self.time_tqdm.to_desc(pre=current, desc=f"imported from") + f": {encoded_dataset_path}")
