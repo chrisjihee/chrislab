@@ -212,7 +212,6 @@ class MyFinetuner(Fabric):
                         current = f"(Epoch {epoch:02d})"
                         marker.initialize(stage=current)
                         marker.mark_done("INIT", stage=current)
-                        exit(1)  # TODO: REMOVE THIS AND KEEP GOING!
                         with MyTimer(verbose=self.is_global_zero, flush_sec=0.5):
                             print(self.time_tqdm.to_desc(pre=current, desc=f"composed #{self.global_rank + 1:01d}") + f": learning_rate={self.get_learning_rate():.10f}")
 
