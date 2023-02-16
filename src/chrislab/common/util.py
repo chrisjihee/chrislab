@@ -1,5 +1,9 @@
 import torch
 import tqdm.std as tqdm_std
+from pymongo import ASCENDING as ASC
+from pymongo import MongoClient
+from pymongo.collection import Collection
+from pymongo.typings import _DocumentType
 
 import datasets
 from chrisbase.io import *
@@ -127,7 +131,7 @@ class EmptyTqdm:
     def __enter__(self):
         return self
 
-    def __exit__(self, type_, value, traceback):
+    def __exit__(self, type_, value, traceback_):
         return
 
 
@@ -203,3 +207,64 @@ class MuteDatasetProgress:
     def __exit__(self, exc_type=None, exc_val=None, exc_tb=None):
         if self.mute:
             datasets.utils.logging.enable_progress_bar()
+
+
+class StageMarker:
+    def __init__(self, node_idx, world_size, db_name, tab_name, host="localhost", port=27017,
+                 milestones=("INIT", "LOAD", "TRAIN", "METER", "APPLY", "SAVE"),
+                 debug=True, trace=True, log_file=sys_stdout):
+        self.node_idx = node_idx
+        self.world_size = world_size
+        self.db_name = db_name
+        self.tab_name = tab_name
+        self.host = host
+        self.port = port
+        self.milestones = dict(enumerate(milestones))
+        self.debug = debug
+        self.trace = trace
+        self.mongo: MongoClient[_DocumentType] | None = None
+        self.table: Collection | None = None
+        self.log_file = log_file
+
+    def __enter__(self) -> "StageMarker":
+        self.mongo = MongoClient(host=self.host, port=self.port)
+        self.table = self.mongo[self.db_name][self.tab_name]
+        return self
+
+    def __exit__(self, type_, value, traceback_) -> None:
+        self.mongo.close()
+        return
+
+    def _sub_functions(self):
+        return [
+            lambda: f'#{self.node_idx + 1:01d}',
+            lambda: now('%Y/%m/%d %H:%M:%S'),
+            lambda yes: f"\n{to_dataframe(self.table.find().sort([('stage', ASC), ('agent', ASC)]), index='_id')}" if yes else "",
+            lambda what, at: self.table.count_documents({what: 1, 'stage': at}),
+        ]
+
+    def initialize(self, stage, sleep_sec=1.0) -> None:
+        by, at, data = self._sub_functions()[:3]
+        self.table.delete_many({'stage': stage, 'agent': by()})
+        self.table.insert_one(merge_dicts(
+            {'stage': stage, 'agent': by()},
+            {what: 0 for what in self.milestones.values()},
+            {'started': at(), 'updated': at()},
+        ))
+        sleep(sleep_sec * (1 if self.node_idx == 0 else 2))
+        if self.debug:
+            print(f"[{by()}][{at()}]: initialized{data(yes=self.trace)}", file=self.log_file)
+
+    def mark_done(self, what, stage, sleep_sec=1.0, max_sleep_times=3600) -> None:
+        by, at, data, done = self._sub_functions()
+        self.table.update_many({'stage': stage, 'agent': by()}, {'$set': {what: 0, 'updated': at()}})
+        self.table.update_one({'stage': stage, 'agent': by()}, {'$set': {what: 1, 'updated': at()}})
+        for _ in range(max_sleep_times):
+            if done(what, at=stage) >= self.world_size:
+                break
+            if self.debug:
+                print(f"[{by()}][{at()}]: waiting.... (#done={done(what, at=stage)})", file=self.log_file)
+            sleep(sleep_sec)
+        sleep(sleep_sec * (1 if self.node_idx == 0 else 2))
+        if self.debug:
+            print(f"[{by()}][{at()}]: finished~~! (#done={done(what, at=stage)}){data(yes=self.trace)}", file=self.log_file)

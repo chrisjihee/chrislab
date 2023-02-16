@@ -19,16 +19,13 @@ from typing import Dict
 
 import torch.nn as nn
 import torch.optim as optim
-from pymongo import ASCENDING as ASC
-from pymongo import MongoClient
-from pymongo.collection import Collection
 from tokenizers import ByteLevelBPETokenizer
 from torch.nn.modules.loss import _Loss
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
 import evaluate
-from datasets import Dataset, DatasetDict, Sequence, Value, load_dataset, arrow_dataset
+from datasets import Dataset, DatasetDict, load_dataset, arrow_dataset
 from datasets.metric import Metric
 from lightning.fabric import Fabric, seed_everything
 from lightning.fabric.strategies import DataParallelStrategy, DDPStrategy, DeepSpeedStrategy
@@ -122,7 +119,6 @@ class MyFinetuner(Fabric):
         self.score_metric: Metric | None = None
         self.input_datasets: DatasetDict | None = None
         self.sample_dataset: Dataset | None = None
-        self.stage_collection: Collection | None = None
         self.time_tqdm = time_tqdm_cls(bar_size=40, desc_size=20, prefix=self.prefix)
         self.mute_tqdm = mute_tqdm_cls()
         self.milestones = dict(enumerate(milestones))
@@ -194,9 +190,9 @@ class MyFinetuner(Fabric):
             # READY(output)
             assert self.state.finetuned_home and isinstance(self.state.finetuned_home, Path), f"Invalid finetuned_home: ({type(self.state.finetuned_home).__qualname__}) {self.state.finetuned_home}"
             assert isinstance(self.state.finetuned_sub, (type(None), Path, str)), f"Invalid finetuned_sub: ({type(self.state.finetuned_sub).__qualname__}) {self.state.finetuned_sub}"
-            db_name: str = Path(self.state.project_path).name.replace('.', '_')
-            col_name: str = f"{self.state.data_name}/{self.state.finetuned_sub}" if self.state.finetuned_sub else self.state.data_name
-            finetuned_dir: Path = make_dir(self.state.finetuned_home / col_name)
+            db_name: str = self.state.data_name
+            tab_name: str = self.state.finetuned_sub if self.state.finetuned_sub else "default"
+            finetuned_dir: Path = make_dir(self.state.finetuned_home / self.state.data_name / tab_name)
             finetuned_files = {
                 "done": finetuned_dir / "finetuner_done.db",
                 "state": finetuned_dir / "finetuner_state.json",
@@ -211,14 +207,13 @@ class MyFinetuner(Fabric):
 
             # EPOCH
             for epoch in range(1, self.state.num_train_epochs + 1):
-                with MyTimer(verbose=True, rb=1 if self.is_global_zero and epoch < self.state.num_train_epochs else 0, flush_sec=0.5), \
-                        MongoClient(host='localhost', port=27017) as mongo:
+                with StageMarker(self.global_rank, self.world_size, db_name, tab_name) as marker, \
+                        MyTimer(verbose=True, rb=1 if self.is_global_zero and epoch < self.state.num_train_epochs else 0, flush_sec=0.5):
                     # INIT
                     metrics = {}
                     current = f"(Epoch {epoch:02d})"
-                    self.stage_collection = mongo.get_database(db_name).get_collection(col_name)
-                    self._init_done(stage=current)
-                    self._check_done("INIT", stage=current)
+                    marker.initialize(stage=current)
+                    marker.mark_done("INIT", stage=current)
                     exit(1)  # TODO: REMOVE THIS AND KEEP GOING!
                     with MyTimer(verbose=self.is_global_zero, flush_sec=0.5):
                         print(self.time_tqdm.to_desc(pre=current, desc=f"composed #{self.global_rank + 1:01d}") + f": learning_rate={self.get_learning_rate():.10f}")
@@ -295,40 +290,6 @@ class MyFinetuner(Fabric):
                         with MyTimer(verbose=True, flush_sec=0.5):
                             if self.is_global_zero and logs["model_path"].exists():
                                 print(self.time_tqdm.to_desc(pre=current, desc=f"exported #{self.global_rank + 1:01d}") + f": model | {logs['model_path']}")
-
-    def _done_funcs(self):
-        return [
-            lambda: f'#{self.global_rank + 1:01d}',
-            lambda: now('%Y/%m/%d %H:%M:%S'),
-            lambda show: f"\n{to_dataframe(self.stage_collection.find().sort([('stage', ASC), ('agent', ASC)]), index='_id')}" if show else "",
-            lambda what, at: self.stage_collection.count_documents({what: 1, 'stage': at}),
-        ]
-
-    def _init_done(self, stage, sleep_sec=1.0, debug=True, trace=True) -> None:
-        by, at, data = self._done_funcs()[:3]
-        self.stage_collection.delete_many({'stage': stage, 'agent': by()})
-        self.stage_collection.insert_one(merge_dicts(
-            {'stage': stage, 'agent': by()},
-            {what: 0 for what in self.milestones.values()},
-            {'started': at(), 'updated': at()},
-        ))
-        sleep(sleep_sec * (1 if self.is_global_zero else 2))
-        if debug:
-            print(f"[{by()}][{at()}]: inserted!{data(show=trace)}")
-
-    def _check_done(self, what, stage, sleep_sec=1.0, max_times=3600, debug=True, trace=True) -> None:
-        by, at, data, done = self._done_funcs()
-        self.stage_collection.update_many({'stage': stage, 'agent': by()}, {'$set': {what: 0, 'updated': at()}})
-        self.stage_collection.update_one({'stage': stage, 'agent': by()}, {'$set': {what: 1, 'updated': at()}})
-        for _ in range(max_times):
-            if done(what, at=stage) >= self.world_size:
-                break
-            if debug:
-                print(f"[{by()}][{at()}]: waiting... (#done={done(what, at=stage)})", file=sys_stdout)
-            sleep(sleep_sec)
-        sleep(sleep_sec * (1 if self.is_global_zero else 2))
-        if debug:
-            print(f"[{by()}][{at()}]: finished~! (#done={done(what, at=stage)}){data(show=trace)}", file=sys_stdout)
 
     def configure_strategy(self):
         if self.state.strategy == "dp":
@@ -597,10 +558,10 @@ class MyFinetuner(Fabric):
             current = f"({split:<5s})"
             dataset: Dataset = dataset
             for f, v in dataset.features.items():
-                assert isinstance(v, (Sequence, Value, dict)), f"feature({f}) is not {Sequence.__name__}, {Value.__name__} or {dict.__name__}"
+                assert isinstance(v, (datasets.Sequence, datasets.Value, dict)), f"feature({f}) is not {datasets.Sequence.__name__}, {datasets.Value.__name__} or {dict.__name__}"
                 if isinstance(v, dict):
                     for f2, v2 in v.items():
-                        assert isinstance(v2, Value), f"feature({f2}) is not {Value.__name__}"
+                        assert isinstance(v2, datasets.Value), f"feature({f2}) is not {datasets.Value.__name__}"
             feature_specs = []
             for f, v in dataset.features.items():
                 if isinstance(v, dict):
