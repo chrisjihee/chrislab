@@ -210,8 +210,7 @@ class MuteDatasetProgress:
 
 
 class StageMarker:
-    def __init__(self, node_idx, world_size, db_name, tab_name, host="localhost", port=27017,
-                 milestones=("INIT", "LOAD", "TRAIN", "METER", "APPLY", "SAVE"),
+    def __init__(self, node_idx, world_size, milestones, db_name, tab_name, host="localhost", port=27017,
                  debug=False, trace=False, log_file=sys_stdout):
         self.node_idx = node_idx
         self.world_size = world_size

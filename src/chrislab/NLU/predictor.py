@@ -97,16 +97,16 @@ class MyPredictor(MyFinetuner):
             self.state["records"] = list()
 
             # EPOCH
-            with StageMarker(self.global_rank, self.world_size, db_name=self.state.data_name, tab_name=tab_name, host="localhost", port=6382) as marker:
+            with StageMarker(self.global_rank, self.world_size, self.milestones, db_name=self.state.data_name, tab_name=tab_name, host=self.db_host, port=self.db_port) as marker:
                 for i, record in enumerate(records_to_predict):
-                    with MyTimer(verbose=True, rb=1 if self.is_global_zero and i < len(records_to_predict) - 1 else 0, flush_sec=0.5):
+                    with MyTimer(verbose=True, rb=1 if self.is_global_zero and i < len(records_to_predict) - 1 else 0, flush_sec=0.3):
                         # INIT
                         metrics = {}
                         predict = {}
                         current = f"(Epoch {record.epoch:02.0f})"
                         marker.initialize(stage=current)
                         marker.mark_done("INIT", stage=current)
-                        with MyTimer(verbose=True, flush_sec=0.5):
+                        with MyTimer(verbose=True, flush_sec=0.3):
                             print(self.time_tqdm.to_desc(pre=current, desc=f"composed #{self.global_rank + 1:01d}") + f": model | {record.model_path}")
 
                         # LOAD
@@ -114,7 +114,7 @@ class MyPredictor(MyFinetuner):
                         model_state_dict = self.load(record.model_path)
                         self.finetuning_model.load_state_dict(model_state_dict, strict=False)
                         marker.mark_done("LOAD", stage=current)
-                        with MyTimer(verbose=True, flush_sec=0.5):
+                        with MyTimer(verbose=True, flush_sec=0.3):
                             if self.is_global_zero and "metrics" in record:
                                 for name, score in record.metrics.items():
                                     print(self.time_tqdm.to_desc(pre=current, desc=f"reported as") +
@@ -131,7 +131,7 @@ class MyPredictor(MyFinetuner):
                                 inputs = []
                                 outputs = []
                                 dataloader = self.dataloader[k]
-                                with MyTimer(flush_sec=0.5) as timer:
+                                with MyTimer(flush_sec=0.3) as timer:
                                     tqdm = self.time_tqdm if self.is_global_zero else self.mute_tqdm
                                     for batch_idx, batch in enumerate(
                                             tqdm(dataloader, position=self.global_rank,
@@ -143,7 +143,7 @@ class MyPredictor(MyFinetuner):
                                 metrics[k] = self.outputs_to_metrics(outputs, timer=timer)
                                 predict[k] = self.outputs_to_predict(outputs, inputs=inputs, with_label=False)
                         marker.mark_done("APPLY", stage=current)
-                        with MyTimer(verbose=True, flush_sec=0.5):
+                        with MyTimer(verbose=True, flush_sec=0.3):
                             for name, score in metrics.items():
                                 print(self.time_tqdm.to_desc(pre=current, desc=f"measured #{self.global_rank + 1:01d}") +
                                       f": {name:<5s} | {', '.join(f'{k}={score[k]:.4f}' for k in append_intersection(score.keys(), ['runtime']))}")

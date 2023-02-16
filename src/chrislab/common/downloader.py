@@ -78,7 +78,7 @@ def reload_public_dataset(data_dir, data_name, sub_names):
 
 
 def add_column_with_token_tag(infile, outfile, suffix, targets, netloc="129.254.164.137:7100"):
-    with MyTimer(verbose=True, flush_sec=0.5):
+    with MyTimer(verbose=True, flush_sec=0.3):
         tagger = MorpClient(netloc=netloc)
         infile = Path(infile)
         outfile = make_parent_dir(outfile)
@@ -90,14 +90,14 @@ def add_column_with_token_tag(infile, outfile, suffix, targets, netloc="129.254.
                     if f'{target}_{suffix}' not in example:
                         example[f'{target}_{suffix}'] = tagger.token_tag(example[target])
                         num_update += 1
-    with MyTimer(verbose=True, flush_sec=0.5):
+    with MyTimer(verbose=True, flush_sec=0.3):
         if num_update > 0:
             with outfile.open('w') as out:
                 json.dump({"version": f"datasets_1.0", "data": contents['data']}, out, ensure_ascii=False, indent=4)
 
 
 def add_column_with_token_only(infile, outfile, suffix, targets, netloc="129.254.164.137:7105"):
-    with MyTimer(verbose=True, flush_sec=0.5):
+    with MyTimer(verbose=True, flush_sec=0.3):
         tagger = MorpClient(netloc=netloc)
         infile = Path(infile)
         outfile = make_parent_dir(outfile)
@@ -109,7 +109,7 @@ def add_column_with_token_only(infile, outfile, suffix, targets, netloc="129.254
                     if f'{target}_{suffix}' not in example:
                         example[f'{target}_{suffix}'] = tagger.token_only(example[target])
                         num_update += 1
-    with MyTimer(verbose=True, flush_sec=0.5):
+    with MyTimer(verbose=True, flush_sec=0.3):
         if num_update > 0:
             with outfile.open('w') as out:
                 json.dump({"version": f"datasets_1.0", "data": contents['data']}, out, ensure_ascii=False, indent=4)

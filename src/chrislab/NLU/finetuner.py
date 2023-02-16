@@ -26,6 +26,7 @@ from torch.utils.data import DataLoader
 
 import evaluate
 from datasets import Dataset, DatasetDict, load_dataset, arrow_dataset
+from datasets.formatting.formatting import LazyBatch
 from datasets.metric import Metric
 from lightning.fabric import Fabric, seed_everything
 from lightning.fabric.strategies import DataParallelStrategy, DDPStrategy, DeepSpeedStrategy
@@ -90,9 +91,8 @@ class MyFinetuner(Fabric):
     """
 
     def __init__(
-            self, config, prefix=None, postfix=None,
-            milestones=("INIT", "LOAD", "TRAIN", "METER", "APPLY", "SAVE"),
-            cuda_paths=("/usr/local/cuda-12.0", "/usr/local/cuda-11.4", "/usr/local/cuda-11.3", "/usr/local/cuda-11.1")  # check for your environment
+            self, config, prefix=None, postfix=None, db_host="localhost", db_port=6382, milestones=("INIT", "LOAD", "TRAIN", "METER", "APPLY", "SAVE"),
+            cuda_paths=("/usr/local/cuda-12.0", "/usr/local/cuda-11.4", "/usr/local/cuda-11.3", "/usr/local/cuda-11.1", "/usr/local/cuda-11.0", "/usr/local/cuda")  # check for your environment
     ):
         self.state: AttrDict = load_attrs(config)
         self.state = merge_attrs(self.state, post={
@@ -121,7 +121,9 @@ class MyFinetuner(Fabric):
         self.sample_dataset: Dataset | None = None
         self.time_tqdm = time_tqdm_cls(bar_size=40, desc_size=20, prefix=self.prefix)
         self.mute_tqdm = mute_tqdm_cls()
-        self.milestones = dict(enumerate(milestones))
+        self.db_host = db_host
+        self.db_port = db_port
+        self.milestones = milestones
         set_tokenizers_parallelism(False)
         if self.state.devices:
             set_cuda_path(cuda_paths)
@@ -204,15 +206,15 @@ class MyFinetuner(Fabric):
             self.state.records = logs["record"]
 
             # EPOCH
-            with StageMarker(self.global_rank, self.world_size, db_name=self.state.data_name, tab_name=tab_name, host="localhost", port=6382) as marker:
+            with StageMarker(self.global_rank, self.world_size, self.milestones, db_name=self.state.data_name, tab_name=tab_name, host=self.db_host, port=self.db_port) as marker:
                 for epoch in range(1, self.state.num_train_epochs + 1):
-                    with MyTimer(verbose=True, rb=1 if self.is_global_zero and epoch < self.state.num_train_epochs else 0, flush_sec=0.5):
+                    with MyTimer(verbose=True, rb=1 if self.is_global_zero and epoch < self.state.num_train_epochs else 0, flush_sec=0.3):
                         # INIT
                         metrics = {}
                         current = f"(Epoch {epoch:02d})"
                         marker.initialize(stage=current)
                         marker.mark_done("INIT", stage=current)
-                        with MyTimer(verbose=self.is_global_zero, flush_sec=0.5):
+                        with MyTimer(verbose=self.is_global_zero, flush_sec=0.3):
                             print(self.time_tqdm.to_desc(pre=current, desc=f"composed #{self.global_rank + 1:01d}") + f": learning_rate={self.get_learning_rate():.10f}")
 
                         # TRAIN
@@ -225,7 +227,7 @@ class MyFinetuner(Fabric):
                                     continue
                                 outputs = []
                                 dataloader = self.dataloader['train']
-                                with MyTimer(flush_sec=0.5) as timer:
+                                with MyTimer(flush_sec=0.3) as timer:
                                     tqdm = self.time_tqdm if self.is_global_zero else self.mute_tqdm
                                     for batch_idx, batch in enumerate(
                                             tqdm(dataloader, position=self.global_rank,
@@ -253,7 +255,7 @@ class MyFinetuner(Fabric):
                                     continue
                                 outputs = []
                                 dataloader = self.dataloader[k]
-                                with MyTimer(flush_sec=0.5) as timer:
+                                with MyTimer(flush_sec=0.3) as timer:
                                     tqdm = self.time_tqdm if self.is_global_zero else self.mute_tqdm
                                     for batch_idx, batch in enumerate(
                                             tqdm(dataloader, position=self.global_rank,
@@ -263,7 +265,7 @@ class MyFinetuner(Fabric):
                                         outputs.append(output)
                                 metrics[k] = self.outputs_to_metrics(outputs, timer=timer)
                         marker.mark_done("METER", stage=current)
-                        with MyTimer(verbose=True, flush_sec=0.5):
+                        with MyTimer(verbose=True, flush_sec=0.3):
                             for name, score in metrics.items():
                                 print(self.time_tqdm.to_desc(pre=current, desc=f"measured #{self.global_rank + 1:01d}") +
                                       f": {name:<5s} | {', '.join(f'{k}={score[k]:.4f}' for k in append_intersection(score.keys(), ['runtime']))}")
@@ -284,7 +286,7 @@ class MyFinetuner(Fabric):
                                 self.state.records = logs["record"]
                                 save_attrs(self.state, file=logs["state_path"], keys=self.state.log_targets)
                             marker.mark_done("SAVE", stage=current)
-                            with MyTimer(verbose=True, flush_sec=0.5):
+                            with MyTimer(verbose=True, flush_sec=0.3):
                                 if self.is_global_zero and logs["model_path"].exists():
                                     print(self.time_tqdm.to_desc(pre=current, desc=f"exported #{self.global_rank + 1:01d}") + f": model | {logs['model_path']}")
 
@@ -483,7 +485,7 @@ class MyFinetuner(Fabric):
                         print(self.time_tqdm.to_desc(pre=current, desc=f"exported to") + f": {counted_dataset_path}")
         return encoded_datasets, counted_datasets
 
-    def to_batch_text_pair(self, batch_text: Dataset or arrow_dataset.Batch) -> list[list[TextInput]]:
+    def to_batch_text_pair(self, batch_text: Dataset | LazyBatch) -> list[list[TextInput]]:
         batch_text_pair = list()
         if self.state.input_text1 and self.state.input_text1.type and self.state.input_text1.colname:
             batch_text_pair.append(batch_text[self.state.input_text1.colname])
@@ -491,25 +493,10 @@ class MyFinetuner(Fabric):
             batch_text_pair.append(batch_text[self.state.input_text2.colname])
         return batch_text_pair
 
-    def encode_example_batch(self, batch_text: Dataset or arrow_dataset.Batch) -> BatchEncoding:
-        batch_text_pair: list[list[TextInput]] = self.to_batch_text_pair(batch_text)
-        batch_seq: BatchEncoding = self.tokenizer.__call__(*batch_text_pair,
-                                                           return_length=True, verbose=True,
-                                                           max_length=self.state.max_sequence_length,
-                                                           truncation=self.state.truncation_strategy,
-                                                           padding=self.state.padding_strategy)
-        return batch_seq
-
-    def count_input_text_batch(self, batch_text: Dataset or arrow_dataset.Batch) -> Dataset or arrow_dataset.Batch:
-        if "length-text_pair" not in batch_text:
-            batch_text_pair: list[list[TextInput]] = self.to_batch_text_pair(batch_text)
-            batch_seq: BatchEncoding = self.tokenizer.__call__(*batch_text_pair,
-                                                               return_length=True, verbose=False,
-                                                               truncation=TruncationStrategy.DO_NOT_TRUNCATE,
-                                                               padding=PaddingStrategy.DO_NOT_PAD)
-            batch_text["length-text_pair"] = batch_seq['length']
+    def count_input_text_batch(self, batch_text: Dataset | LazyBatch) -> Dataset | LazyBatch:
         for input_text in (self.state.input_text1, self.state.input_text2):
             if input_text and input_text.type and input_text.colname:
+                # apply to_morphemes() to morp analized text
                 if input_text.type == "morp" and f"{input_text.colname}_origin" not in batch_text:
                     batch_text[f"{input_text.colname}_origin"] = [x for x in batch_text[input_text.colname]]
                     batch_text[input_text.colname] = [to_morphemes(x) for x in batch_text[input_text.colname]]
@@ -519,9 +506,25 @@ class MyFinetuner(Fabric):
                                                                        truncation=TruncationStrategy.DO_NOT_TRUNCATE,
                                                                        padding=PaddingStrategy.DO_NOT_PAD)
                     batch_text[f"length-{input_text.colname}"] = batch_seq['length']
+        if "length-text_pair" not in batch_text:
+            batch_text_pair: list[list[TextInput]] = self.to_batch_text_pair(batch_text)
+            batch_seq: BatchEncoding = self.tokenizer.__call__(*batch_text_pair,
+                                                               return_length=True, verbose=False,
+                                                               truncation=TruncationStrategy.DO_NOT_TRUNCATE,
+                                                               padding=PaddingStrategy.DO_NOT_PAD)
+            batch_text["length-text_pair"] = batch_seq['length']
         return batch_text
 
-    def filter_input_text_batch(self, batch_text: Dataset or arrow_dataset.Batch) -> list[bool]:
+    def encode_example_batch(self, batch_text: Dataset | LazyBatch) -> BatchEncoding:
+        batch_text_pair: list[list[TextInput]] = self.to_batch_text_pair(batch_text)
+        batch_seq: BatchEncoding = self.tokenizer.__call__(*batch_text_pair,
+                                                           return_length=True, verbose=True,
+                                                           max_length=self.state.max_sequence_length,
+                                                           truncation=self.state.truncation_strategy,
+                                                           padding=self.state.padding_strategy)
+        return batch_seq
+
+    def filter_input_text_batch(self, batch_text: Dataset | LazyBatch) -> list[bool]:
         passed = list()
         for input_text in (self.state.input_text1, self.state.input_text2):
             if input_text and input_text.type and input_text.colname and input_text.max_tokens > 0:
