@@ -155,141 +155,142 @@ class MyFinetuner(Fabric):
                 self.check_tokenizer(sample=self.is_global_zero)
 
     def run(self) -> None:
-        with MyTimer(f"Finetuning({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero):
-            # BEGIN
-            with MyTimer(verbose=self.is_global_zero):
-                self.show_state_values(verbose=self.is_global_zero)
-                assert self.state.data_name and isinstance(self.state.data_name, (Path, str)), f"Invalid data_name: ({type(self.state.data_name).__qualname__}) {self.state.data_name}"
+        with MyTimer(f"Finetuning({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero, file=stdout):
+            with MyTimer(f"Finetuning({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero, file=stderr):
+                # BEGIN
+                with MyTimer(verbose=self.is_global_zero):
+                    self.show_state_values(verbose=self.is_global_zero)
+                    assert self.state.data_name and isinstance(self.state.data_name, (Path, str)), f"Invalid data_name: ({type(self.state.data_name).__qualname__}) {self.state.data_name}"
 
-            # READY(data)
-            with MyTimer(verbose=self.is_global_zero):
-                self.prepare_datasets(verbose=self.is_global_zero)
-                self.prepare_dataloader()
+                # READY(data)
+                with MyTimer(verbose=self.is_global_zero):
+                    self.prepare_datasets(verbose=self.is_global_zero)
+                    self.prepare_dataloader()
 
-            # READY(finetuning)
-            assert 'train' in self.dataloader, f"No train dataloader in {list(self.dataloader.keys())}"
-            self.state.steps_per_epoch = len(self.dataloader['train'])
-            self.state.total_steps = self.state.num_train_epochs * self.state.steps_per_epoch
-            epoch_per_step = 1.0 / self.state.steps_per_epoch
-            self.finetuning_model = HeadModel(state=self.state, tokenizer=self.tokenizer)
-            with MyTimer(verbose=self.is_global_zero, rb=1):
-                self.check_pretrained(sample=self.is_global_zero)
+                # READY(finetuning)
+                assert 'train' in self.dataloader, f"No train dataloader in {list(self.dataloader.keys())}"
+                self.state.steps_per_epoch = len(self.dataloader['train'])
+                self.state.total_steps = self.state.num_train_epochs * self.state.steps_per_epoch
+                epoch_per_step = 1.0 / self.state.steps_per_epoch
+                self.finetuning_model = HeadModel(state=self.state, tokenizer=self.tokenizer)
+                with MyTimer(verbose=self.is_global_zero, rb=1):
+                    self.check_pretrained(sample=self.is_global_zero)
 
-            with MyTimer(verbose=self.is_global_zero, rb=1 if self.state.strategy == 'deepspeed' else 0):
-                self.optimizer = self.configure_optimizer()
-                self.scheduler = self.configure_scheduler()
-                self.loss_metric = self.configure_loss()
-                self.score_metric = evaluate.load(self.state.score_metric.major, self.state.score_metric.minor)
-                self.state['finetuning_model'] = f"{type(self.finetuning_model).__qualname__} | pretrained={self.state.pretrained.path.name}"
-                self.state['optimizer'] = f"{type(self.optimizer).__qualname__} | lr={self.state.learning_rate}"
-                self.state['scheduler'] = f"{type(self.scheduler).__qualname__} | gamma={self.state.lr_scheduler_gamma}"
-                self.state['loss_metric'] = f"{type(self.loss_metric).__qualname__}"
-                self.state['score_metric'] = f"{self.state.score_metric.major}/{self.state.score_metric.minor}"
-                for k in ('finetuning_model', 'optimizer', 'scheduler', 'loss_metric', 'score_metric'):
-                    print(f"- {k:30s} = {self.state[k]}")
-            with MyTimer(verbose=self.is_global_zero, rb=1, rc='='):
-                self.finetuning_model, self.optimizer = self.setup(self.finetuning_model, self.optimizer)
+                with MyTimer(verbose=self.is_global_zero, rb=1 if self.state.strategy == 'deepspeed' else 0):
+                    self.optimizer = self.configure_optimizer()
+                    self.scheduler = self.configure_scheduler()
+                    self.loss_metric = self.configure_loss()
+                    self.score_metric = evaluate.load(self.state.score_metric.major, self.state.score_metric.minor)
+                    self.state['finetuning_model'] = f"{type(self.finetuning_model).__qualname__} | pretrained={self.state.pretrained.path.name}"
+                    self.state['optimizer'] = f"{type(self.optimizer).__qualname__} | lr={self.state.learning_rate}"
+                    self.state['scheduler'] = f"{type(self.scheduler).__qualname__} | gamma={self.state.lr_scheduler_gamma}"
+                    self.state['loss_metric'] = f"{type(self.loss_metric).__qualname__}"
+                    self.state['score_metric'] = f"{self.state.score_metric.major}/{self.state.score_metric.minor}"
+                    for k in ('finetuning_model', 'optimizer', 'scheduler', 'loss_metric', 'score_metric'):
+                        print(f"- {k:30s} = {self.state[k]}")
+                with MyTimer(verbose=self.is_global_zero, rb=1, rc='='):
+                    self.finetuning_model, self.optimizer = self.setup(self.finetuning_model, self.optimizer)
 
-            # READY(output)
-            assert self.state.finetuned_home and isinstance(self.state.finetuned_home, Path), f"Invalid finetuned_home: ({type(self.state.finetuned_home).__qualname__}) {self.state.finetuned_home}"
-            assert isinstance(self.state.finetuned_sub, (type(None), Path, str)), f"Invalid finetuned_sub: ({type(self.state.finetuned_sub).__qualname__}) {self.state.finetuned_sub}"
-            tab_name: str = self.state.finetuned_sub if self.state.finetuned_sub else "default"
-            finetuned_dir: Path = make_dir(self.state.finetuned_home / self.state.data_name / tab_name)
-            finetuned_files = {
-                "state": finetuned_dir / "finetuner_state.json",
-                "model": finetuned_dir / "pytorch_model",
-            }
-            logs = {
-                "step": 0,
-                "epoch": 0.0,
-                "record": []
-            }
-            self.state.records = logs["record"]
+                # READY(output)
+                assert self.state.finetuned_home and isinstance(self.state.finetuned_home, Path), f"Invalid finetuned_home: ({type(self.state.finetuned_home).__qualname__}) {self.state.finetuned_home}"
+                assert isinstance(self.state.finetuned_sub, (type(None), Path, str)), f"Invalid finetuned_sub: ({type(self.state.finetuned_sub).__qualname__}) {self.state.finetuned_sub}"
+                tab_name: str = self.state.finetuned_sub if self.state.finetuned_sub else "default"
+                finetuned_dir: Path = make_dir(self.state.finetuned_home / self.state.data_name / tab_name)
+                finetuned_files = {
+                    "state": finetuned_dir / "finetuner_state.json",
+                    "model": finetuned_dir / "pytorch_model",
+                }
+                logs = {
+                    "step": 0,
+                    "epoch": 0.0,
+                    "record": []
+                }
+                self.state.records = logs["record"]
 
-            # EPOCH
-            with StageMarker(self.global_rank, self.world_size, self.milestones, db_name=self.state.data_name, tab_name=tab_name, host=self.db_host, port=self.db_port) as marker:
-                for epoch in range(1, self.state.num_train_epochs + 1):
-                    with MyTimer(verbose=True, rb=1 if self.is_global_zero and epoch < self.state.num_train_epochs else 0):
-                        # INIT
-                        metrics = {}
-                        current = f"(Epoch {epoch:02d})"
-                        marker.initialize(stage=current)
-                        marker.mark_done("INIT", stage=current)
-                        with MyTimer(verbose=self.is_global_zero):
-                            print(self.time_tqdm.to_desc(pre=current, desc=f"composed #{self.global_rank + 1:01d}") + f": learning_rate={self.get_learning_rate():.10f}")
+                # EPOCH
+                with StageMarker(self.global_rank, self.world_size, self.milestones, db_name=self.state.data_name, tab_name=tab_name, host=self.db_host, port=self.db_port) as marker:
+                    for epoch in range(1, self.state.num_train_epochs + 1):
+                        with MyTimer(verbose=True, rb=1 if self.is_global_zero and epoch < self.state.num_train_epochs else 0):
+                            # INIT
+                            metrics = {}
+                            current = f"(Epoch {epoch:02d})"
+                            marker.initialize(stage=current)
+                            marker.mark_done("INIT", stage=current)
+                            with MyTimer(verbose=self.is_global_zero):
+                                print(self.time_tqdm.to_desc(pre=current, desc=f"composed #{self.global_rank + 1:01d}") + f": learning_rate={self.get_learning_rate():.10f}")
 
-                        # TRAIN
-                        self.finetuning_model.train()
-                        with torch.enable_grad():
-                            for k in self.input_datasets.keys():
-                                if k not in self.dataloader or not self.dataloader[k]:
-                                    continue
-                                if k not in self.state.finetuning_splits or not self.state.finetuning_splits[k]:
-                                    continue
-                                outputs = []
-                                dataloader = self.dataloader['train']
-                                with MyTimer() as timer:
-                                    tqdm = self.time_tqdm if self.is_global_zero else self.mute_tqdm
-                                    for batch_idx, batch in enumerate(
-                                            tqdm(dataloader, position=self.global_rank,
-                                                 pre=current, desc=f"training #{self.global_rank + 1:01d}", unit=f"x{dataloader.batch_size}")):
-                                        batch = to_tensor_batch(batch, input_keys=self.tokenizer.model_input_names)
-                                        self.optimizer.zero_grad()
-                                        output = self.each_step(batch, batch_idx, input_keys=self.tokenizer.model_input_names)
-                                        outputs.append(output)
-                                        logs["step"] += 1
-                                        logs["epoch"] += epoch_per_step
-                                        logs["learning_rate"] = self.get_learning_rate()
-                                        self.backward(output['loss'])
-                                        self.optimizer.step()
-                                metrics[k] = self.outputs_to_metrics(outputs, timer=timer)
-                            self.scheduler.step()
-                        marker.mark_done("TRAIN", stage=current)
+                            # TRAIN
+                            self.finetuning_model.train()
+                            with torch.enable_grad():
+                                for k in self.input_datasets.keys():
+                                    if k not in self.dataloader or not self.dataloader[k]:
+                                        continue
+                                    if k not in self.state.finetuning_splits or not self.state.finetuning_splits[k]:
+                                        continue
+                                    outputs = []
+                                    dataloader = self.dataloader['train']
+                                    with MyTimer() as timer:
+                                        tqdm = self.time_tqdm if self.is_global_zero else self.mute_tqdm
+                                        for batch_idx, batch in enumerate(
+                                                tqdm(dataloader, position=self.global_rank,
+                                                     pre=current, desc=f"training #{self.global_rank + 1:01d}", unit=f"x{dataloader.batch_size}")):
+                                            batch = to_tensor_batch(batch, input_keys=self.tokenizer.model_input_names)
+                                            self.optimizer.zero_grad()
+                                            output = self.each_step(batch, batch_idx, input_keys=self.tokenizer.model_input_names)
+                                            outputs.append(output)
+                                            logs["step"] += 1
+                                            logs["epoch"] += epoch_per_step
+                                            logs["learning_rate"] = self.get_learning_rate()
+                                            self.backward(output['loss'])
+                                            self.optimizer.step()
+                                    metrics[k] = self.outputs_to_metrics(outputs, timer=timer)
+                                self.scheduler.step()
+                            marker.mark_done("TRAIN", stage=current)
 
-                        # METER
-                        self.finetuning_model.eval()
-                        with torch.no_grad():
-                            for k in self.input_datasets.keys():
-                                if k not in self.dataloader or not self.dataloader[k]:
-                                    continue
-                                if k not in self.state.predicting_splits or not self.state.predicting_splits[k]:
-                                    continue
-                                outputs = []
-                                dataloader = self.dataloader[k]
-                                with MyTimer() as timer:
-                                    tqdm = self.time_tqdm if self.is_global_zero else self.mute_tqdm
-                                    for batch_idx, batch in enumerate(
-                                            tqdm(dataloader, position=self.global_rank,
-                                                 pre=current, desc=f"metering #{self.global_rank + 1:01d}", unit=f"x{dataloader.batch_size}")):
-                                        batch = to_tensor_batch(batch, input_keys=self.tokenizer.model_input_names)
-                                        output = self.each_step(batch, batch_idx, input_keys=self.tokenizer.model_input_names)
-                                        outputs.append(output)
-                                metrics[k] = self.outputs_to_metrics(outputs, timer=timer)
-                        marker.mark_done("METER", stage=current)
-                        with MyTimer(verbose=True):
-                            for name, score in metrics.items():
-                                print(self.time_tqdm.to_desc(pre=current, desc=f"measured #{self.global_rank + 1:01d}") +
-                                      f": {name:<5s} | {', '.join(f'{k}={score[k]:.4f}' for k in append_intersection(score.keys(), ['runtime']))}")
-
-                        # SAVE
-                        if self.state.finetuned_sub:
-                            logs["state_path"] = new_path(finetuned_files["state"])
-                            logs["model_path"] = new_path(finetuned_files["model"], post=f'{logs["epoch"]:02.0f}e')
-                            self.save(self.finetuning_model.state_dict(), filepath=logs["model_path"])
-                            if self.is_global_zero:
-                                logs["record"].append({
-                                    "step": logs["step"],
-                                    "epoch": logs["epoch"],
-                                    "metrics": metrics,
-                                    "model_path": logs["model_path"] if logs['model_path'].exists() else None,
-                                    "learning_rate": logs["learning_rate"],
-                                })
-                                self.state.records = logs["record"]
-                                save_attrs(self.state, file=logs["state_path"], keys=self.state.log_targets)
-                            marker.mark_done("SAVE", stage=current)
+                            # METER
+                            self.finetuning_model.eval()
+                            with torch.no_grad():
+                                for k in self.input_datasets.keys():
+                                    if k not in self.dataloader or not self.dataloader[k]:
+                                        continue
+                                    if k not in self.state.predicting_splits or not self.state.predicting_splits[k]:
+                                        continue
+                                    outputs = []
+                                    dataloader = self.dataloader[k]
+                                    with MyTimer() as timer:
+                                        tqdm = self.time_tqdm if self.is_global_zero else self.mute_tqdm
+                                        for batch_idx, batch in enumerate(
+                                                tqdm(dataloader, position=self.global_rank,
+                                                     pre=current, desc=f"metering #{self.global_rank + 1:01d}", unit=f"x{dataloader.batch_size}")):
+                                            batch = to_tensor_batch(batch, input_keys=self.tokenizer.model_input_names)
+                                            output = self.each_step(batch, batch_idx, input_keys=self.tokenizer.model_input_names)
+                                            outputs.append(output)
+                                    metrics[k] = self.outputs_to_metrics(outputs, timer=timer)
+                            marker.mark_done("METER", stage=current)
                             with MyTimer(verbose=True):
-                                if self.is_global_zero and logs["model_path"].exists():
-                                    print(self.time_tqdm.to_desc(pre=current, desc=f"exported #{self.global_rank + 1:01d}") + f": model | {logs['model_path']}")
+                                for name, score in metrics.items():
+                                    print(self.time_tqdm.to_desc(pre=current, desc=f"measured #{self.global_rank + 1:01d}") +
+                                          f": {name:<5s} | {', '.join(f'{k}={score[k]:.4f}' for k in append_intersection(score.keys(), ['runtime']))}")
+
+                            # SAVE
+                            if self.state.finetuned_sub:
+                                logs["state_path"] = new_path(finetuned_files["state"])
+                                logs["model_path"] = new_path(finetuned_files["model"], post=f'{logs["epoch"]:02.0f}e')
+                                self.save(self.finetuning_model.state_dict(), filepath=logs["model_path"])
+                                if self.is_global_zero:
+                                    logs["record"].append({
+                                        "step": logs["step"],
+                                        "epoch": logs["epoch"],
+                                        "metrics": metrics,
+                                        "model_path": logs["model_path"] if logs['model_path'].exists() else None,
+                                        "learning_rate": logs["learning_rate"],
+                                    })
+                                    self.state.records = logs["record"]
+                                    save_attrs(self.state, file=logs["state_path"], keys=self.state.log_targets)
+                                marker.mark_done("SAVE", stage=current)
+                                with MyTimer(verbose=True):
+                                    if self.is_global_zero and logs["model_path"].exists():
+                                        print(self.time_tqdm.to_desc(pre=current, desc=f"exported #{self.global_rank + 1:01d}") + f": model | {logs['model_path']}")
 
     def configure_strategy(self):
         if self.state.strategy == "dp":
