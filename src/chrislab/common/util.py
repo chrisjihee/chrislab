@@ -43,7 +43,15 @@ def get_options_from_path(default, valid_strategies=('dp', 'ddp', 'deepspeed')):
     _opt = this.stem if this.parent.name.startswith('note') else this.parent.name
     if len(_opt.rsplit('=', maxsplit=1)) > 1:
         _opt = _opt.split('=', maxsplit=1)[-1]
-    if len(_opt.rsplit('-')) >= 5:
+    if len(_opt.rsplit('-')) >= 6:
+        splits = _opt.rsplit('-', maxsplit=5)
+        final['epoch'] = int(number_only(splits[-6]))
+        final['devices'] = [int(number_only(x)) for x in splits[-5].split(',')]
+        final['batch'] = int(number_only(splits[-4]))
+        final['strategy'] = splits[-3] if splits[-3] in valid_strategies else default['strategy']
+        final['precision'] = int(number_only(splits[-2]))
+        final['run'] = int(number_only(splits[-1]))
+    elif len(_opt.rsplit('-')) >= 5:
         splits = _opt.rsplit('-', maxsplit=4)
         final['devices'] = [int(number_only(x)) for x in splits[-5].split(',')]
         final['batch'] = int(number_only(splits[-4]))
