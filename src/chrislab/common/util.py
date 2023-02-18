@@ -40,7 +40,7 @@ def copy_ipynb_for_debug(infile, opts):
 def get_options_from_path(default, valid_strategies=('dp', 'ddp', 'deepspeed')):
     final = default
     this = get_current_path()
-    _opt = this.parent.name if this.stem.startswith('note') else this.stem
+    _opt = this.stem if this.parent.name.startswith('note') else this.parent.name
     if len(_opt.rsplit('=', maxsplit=1)) > 1:
         _opt = _opt.split('=', maxsplit=1)[-1]
     if len(_opt.rsplit('-')) >= 5:
@@ -50,13 +50,13 @@ def get_options_from_path(default, valid_strategies=('dp', 'ddp', 'deepspeed')):
         final['strategy'] = splits[-3] if splits[-3] in valid_strategies else default['strategy']
         final['precision'] = int(number_only(splits[-2]))
         final['run'] = int(number_only(splits[-1]))
-    if len(_opt.rsplit('-')) >= 4:
+    elif len(_opt.rsplit('-')) >= 4:
         splits = _opt.rsplit('-', maxsplit=3)
         final['batch'] = int(number_only(splits[-4]))
         final['strategy'] = splits[-3] if splits[-3] in valid_strategies else default['strategy']
         final['precision'] = int(number_only(splits[-2]))
         final['run'] = int(number_only(splits[-1]))
-    if len(_opt.rsplit('-')) >= 3:
+    elif len(_opt.rsplit('-')) >= 3:
         splits = _opt.rsplit('-', maxsplit=2)
         final['strategy'] = splits[-3] if splits[-3] in valid_strategies else default['strategy']
         final['precision'] = int(number_only(splits[-2]))
