@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import torch
 import tqdm.std as tqdm_std
 from pymongo import ASCENDING as ASC
@@ -39,34 +41,37 @@ def copy_ipynb_for_debug(infile, opts):
     out_hr()
 
 
-def get_options_from_path(strategy_d, precision_d, run_d, quick_d=False, valid_strategies=('dp', 'ddp', 'ddp_sharded', 'fsdp', 'deepspeed')):
-    current_path = get_current_path()
-    _for_demo = 'demo' in current_path.name or 'note' in current_path.parent.name
-    _quick_demo = quick_d
-    _strategy, _precision, _run = strategy_d, precision_d, run_d
-    if _for_demo:
-        _opt = current_path.stem
-        if len(_opt.rsplit('=', maxsplit=1)) > 1:
-            _opt = _opt.split('=', maxsplit=1)[-1]
-            if len(_opt.rsplit('-')) >= 3:
-                _strategy, _precision, _run = _opt.rsplit('-')
-            elif len(_opt.rsplit('-')) >= 2:
-                _strategy, _run = _opt.rsplit('-')
-            else:
-                _run = _opt
+def get_options_from_path(default, valid_strategies=('dp', 'ddp', 'deepspeed')):
+    final = default
+    this = get_current_path()
+    _opt = this.parent.name if this.stem.startswith('note') else this.stem
+    if len(_opt.rsplit('=', maxsplit=1)) > 1:
+        _opt = _opt.split('=', maxsplit=1)[-1]
+    if len(_opt.rsplit('-')) >= 5:
+        splits = _opt.rsplit('-', maxsplit=4)
+        final['devices'] = [int(number_only(x)) for x in splits[-5].split(',')]
+        final['batch'] = int(number_only(splits[-4]))
+        final['strategy'] = splits[-3] if splits[-3] in valid_strategies else default['strategy']
+        final['precision'] = int(number_only(splits[-2]))
+        final['run'] = int(number_only(splits[-1]))
+    if len(_opt.rsplit('-')) >= 4:
+        splits = _opt.rsplit('-', maxsplit=3)
+        final['batch'] = int(number_only(splits[-4]))
+        final['strategy'] = splits[-3] if splits[-3] in valid_strategies else default['strategy']
+        final['precision'] = int(number_only(splits[-2]))
+        final['run'] = int(number_only(splits[-1]))
+    if len(_opt.rsplit('-')) >= 3:
+        splits = _opt.rsplit('-', maxsplit=2)
+        final['strategy'] = splits[-3] if splits[-3] in valid_strategies else default['strategy']
+        final['precision'] = int(number_only(splits[-2]))
+        final['run'] = int(number_only(splits[-1]))
+    elif len(_opt.rsplit('-')) >= 2:
+        splits = _opt.rsplit('-', maxsplit=2)
+        final['strategy'] = splits[-2] if splits[-2] in valid_strategies else default['strategy']
+        final['run'] = int(number_only(splits[-1]))
     else:
-        _opt = current_path.parent.name
-        if len(_opt.rsplit('=', maxsplit=1)) > 1:
-            _opt = _opt.split('=', maxsplit=1)[-1]
-        if len(_opt.rsplit('-')) >= 3:
-            _strategy, _precision, _run = _opt.rsplit('-', maxsplit=2)
-        elif len(_opt.rsplit('-')) >= 2:
-            _strategy, _run = _opt.rsplit('-')
-        else:
-            _run = _opt
-    _strategy = _strategy if _strategy in valid_strategies else strategy_d
-    _precision, _run = int(number_only(_precision)), int(number_only(_run))
-    return _for_demo, _quick_demo, (_strategy, _precision, _run)
+        final['run'] = int(number_only(_opt))
+    return final
 
 
 def set_devices_to_runs(runs, use_gpu, have_gpu=torch.cuda.device_count()):
