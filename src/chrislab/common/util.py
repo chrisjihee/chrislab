@@ -23,9 +23,7 @@ def copy_ipynb_for_run(infile, run_opts=None):
     else:
         for dst in sorted([make_dir(outdir)]):
             run_command("cp", infile, dst, bare=True)
-    out_hr(title=f" * Input/Output Files")
-    out_table(files_info(infile, outdir / '*.ipynb', outdir / '*' / '*.ipynb'))
-    out_hr()
+    return files_info(infile, outdir / '*.ipynb', outdir / '*' / '*.ipynb')
 
 
 def copy_ipynb_for_debug(infile, opts):
@@ -36,9 +34,7 @@ def copy_ipynb_for_debug(infile, opts):
             for source in [x.source for x in load_attrs(infile).cells if x.cell_type == 'code']:
                 out.writelines(source)
                 out.writelines([hr(c='#', t=2, b=2)])
-    out_hr(title=f" * Input/Output Files")
-    out_table(files_info(infile, *outfiles))
-    out_hr()
+    return files_info(infile, *outfiles)
 
 
 def get_options_from_path(default, valid_strategies=('dp', 'ddp', 'deepspeed')):
