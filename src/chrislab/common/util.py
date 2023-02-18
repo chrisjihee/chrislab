@@ -73,8 +73,6 @@ def get_options_from_path(default, valid_strategies=('dp', 'ddp', 'deepspeed')):
         splits = _opt.rsplit('-', maxsplit=2)
         final['strategy'] = splits[-2] if splits[-2] in valid_strategies else default['strategy']
         final['run'] = int(number_only(splits[-1]))
-    else:
-        final['run'] = int(number_only(_opt))
     return final
 
 
