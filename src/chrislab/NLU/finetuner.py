@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections import Counter
 from random import Random
+from sys import stderr
 from typing import Dict
 
 import torch.nn as nn
@@ -119,7 +120,7 @@ class MyFinetuner(Fabric):
         self.score_metric: Metric | None = None
         self.input_datasets: DatasetDict | None = None
         self.sample_dataset: Dataset | None = None
-        self.time_tqdm = time_tqdm_cls(bar_size=40, desc_size=20, prefix=self.prefix)
+        self.time_tqdm = time_tqdm_cls(bar_size=40, desc_size=20, prefix=self.prefix, file=stderr)
         self.mute_tqdm = mute_tqdm_cls()
         self.db_host = db_host
         self.db_port = db_port
