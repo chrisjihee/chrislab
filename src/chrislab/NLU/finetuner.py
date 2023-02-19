@@ -120,7 +120,8 @@ class MyFinetuner(Fabric):
         self.score_metric: Metric | None = None
         self.input_datasets: DatasetDict | None = None
         self.sample_dataset: Dataset | None = None
-        self.time_tqdm = time_tqdm_cls(bar_size=40, desc_size=20, prefix=self.prefix, file=stderr)
+        self.stdout_tqdm = time_tqdm_cls(bar_size=40, desc_size=20, prefix=self.prefix, file=stdout)
+        self.stderr_tqdm = time_tqdm_cls(bar_size=40, desc_size=20, prefix=self.prefix, file=stderr)
         self.mute_tqdm = mute_tqdm_cls()
         self.db_host = db_host
         self.db_port = db_port
@@ -188,9 +189,8 @@ class MyFinetuner(Fabric):
                     self.state['score_metric'] = f"{self.state.score_metric.major}/{self.state.score_metric.minor}"
                     for k in ('finetuning_model', 'optimizer', 'scheduler', 'loss_metric', 'score_metric'):
                         print(f"- {k:30s} = {self.state[k]}")
-                with MyTimer(verbose=self.is_global_zero, rb=1, rc='=', file=stdout, flush_sec=0.3):
-                    with MyTimer(verbose=self.is_global_zero, rb=1, rc='=', file=stderr, flush_sec=0.3):
-                        self.finetuning_model, self.optimizer = self.setup(self.finetuning_model, self.optimizer)
+                with MyTimer(verbose=self.is_global_zero, rb=1, rc='='):
+                    self.finetuning_model, self.optimizer = self.setup(self.finetuning_model, self.optimizer)
 
                 # READY(output)
                 assert self.state.finetuned_home and isinstance(self.state.finetuned_home, Path), f"Invalid finetuned_home: ({type(self.state.finetuned_home).__qualname__}) {self.state.finetuned_home}"
@@ -219,7 +219,7 @@ class MyFinetuner(Fabric):
                                 marker.initialize(stage=current)
                                 marker.mark_done("INIT", stage=current)
                                 with MyTimer(verbose=self.is_global_zero):
-                                    print(self.time_tqdm.to_desc(pre=current, desc=f"composed #{self.global_rank + 1:01d}") + f": learning_rate={self.get_learning_rate():.10f}")
+                                    print(self.stdout_tqdm.to_desc(pre=current, desc=f"composed #{self.global_rank + 1:01d}") + f": learning_rate={self.get_learning_rate():.10f}")
 
                                 # TRAIN
                                 self.finetuning_model.train()
@@ -232,7 +232,7 @@ class MyFinetuner(Fabric):
                                         outputs = []
                                         dataloader = self.dataloader['train']
                                         with MyTimer() as timer:
-                                            tqdm = self.time_tqdm if self.is_global_zero else self.mute_tqdm
+                                            tqdm = self.stderr_tqdm if self.is_global_zero else self.mute_tqdm
                                             for batch_idx, batch in enumerate(
                                                     tqdm(dataloader, position=self.global_rank,
                                                          pre=current, desc=f"training #{self.global_rank + 1:01d}", unit=f"x{dataloader.batch_size}")):
@@ -260,7 +260,7 @@ class MyFinetuner(Fabric):
                                         outputs = []
                                         dataloader = self.dataloader[k]
                                         with MyTimer() as timer:
-                                            tqdm = self.time_tqdm if self.is_global_zero else self.mute_tqdm
+                                            tqdm = self.stderr_tqdm if self.is_global_zero else self.mute_tqdm
                                             for batch_idx, batch in enumerate(
                                                     tqdm(dataloader, position=self.global_rank,
                                                          pre=current, desc=f"metering #{self.global_rank + 1:01d}", unit=f"x{dataloader.batch_size}")):
@@ -271,7 +271,7 @@ class MyFinetuner(Fabric):
                                 marker.mark_done("METER", stage=current)
                                 with MyTimer(verbose=True):
                                     for name, score in metrics.items():
-                                        print(self.time_tqdm.to_desc(pre=current, desc=f"measured #{self.global_rank + 1:01d}") +
+                                        print(self.stdout_tqdm.to_desc(pre=current, desc=f"measured #{self.global_rank + 1:01d}") +
                                               f": {name:<5s} | {', '.join(f'{k}={score[k]:.4f}' for k in append_intersection(score.keys(), ['runtime']))}")
 
                                 # SAVE
@@ -292,7 +292,7 @@ class MyFinetuner(Fabric):
                                     marker.mark_done("SAVE", stage=current)
                                     with MyTimer(verbose=True):
                                         if self.is_global_zero and logs["model_path"].exists():
-                                            print(self.time_tqdm.to_desc(pre=current, desc=f"exported #{self.global_rank + 1:01d}") + f": model | {logs['model_path']}")
+                                            print(self.stdout_tqdm.to_desc(pre=current, desc=f"exported #{self.global_rank + 1:01d}") + f": model | {logs['model_path']}")
 
     def configure_strategy(self):
         if self.state.strategy == "dp":
@@ -404,7 +404,7 @@ class MyFinetuner(Fabric):
         # load datasets
         with MyTimer(verbose=verbose):
             with MyTimer(verbose=False):
-                datasets.utils.logging.tqdm = self.time_tqdm if verbose else self.mute_tqdm
+                datasets.utils.logging.tqdm = self.stdout_tqdm if verbose else self.mute_tqdm
                 data_files_to_load = {k: str(v) for k, v in self.state.data_files.items()
                                       if v and k in self.state.dataloader_splits and self.state.dataloader_splits[k]}
                 self.input_datasets: DatasetDict = load_dataset("json", data_files=data_files_to_load, field="data")
@@ -464,29 +464,29 @@ class MyFinetuner(Fabric):
             counted_dataset_path = None if not dataset_path else dataset_path.with_name(f"counted-{dataset_path.name}")
             if dataset_path and encoded_dataset_path and encoded_dataset_path.exists():
                 encoded_datasets[split] = Dataset.load_from_disk(str(encoded_dataset_path))
-                print(self.time_tqdm.to_desc(pre=current, desc=f"imported from") + f": {encoded_dataset_path}")
+                print(self.stdout_tqdm.to_desc(pre=current, desc=f"imported from") + f": {encoded_dataset_path}")
                 if counted_dataset_path and counted_dataset_path.exists():
                     counted_datasets[split] = Dataset.load_from_disk(str(counted_dataset_path))
-                    print(self.time_tqdm.to_desc(pre=current, desc=f"imported from") + f": {counted_dataset_path}")
+                    print(self.stdout_tqdm.to_desc(pre=current, desc=f"imported from") + f": {counted_dataset_path}")
             else:
                 encode_batch_size = max(1, self.state.encode_batch_size)
                 dataset = dataset.map(
                     self.count_input_text_batch, batched=True, batch_size=encode_batch_size,
-                    desc=f"{current} {f'counting #{self.global_rank + 1:01d}':>{self.time_tqdm.desc_size}s}"
+                    desc=f"{current} {f'counting #{self.global_rank + 1:01d}':>{self.stdout_tqdm.desc_size}s}"
                 )
                 counted_datasets[split] = dataset
                 encoded_datasets[split] = dataset.filter(
                     self.filter_input_text_batch, batched=True, batch_size=encode_batch_size
                 ).map(
                     self.encode_example_batch, batched=True, batch_size=encode_batch_size,
-                    desc=f"{current} {f'encoding #{self.global_rank + 1:01d}':>{self.time_tqdm.desc_size}s}"
+                    desc=f"{current} {f'encoding #{self.global_rank + 1:01d}':>{self.stdout_tqdm.desc_size}s}"
                 )
                 if dataset_path and encoded_dataset_path and self.is_global_zero:
                     encoded_datasets[split].save_to_disk(str(encoded_dataset_path))
-                    print(self.time_tqdm.to_desc(pre=current, desc=f"exported to") + f": {encoded_dataset_path}")
+                    print(self.stdout_tqdm.to_desc(pre=current, desc=f"exported to") + f": {encoded_dataset_path}")
                     if counted_dataset_path:
                         counted_datasets[split].save_to_disk(str(counted_dataset_path))
-                        print(self.time_tqdm.to_desc(pre=current, desc=f"exported to") + f": {counted_dataset_path}")
+                        print(self.stdout_tqdm.to_desc(pre=current, desc=f"exported to") + f": {counted_dataset_path}")
         return encoded_datasets, counted_datasets
 
     def to_batch_text_pair(self, batch_text: Dataset | LazyBatch) -> list[list[TextInput]]:
@@ -554,7 +554,7 @@ class MyFinetuner(Fabric):
             with MyTimer(verbose=verbose, rb=1):
                 for text_field in encoded_lengths:
                     seq_lens = sorted(Counter(encoded_lengths[text_field]).items())
-                    print(f"{self.time_tqdm.to_desc(pre=current, desc=f'#({text_field})')}: "
+                    print(f"{self.stdout_tqdm.to_desc(pre=current, desc=f'#({text_field})')}: "
                           f"{', '.join([f'{k}({v})' for k, v in seq_lens[:show_min]])}, ..., {', '.join([f'{k}({v})' for k, v in seq_lens[-show_max:]])}")
 
     def check_datasets(self, name) -> None:
@@ -572,7 +572,7 @@ class MyFinetuner(Fabric):
                     feature_specs.append(', '.join(f'{f}.{f2}[{v2.dtype}]' for f2, v2 in v.items()))
                 else:
                     feature_specs.append(f'{f}[{v.dtype}]')
-            print(f"{self.time_tqdm.to_desc(pre=current, desc=f'{name}')}: {dataset.num_rows:11,d} samples | {', '.join(feature_specs)}")
+            print(f"{self.stdout_tqdm.to_desc(pre=current, desc=f'{name}')}: {dataset.num_rows:11,d} samples | {', '.join(feature_specs)}")
 
     def check_tokenizer(self, sample=True, num_show_tokens=50) -> None:
         print(f"- {'pretrained_tokenizer':30s} =", ' | '.join([
