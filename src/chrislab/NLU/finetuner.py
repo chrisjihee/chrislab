@@ -155,8 +155,8 @@ class MyFinetuner(Fabric):
                 self.check_tokenizer(sample=self.is_global_zero)
 
     def run(self) -> None:
-        with MyTimer(f"Finetuning({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero, file=stdout):
-            with MyTimer(f"Finetuning({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero, file=stderr):
+        with MyTimer(f"Finetuning({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero, file=stdout, flush_sec=0.3):
+            with MyTimer(f"Finetuning({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero, file=stderr, flush_sec=0.3):
                 # BEGIN
                 with MyTimer(verbose=self.is_global_zero):
                     self.show_state_values(verbose=self.is_global_zero)
@@ -188,8 +188,8 @@ class MyFinetuner(Fabric):
                     self.state['score_metric'] = f"{self.state.score_metric.major}/{self.state.score_metric.minor}"
                     for k in ('finetuning_model', 'optimizer', 'scheduler', 'loss_metric', 'score_metric'):
                         print(f"- {k:30s} = {self.state[k]}")
-                with MyTimer(verbose=self.is_global_zero, rb=1, rc='=', file=stdout):
-                    with MyTimer(verbose=self.is_global_zero, rb=1, rc='=', file=stderr):
+                with MyTimer(verbose=self.is_global_zero, rb=1, rc='=', file=stdout, flush_sec=0.3):
+                    with MyTimer(verbose=self.is_global_zero, rb=1, rc='=', file=stderr, flush_sec=0.3):
                         self.finetuning_model, self.optimizer = self.setup(self.finetuning_model, self.optimizer)
 
                 # READY(output)
@@ -211,8 +211,8 @@ class MyFinetuner(Fabric):
                 # EPOCH
                 with StageMarker(self.global_rank, self.world_size, self.milestones, db_name=self.state.data_name, tab_name=tab_name, host=self.db_host, port=self.db_port) as marker:
                     for epoch in range(1, self.state.num_train_epochs + 1):
-                        with MyTimer(verbose=True, rb=1 if self.is_global_zero and epoch < self.state.num_train_epochs else 0, file=stdout):
-                            with MyTimer(verbose=True, rb=1 if self.is_global_zero and epoch < self.state.num_train_epochs else 0, file=stderr):
+                        with MyTimer(verbose=True, rb=1 if self.is_global_zero and epoch < self.state.num_train_epochs else 0, file=stdout, flush_sec=0.3):
+                            with MyTimer(verbose=True, rb=1 if self.is_global_zero and epoch < self.state.num_train_epochs else 0, file=stderr, flush_sec=0.3):
                                 # INIT
                                 metrics = {}
                                 current = f"(Epoch {epoch:02d})"
@@ -448,8 +448,7 @@ class MyFinetuner(Fabric):
         encoded_datasets = DatasetDict()
         counted_datasets = DatasetDict()
         for split, dataset in self.input_datasets.items():
-            # current = f"({split:<5s})"
-            current = f"(No Epoch)"
+            current = f"(Epoch 00)"
             dataset: Dataset = dataset
             dataset_path = None if not self.state.encoded_home or not self.state.dataset_home else (
                     Path(self.state.encoded_home) /
