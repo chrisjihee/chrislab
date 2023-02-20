@@ -244,10 +244,6 @@ class StageMarker:
         return
 
     @classmethod
-    def _before_func(cls):
-        return lambda hours: before(delta=timedelta(hours=hours), fmt=StageMarker.time_fmt)
-
-    @classmethod
     def _at_func(cls):
         return lambda: now(fmt=StageMarker.time_fmt)
 
