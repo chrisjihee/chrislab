@@ -217,6 +217,8 @@ class MuteDatasetProgress:
 
 
 class StageMarker:
+    time_fmt = '%Y/%m/%d %H:%M:%S'
+
     def __init__(self, node_idx, world_size, milestones, db_name, tab_name, host="localhost", port=27017,
                  debug=False, trace=False, log_file=sys_stdout):
         self.node_idx = node_idx
@@ -225,44 +227,63 @@ class StageMarker:
         self.tab_name = tab_name
         self.host = host
         self.port = port
-        self.milestones = dict(enumerate(milestones))
+        self.milestones = tuple(milestones)
         self.debug = debug
         self.trace = trace
         self.mongo: MongoClient[_DocumentType] | None = None
         self.table: Collection | None = None
+        self.started: str = self._before_func()(hours=2)
         self.log_file = log_file
 
     def __enter__(self) -> "StageMarker":
         self.mongo = MongoClient(host=self.host, port=self.port)
         self.table = self.mongo[self.db_name][self.tab_name]
+        self.started = self._before_func()(hours=1)
         return self
 
     def __exit__(self, type_, value, traceback_) -> None:
         self.mongo.close()
         return
 
-    def _sub_functions(self):
-        return [
-            lambda: f'#{self.node_idx + 1:01d}',
-            lambda: now('%Y/%m/%d %H:%M:%S'),
-            lambda yes: f"\n{to_dataframe(self.table.find().sort([('stage', ASC), ('agent', ASC)]), index='_id')}" if yes else "",
-            lambda what, at: self.table.count_documents({what: 1, 'stage': at}),
-        ]
+    @classmethod
+    def _before_func(cls):
+        return lambda hours: before(delta=timedelta(hours=hours), fmt=StageMarker.time_fmt)
+
+    @classmethod
+    def _at_func(cls):
+        return lambda: now(fmt=StageMarker.time_fmt)
+
+    def _by_func(self):
+        return lambda: f'#{self.node_idx + 1:01d}'
+
+    def _state_func(self):
+        return lambda: self.table.find().sort([('stage', ASC), ('agent', ASC)])
+
+    def _state_str_func(self):
+        return lambda yes: f"\n{to_dataframe(self._state_func()(), index='_id')}" if yes else ""
+
+    def _done_func(self):
+        return lambda what, at: self.table.count_documents({what: 1, 'stage': at})
 
     def initialize(self, stage, sleep_sec=1.0) -> None:
-        by, at, data = self._sub_functions()[:3]
+        by = self._by_func()
+        at = self._at_func()
+        state = self._state_str_func()
         self.table.delete_many({'stage': stage, 'agent': by()})
         self.table.insert_one(merge_dicts(
             {'stage': stage, 'agent': by()},
-            {what: 0 for what in self.milestones.values()},
+            {what: 0 for what in self.milestones},
             {'started': at(), 'updated': at()},
         ))
         sleep(sleep_sec * (1 if self.node_idx == 0 else 2))
         if self.debug:
-            print(f"[{by()}][{at()}]: initialized{data(yes=self.trace)}", file=self.log_file)
+            print(f"[{by()}][{at()}]: initialized{state(yes=self.trace)}", file=self.log_file)
 
     def mark_done(self, what, stage, sleep_sec=1.0, max_sleep_times=3600) -> None:
-        by, at, data, done = self._sub_functions()
+        by = self._by_func()
+        at = self._at_func()
+        done = self._done_func()
+        state = self._state_str_func()
         self.table.update_many({'stage': stage, 'agent': by()}, {'$set': {what: 0, 'updated': at()}})
         self.table.update_one({'stage': stage, 'agent': by()}, {'$set': {what: 1, 'updated': at()}})
         for _ in range(max_sleep_times):
@@ -273,4 +294,4 @@ class StageMarker:
             sleep(sleep_sec)
         sleep(sleep_sec * (1 if self.node_idx == 0 else 2))
         if self.debug:
-            print(f"[{by()}][{at()}]: finished~~! (#done={done(what, at=stage)}){data(yes=self.trace)}", file=self.log_file)
+            print(f"[{by()}][{at()}]: finished~~! (#done={done(what, at=stage)}){state(yes=self.trace)}", file=self.log_file)

@@ -24,8 +24,8 @@ class MyPredictor(MyFinetuner):
     - Refer to `lightning.fabric.Fabric`
     """
 
-    def __init__(self, *args, **kwargs):
-        super(MyPredictor, self).__init__(*args, **kwargs)
+    def __init__(self, *args, milestones=("INIT", "LOAD", "APPLY", "SAVE"), **kwargs):
+        super(MyPredictor, self).__init__(*args, milestones=milestones, **kwargs)
 
     def run(self):
         with MyTimer(f"Predicting({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero):
@@ -107,7 +107,7 @@ class MyPredictor(MyFinetuner):
                         marker.initialize(stage=current)
                         marker.mark_done("INIT", stage=current)
                         with MyTimer(verbose=True, flush_sec=0.3):
-                            print(self.time_tqdm.to_desc(pre=current, desc=f"composed #{self.global_rank + 1:01d}") + f": model | {record.model_path}")
+                            print(self.stdout_tqdm.to_desc(pre=current, desc=f"composed #{self.global_rank + 1:01d}") + f": model | {record.model_path}")
 
                         # LOAD
                         assert not any(c in str(record.model_path) for c in ['*', '?', '[', ']']), f"Invalid model path: {record.model_path}"
@@ -117,7 +117,7 @@ class MyPredictor(MyFinetuner):
                         with MyTimer(verbose=True, flush_sec=0.3):
                             if self.is_global_zero and "metrics" in record:
                                 for name, score in record.metrics.items():
-                                    print(self.time_tqdm.to_desc(pre=current, desc=f"reported as") +
+                                    print(self.stdout_tqdm.to_desc(pre=current, desc=f"reported as") +
                                           f": {name:<5s} | {', '.join(f'{k}={score[k]:.4f}' for k in append_intersection(score.keys(), ['runtime']))}")
 
                         # APPLY
@@ -132,7 +132,7 @@ class MyPredictor(MyFinetuner):
                                 outputs = []
                                 dataloader = self.dataloader[k]
                                 with MyTimer(flush_sec=0.3) as timer:
-                                    tqdm = self.time_tqdm if self.is_global_zero else self.mute_tqdm
+                                    tqdm = self.stdout_tqdm if self.is_global_zero else self.mute_tqdm
                                     for batch_idx, batch in enumerate(
                                             tqdm(dataloader, position=self.global_rank,
                                                  pre=current, desc=f"metering #{self.global_rank + 1:01d}", unit=f"x{dataloader.batch_size}")):
@@ -145,7 +145,7 @@ class MyPredictor(MyFinetuner):
                         marker.mark_done("APPLY", stage=current)
                         with MyTimer(verbose=True, flush_sec=0.3):
                             for name, score in metrics.items():
-                                print(self.time_tqdm.to_desc(pre=current, desc=f"measured #{self.global_rank + 1:01d}") +
+                                print(self.stdout_tqdm.to_desc(pre=current, desc=f"measured #{self.global_rank + 1:01d}") +
                                       f": {name:<5s} | {', '.join(f'{k}={score[k]:.4f}' for k in append_intersection(score.keys(), ['runtime']))}")
 
                         # SAVE
@@ -167,7 +167,7 @@ class MyPredictor(MyFinetuner):
                                     save_attrs(self.state, file=state_path, keys=self.state.log_targets)
                                 save_rows(predict[k], file=preds_path, with_column_name=True)
                                 if preds_path.exists():
-                                    print(self.time_tqdm.to_desc(pre=current, desc=f"exported #{self.global_rank + 1:01d}") + f": preds | {preds_path}")
+                                    print(self.stdout_tqdm.to_desc(pre=current, desc=f"exported #{self.global_rank + 1:01d}") + f": preds | {preds_path}")
                             marker.mark_done("SAVE", stage=current)
 
     @staticmethod
