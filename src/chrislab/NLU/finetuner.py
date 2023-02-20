@@ -449,7 +449,7 @@ class MyFinetuner(Fabric):
         encoded_datasets = DatasetDict()
         counted_datasets = DatasetDict()
         for split, dataset in self.input_datasets.items():
-            current = f"(Epoch 00)"
+            current = f"({split:<5s})"
             dataset: Dataset = dataset
             dataset_path = None if not self.state.encoded_home or not self.state.dataset_home else (
                     Path(self.state.encoded_home) /
