@@ -217,7 +217,7 @@ class MuteDatasetProgress:
 
 
 class StageMarker:
-    time_fmt = '%Y/%m/%d %H:%M:%S'
+    time_fmt = '[%m.%d %H:%M:%S]'
 
     def __init__(self, node_idx, world_size, milestones, db_name, tab_name, host="localhost", port=27017,
                  debug=False, trace=False, log_file=sys_stdout):
@@ -232,13 +232,11 @@ class StageMarker:
         self.trace = trace
         self.mongo: MongoClient[_DocumentType] | None = None
         self.table: Collection | None = None
-        self.started: str = self._before_func()(hours=2)
         self.log_file = log_file
 
     def __enter__(self) -> "StageMarker":
         self.mongo = MongoClient(host=self.host, port=self.port)
         self.table = self.mongo[self.db_name][self.tab_name]
-        self.started = self._before_func()(hours=1)
         return self
 
     def __exit__(self, type_, value, traceback_) -> None:
@@ -263,35 +261,49 @@ class StageMarker:
         return lambda yes: f"\n{to_dataframe(self._state_func()(), index='_id')}" if yes else ""
 
     def _done_func(self):
-        return lambda what, at: self.table.count_documents({what: 1, 'stage': at})
+        return lambda what, stage: self.table.count_documents({what: what, 'stage': stage})
 
-    def initialize(self, stage, sleep_sec=1.0) -> None:
+    def clear(self, sleep_sec=0.5):
+        if self.node_idx == 0:
+            self.table.delete_many({})
+        sleep(sleep_sec * (1 if self.node_idx == 0 else 2))
+
+    def initialize(self, stage, sleep_sec=0.5) -> None:
         by = self._by_func()
         at = self._at_func()
         state = self._state_str_func()
         self.table.delete_many({'stage': stage, 'agent': by()})
         self.table.insert_one(merge_dicts(
-            {'stage': stage, 'agent': by()},
-            {what: 0 for what in self.milestones},
             {'started': at(), 'updated': at()},
+            {'stage': stage, 'agent': by()},
+            {what: NO for what in self.milestones},
         ))
         sleep(sleep_sec * (1 if self.node_idx == 0 else 2))
         if self.debug:
             print(f"[{by()}][{at()}]: initialized{state(yes=self.trace)}", file=self.log_file)
 
-    def mark_done(self, what, stage, sleep_sec=1.0, max_sleep_times=3600) -> None:
+    def mark_done(self, what, stage, state_table_file=None, sleep_sec=0.5, max_sleep_times=3600) -> None:
         by = self._by_func()
         at = self._at_func()
         done = self._done_func()
         state = self._state_str_func()
-        self.table.update_many({'stage': stage, 'agent': by()}, {'$set': {what: 0, 'updated': at()}})
-        self.table.update_one({'stage': stage, 'agent': by()}, {'$set': {what: 1, 'updated': at()}})
+        self.table.update_many({'stage': stage, 'agent': by()}, {'$set': {what: NO, 'updated': at()}})
+        self.table.update_one({'stage': stage, 'agent': by()}, {'$set': {what: what, 'updated': at()}})
         for _ in range(max_sleep_times):
-            if done(what, at=stage) >= self.world_size:
+            if done(what, stage) >= self.world_size:
                 break
             if self.debug:
-                print(f"[{by()}][{at()}]: waiting.... (#done={done(what, at=stage)})", file=self.log_file)
+                print(f"[{by()}][{at()}]: waiting.... (#done={done(what, stage)})", file=self.log_file)
             sleep(sleep_sec)
         sleep(sleep_sec * (1 if self.node_idx == 0 else 2))
         if self.debug:
-            print(f"[{by()}][{at()}]: finished~~! (#done={done(what, at=stage)}){state(yes=self.trace)}", file=self.log_file)
+            print(f"[{by()}][{at()}]: finished~~! (#done={done(what, stage)}){state(yes=self.trace)}", file=self.log_file)
+        if state_table_file:
+            self.print_state_table(stage=stage, mt=1 if what == self.milestones[0] else 0, file=state_table_file)
+
+    def print_state_table(self, stage, mt=0, file=sys_stderr, sleep_sec=0.5):
+        by = self._by_func()
+        if self.node_idx == 0:
+            df = to_dataframe(self.table.find({'stage': stage, 'agent': by()}), exclude=('_id', 'agent', 'started'))
+            print(('\n' * mt if mt > 0 else NO) + tabulate(df, showindex='never', tablefmt='plain'), end='\n', file=file)
+        sleep(sleep_sec * (1 if self.node_idx == 0 else 2))
