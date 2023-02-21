@@ -35,6 +35,8 @@ import evaluate
 from chrisbase.io import MyTimer, load_attrs, merge_attrs, merge_dicts, copy_dict, set_tokenizers_parallelism, set_cuda_path, set_torch_ext_path, file_table, make_dir, new_path, save_attrs
 from chrisbase.util import tupled, append_intersection, no_space, no_replacement, no_nonprintable, display_histogram, to_morphemes
 from chrisdict import AttrDict
+from chrislab.common.tokenizer_korbert import KorbertTokenizer
+from chrislab.common.util import time_tqdm_cls, mute_tqdm_cls, StageMarker, to_tensor_batch, limit_num_samples
 from datasets import Dataset, DatasetDict, load_dataset
 from datasets.formatting.formatting import LazyBatch
 from datasets.metric import Metric
@@ -44,8 +46,6 @@ from transformers import PreTrainedModel, PreTrainedTokenizer, AutoConfig, AutoM
 from transformers.modeling_outputs import SequenceClassifierOutput
 from transformers.tokenization_utils_base import TruncationStrategy, BatchEncoding, TextInput
 from transformers.utils import PaddingStrategy
-from ..common.tokenizer_korbert import KorbertTokenizer
-from ..common.util import time_tqdm_cls, mute_tqdm_cls, StageMarker, to_tensor_batch, limit_num_samples
 
 morp_tags_all = [
     "/NNG", "/NNP", "/NNB", "/NP", "/NR", "/VV", "/VA", "/VX", "/VCP", "/VCN",  # 10

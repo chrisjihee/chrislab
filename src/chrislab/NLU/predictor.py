@@ -23,8 +23,8 @@ import evaluate
 from chrisbase.io import MyTimer, load_attrs, exists_or, make_dir, new_path, save_attrs, save_rows
 from chrisbase.util import append_intersection
 from chrisdict import AttrDict
-from .finetuner import MyFinetuner, HeadModel
-from ..common.util import StageMarker, to_tensor_batch
+from chrislab.NLU.finetuner import MyFinetuner, HeadModel
+from chrislab.common.util import StageMarker, to_tensor_batch
 
 
 class MyPredictor(MyFinetuner):

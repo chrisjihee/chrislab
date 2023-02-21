@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from sys import stderr
+from sys import stderr, stdout
 from time import sleep
 
 import torch
@@ -13,8 +13,9 @@ from pymongo.typings import _DocumentType
 from tabulate import tabulate
 
 import datasets
-from chrisbase.io import run_command, make_dir, files_info, load_attrs, get_current_path
-from chrisbase.util import number_only, to_dataframe, NO
+from chrisbase.io import run_command, make_dir, files_info, load_attrs, get_current_path, hr, merge_dicts
+from chrisbase.time import now
+from chrisbase.util import number_only, to_dataframe, NO, tupled
 
 
 def copy_ipynb_for_run(infile, run_opts=None):
@@ -224,7 +225,7 @@ class StageMarker:
     time_fmt = '[%m.%d %H:%M:%S]'
 
     def __init__(self, node_idx, world_size, milestones, db_name, tab_name, host="localhost", port=27017,
-                 debug=False, trace=False, log_file=sys_stdout):
+                 debug=False, trace=False, log_file=stdout):
         self.node_idx = node_idx
         self.world_size = world_size
         self.db_name = db_name
