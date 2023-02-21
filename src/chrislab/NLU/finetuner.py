@@ -120,7 +120,7 @@ class MyFinetuner(Fabric):
         self.score_metric: Metric | None = None
         self.input_datasets: DatasetDict | None = None
         self.sample_dataset: Dataset | None = None
-        self.time_tqdm = time_tqdm_cls(bar_size=30, desc_size=15, prefix=self.prefix, file=stdout)
+        self.time_tqdm = time_tqdm_cls(bar_size=30, desc_size=17, prefix=self.prefix, file=stdout)
         self.mute_tqdm = mute_tqdm_cls()
         self.db_host = db_host
         self.db_port = db_port
