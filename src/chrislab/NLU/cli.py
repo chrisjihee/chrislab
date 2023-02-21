@@ -1,6 +1,9 @@
+import torch
 from typer import Typer
 
-from .predictor import *
+from chrisbase.io import MyTimer
+from chrislab.NLU.finetuner import MyFinetuner
+from chrislab.NLU.predictor import MyPredictor
 
 app = Typer()
 

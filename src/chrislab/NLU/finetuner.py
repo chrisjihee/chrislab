@@ -14,10 +14,15 @@
 from __future__ import annotations
 
 from collections import Counter
+from itertools import chain
+from pathlib import Path
 from random import Random
-from sys import stderr
-from typing import Dict
+from sys import stderr, stdout
+from typing import Dict, Optional
 
+import numpy as np
+import pandas as pd
+import torch
 import torch.nn as nn
 import torch.optim as optim
 from tokenizers import ByteLevelBPETokenizer
@@ -25,18 +30,22 @@ from torch.nn.modules.loss import _Loss
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
+import datasets
 import evaluate
+from chrisbase.io import MyTimer, load_attrs, merge_attrs, merge_dicts, copy_dict, set_tokenizers_parallelism, set_cuda_path, set_torch_ext_path, file_table, make_dir, new_path, save_attrs
+from chrisbase.util import tupled, append_intersection, no_space, no_replacement, no_nonprintable, display_histogram, to_morphemes
+from chrisdict import AttrDict
 from datasets import Dataset, DatasetDict, load_dataset
 from datasets.formatting.formatting import LazyBatch
 from datasets.metric import Metric
 from lightning.fabric import Fabric, seed_everything
 from lightning.fabric.strategies import DataParallelStrategy, DDPStrategy, DeepSpeedStrategy
-from transformers import PreTrainedModel, PreTrainedTokenizer, AutoConfig, AutoModelForSequenceClassification
+from transformers import PreTrainedModel, PreTrainedTokenizer, AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
 from transformers.modeling_outputs import SequenceClassifierOutput
-from transformers.tokenization_utils_base import TruncationStrategy, BatchEncoding
+from transformers.tokenization_utils_base import TruncationStrategy, BatchEncoding, TextInput
 from transformers.utils import PaddingStrategy
-from ..common.tokenizer_korbert import *
-from ..common.util import *
+from ..common.tokenizer_korbert import KorbertTokenizer
+from ..common.util import time_tqdm_cls, mute_tqdm_cls, StageMarker, to_tensor_batch, limit_num_samples
 
 morp_tags_all = [
     "/NNG", "/NNP", "/NNB", "/NP", "/NR", "/VV", "/VA", "/VX", "/VCP", "/VCN",  # 10
@@ -221,7 +230,7 @@ class MyFinetuner(Fabric):
                             metrics = {}
                             with MyTimer(verbose=self.is_global_zero):
                                 print(self.time_tqdm.to_desc(pre=current, desc=f"composed #{self.global_rank + 1:01d}") + f": learning_rate={self.get_learning_rate():.10f}")
-                            marker.mark_done("INIT", stage=current, state_table_file=sys_stderr)
+                            marker.mark_done("INIT", stage=current, state_table_file=stderr)
 
                             # TRAIN
                             self.finetuning_model.train()
@@ -249,7 +258,7 @@ class MyFinetuner(Fabric):
                                             self.optimizer.step()
                                     metrics[k] = self.outputs_to_metrics(outputs, timer=timer)
                                 self.scheduler.step()
-                            marker.mark_done("TRAIN", stage=current, state_table_file=sys_stderr)
+                            marker.mark_done("TRAIN", stage=current, state_table_file=stderr)
 
                             # METER
                             self.finetuning_model.eval()
@@ -274,7 +283,7 @@ class MyFinetuner(Fabric):
                                 for name, score in metrics.items():
                                     print(self.time_tqdm.to_desc(pre=current, desc=f"measured #{self.global_rank + 1:01d}") +
                                           f": {name:<5s} | {', '.join(f'{k}={score[k]:.4f}' for k in append_intersection(score.keys(), ['runtime']))}")
-                            marker.mark_done("METER", stage=current, state_table_file=sys_stderr)
+                            marker.mark_done("METER", stage=current, state_table_file=stderr)
 
                             # SAVE
                             if self.state.finetuned_sub:
@@ -294,7 +303,7 @@ class MyFinetuner(Fabric):
                                 with MyTimer(verbose=True):
                                     if self.is_global_zero and logs["model_path"].exists():
                                         print(self.time_tqdm.to_desc(pre=current, desc=f"exported #{self.global_rank + 1:01d}") + f": model | {logs['model_path']}")
-                                marker.mark_done("SAVE", stage=current, state_table_file=sys_stderr)
+                                marker.mark_done("SAVE", stage=current, state_table_file=stderr)
 
     def configure_strategy(self):
         if self.state.strategy == "dp":

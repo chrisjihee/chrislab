@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+from pathlib import Path
+from sys import stderr
+from time import sleep
+
 import torch
 import tqdm.std as tqdm_std
 from pymongo import ASCENDING as ASC
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.typings import _DocumentType
+from tabulate import tabulate
 
 import datasets
-from chrisbase.io import *
-from chrisbase.time import *
-from chrisbase.util import *
+from chrisbase.io import run_command, make_dir, files_info, load_attrs, get_current_path
+from chrisbase.util import number_only, to_dataframe, NO
 
 
 def copy_ipynb_for_run(infile, run_opts=None):
@@ -297,7 +301,7 @@ class StageMarker:
         if state_table_file:
             self.print_state_table(stage=stage, mt=1 if what == self.milestones[0] else 0, file=state_table_file)
 
-    def print_state_table(self, stage, mt=0, file=sys_stderr, sleep_sec=0.5):
+    def print_state_table(self, stage, mt=0, file=stderr, sleep_sec=0.5):
         by = self._by_func()
         if self.node_idx == 0:
             df = to_dataframe(self.table.find({'stage': stage, 'agent': by()}), exclude=('_id', 'agent', 'started'))
