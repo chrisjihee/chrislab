@@ -1,4 +1,4 @@
-from chrislab.NLU.cli import *
+from .cli import *
 
 tqdm = time_tqdm_cls(bar_size=20, desc_size=40, aline='left')
 

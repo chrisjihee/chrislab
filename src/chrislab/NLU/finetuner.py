@@ -26,8 +26,6 @@ from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
 import evaluate
-from chrislab.common.tokenizer_korbert import *
-from chrislab.common.util import *
 from datasets import Dataset, DatasetDict, load_dataset
 from datasets.formatting.formatting import LazyBatch
 from datasets.metric import Metric
@@ -37,6 +35,8 @@ from transformers import PreTrainedModel, PreTrainedTokenizer, AutoConfig, AutoM
 from transformers.modeling_outputs import SequenceClassifierOutput
 from transformers.tokenization_utils_base import TruncationStrategy, BatchEncoding
 from transformers.utils import PaddingStrategy
+from ..common.tokenizer_korbert import *
+from ..common.util import *
 
 morp_tags_all = [
     "/NNG", "/NNP", "/NNB", "/NP", "/NR", "/VV", "/VA", "/VX", "/VCP", "/VCN",  # 10

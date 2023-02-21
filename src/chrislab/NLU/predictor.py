@@ -16,8 +16,8 @@ from __future__ import annotations
 from sys import stderr
 
 import evaluate
-from chrislab.NLU.finetuner import MyFinetuner, HeadModel
-from chrislab.common.util import *
+from .finetuner import MyFinetuner, HeadModel
+from ..common.util import *
 
 
 class MyPredictor(MyFinetuner):
