@@ -3,8 +3,9 @@ import json
 import os
 from pathlib import Path
 
-from chrisbase.util import no_space, no_replacement, no_nonprintable
 from tokenizers import ByteLevelBPETokenizer
+
+from chrisbase.util import no_space, no_replacement, no_nonprintable
 from transformers import AutoTokenizer, BasicTokenizer, WordpieceTokenizer, BertTokenizer, RobertaTokenizer
 from transformers.models.bert.tokenization_bert import load_vocab, whitespace_tokenize
 from transformers.tokenization_utils_base import TextInput

@@ -1,4 +1,4 @@
-from .cli import *
+from chrislab.NLU.cli import *
 
 
 def convert_mlt_rerank(prefix, infile, outdir, max_n, unit, score,

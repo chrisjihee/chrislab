@@ -2,8 +2,8 @@ import argparse
 
 import datasets.utils.logging
 from chrisbase.morp import *
+from chrislab.common.util import *
 from datasets import load_dataset, Dataset
-from .util import *
 
 time_tqdm = time_tqdm_cls(bar_size=40, desc_size=22)
 mute_tqdm = mute_tqdm_cls()

@@ -1,6 +1,6 @@
 from typer import Typer
 
-from .predictor import *
+from chrislab.NLU.predictor import *
 
 app = Typer()
 

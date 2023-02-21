@@ -14,8 +14,8 @@
 from __future__ import annotations
 
 import evaluate
-from .finetuner import MyFinetuner, HeadModel, MongoClient
-from ..common.util import *
+from chrislab.NLU.finetuner import MyFinetuner, HeadModel
+from chrislab.common.util import *
 
 
 class MyPredictor(MyFinetuner):
