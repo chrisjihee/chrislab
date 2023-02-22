@@ -418,6 +418,7 @@ class MyFinetuner(Fabric):
                 datasets.utils.logging.tqdm = self.time_tqdm if verbose else self.mute_tqdm
                 data_files_to_load = {k: str(v) for k, v in self.state.data_files.items()
                                       if v and k in self.state.dataloader_splits and self.state.dataloader_splits[k]}
+                datasets.utils.logging.disable_progress_bar()
                 self.input_datasets: DatasetDict = load_dataset("json", data_files=data_files_to_load, field="data")
             assert len(self.input_datasets.keys()) > 0
         with MyTimer(verbose=verbose, rb=1):
