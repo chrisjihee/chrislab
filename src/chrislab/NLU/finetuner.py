@@ -26,7 +26,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from tokenizers import ByteLevelBPETokenizer
-from torch.nn.modules.loss import _Loss
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
@@ -36,15 +35,15 @@ from chrisbase.io import MyTimer, load_attrs, merge_attrs, merge_dicts, copy_dic
 from chrisbase.util import tupled, append_intersection, no_space, no_replacement, no_nonprintable, display_histogram, to_morphemes
 from chrisdict import AttrDict
 from chrislab.common.tokenizer_korbert import KorbertTokenizer
-from chrislab.common.util import time_tqdm_cls, mute_tqdm_cls, StageMarker, to_tensor_batch, limit_num_samples
+from chrislab.common.util import StageMarker, MuteDatasetProgress, time_tqdm_cls, mute_tqdm_cls, to_tensor_batch, limit_num_samples
 from datasets import Dataset, DatasetDict, load_dataset
 from datasets.formatting.formatting import LazyBatch
 from datasets.metric import Metric
 from lightning.fabric import Fabric, seed_everything
 from lightning.fabric.strategies import DataParallelStrategy, DDPStrategy, DeepSpeedStrategy
-from transformers import PreTrainedModel, PreTrainedTokenizer, AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
+from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizer, PreTrainedModel, AutoModelForSequenceClassification
 from transformers.modeling_outputs import SequenceClassifierOutput
-from transformers.tokenization_utils_base import TruncationStrategy, BatchEncoding, TextInput
+from transformers.tokenization_utils_base import TextInput, BatchEncoding, TruncationStrategy
 from transformers.utils import PaddingStrategy
 
 morp_tags_all = [
@@ -125,7 +124,7 @@ class MyFinetuner(Fabric):
         self.optimizer: Optimizer | None = None
         self.scheduler: object | None = None
         self.dataloader: Dict[str, DataLoader] = {}
-        self.loss_metric: _Loss | None = None
+        self.loss_metric: nn.modules.loss._Loss | None = None
         self.score_metric: Metric | None = None
         self.input_datasets: DatasetDict | None = None
         self.sample_dataset: Dataset | None = None
@@ -418,8 +417,8 @@ class MyFinetuner(Fabric):
                 datasets.utils.logging.tqdm = self.time_tqdm if verbose else self.mute_tqdm
                 data_files_to_load = {k: str(v) for k, v in self.state.data_files.items()
                                       if v and k in self.state.dataloader_splits and self.state.dataloader_splits[k]}
-                datasets.utils.logging.disable_progress_bar()
-                self.input_datasets: DatasetDict = load_dataset("json", data_files=data_files_to_load, field="data")
+                with MuteDatasetProgress():
+                    self.input_datasets: DatasetDict = load_dataset("json", data_files=data_files_to_load, field="data")
             assert len(self.input_datasets.keys()) > 0
         with MyTimer(verbose=verbose, rb=1):
             self.check_datasets(name="raw_datasets")
