@@ -20,8 +20,8 @@ from sys import stdout, stderr
 import torch
 
 import evaluate
-from chrisbase.io import MyTimer, load_attrs, exists_or, make_dir, new_path, save_attrs, save_rows
-from chrisbase.util import append_intersection
+from chrisbase.io import MyTimer, load_attrs, exists_or, make_dir, new_path, save_attrs, save_rows, remove_dir_check
+from chrisbase.util import append_intersection, OK
 from chrisdict import AttrDict
 from chrislab.NLU.finetuner import MyFinetuner, HeadModel
 from chrislab.common.util import StageMarker, to_tensor_batch
@@ -36,13 +36,15 @@ class MyPredictor(MyFinetuner):
     def __init__(self, *args, milestones=("INIT", "LOAD", "APPLY", "SAVE"), **kwargs):
         super(MyPredictor, self).__init__(*args, milestones=milestones, **kwargs)
 
-    def run(self):
+    def run(self, show_state=True) -> None:
         with MyTimer(f"Predicting({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero, file=stdout, flush_sec=0.3):
             with MyTimer(f"Predicting({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero, file=stderr, flush_sec=0.3, pb=1):
                 # BEGIN
-                with MyTimer(verbose=self.is_global_zero):
-                    self.show_state_values(verbose=self.is_global_zero)
-                    assert self.state.data_name and isinstance(self.state.data_name, (Path, str)), f"Invalid data_name: ({type(self.state.data_name).__qualname__}) {self.state.data_name}"
+                print(f"cache cleared : {OK(all(remove_dir_check(x, real=self.reset_cache) for x in self.cache_dirs))}")
+                if show_state:
+                    with MyTimer(verbose=self.is_global_zero):
+                        self.show_state_values(verbose=self.is_global_zero)
+                        assert self.state.data_name and isinstance(self.state.data_name, (Path, str)), f"Invalid data_name: ({type(self.state.data_name).__qualname__}) {self.state.data_name}"
 
                 # READY(data)
                 with MyTimer(verbose=self.is_global_zero):

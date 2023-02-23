@@ -31,8 +31,8 @@ from torch.utils.data import DataLoader
 
 import datasets
 import evaluate
-from chrisbase.io import MyTimer, load_attrs, merge_attrs, merge_dicts, copy_dict, set_tokenizers_parallelism, set_cuda_path, set_torch_ext_path, file_table, make_dir, new_path, save_attrs
-from chrisbase.util import tupled, append_intersection, no_space, no_replacement, no_nonprintable, display_histogram, to_morphemes
+from chrisbase.io import MyTimer, load_attrs, merge_attrs, merge_dicts, copy_dict, set_tokenizers_parallelism, set_cuda_path, set_torch_ext_path, file_table, make_dir, new_path, save_attrs, remove_dir_check
+from chrisbase.util import tupled, append_intersection, no_space, no_replacement, no_nonprintable, display_histogram, to_morphemes, OK
 from chrisdict import AttrDict
 from chrislab.common.tokenizer_korbert import KorbertTokenizer
 from chrislab.common.util import StageMarker, MuteDatasetProgress, time_tqdm_cls, mute_tqdm_cls, to_tensor_batch, limit_num_samples
@@ -100,7 +100,8 @@ class MyFinetuner(Fabric):
     """
 
     def __init__(
-            self, config, prefix=None, postfix=None, db_host="localhost", db_port=6382, milestones=("INIT", "TRAIN", "METER", "SAVE"),
+            self, config, prefix=None, postfix=None, save_cache=True, reset_cache=False,
+            db_host="localhost", db_port=6382, milestones=("INIT", "TRAIN", "METER", "SAVE"),
             cuda_paths=("/usr/local/cuda-12.0", "/usr/local/cuda-11.4", "/usr/local/cuda-11.3", "/usr/local/cuda-11.1", "/usr/local/cuda-11.0", "/usr/local/cuda")  # check for your environment
     ):
         self.state: AttrDict = load_attrs(config)
@@ -108,8 +109,8 @@ class MyFinetuner(Fabric):
             "devices": tupled(self.state.devices) if self.state.devices else None,
             "pretrained": merge_dicts(copy_dict(self.state.pretrained), {"path": Path(self.state.pretrained.path)}),
             "label_column": self.state.label_column if "label_column" in self.state else "label",
+            "cached_home": Path(self.state.cached_home) if self.state.cached_home else None,
             "dataset_home": Path(self.state.dataset_home) if self.state.dataset_home else None,
-            "encoded_home": Path(self.state.encoded_home) if self.state.encoded_home else None,
             "finetuned_home": Path(self.state.finetuned_home) if self.state.finetuned_home else None,
             "predicted_home": Path(self.state.predicted_home) if self.state.predicted_home else None,
         })
@@ -118,6 +119,8 @@ class MyFinetuner(Fabric):
         self.rand: Random = Random(self.state.seed)
         self.prefix: str | None = prefix if prefix and len(prefix) > 0 else None
         self.postfix: str | None = postfix if postfix and len(postfix) > 0 else None
+        self.save_cache: bool = save_cache
+        self.reset_cache: bool = reset_cache
         self.finetuning_model: HeadModel | None = None
         self.tokenizer: PreTrainedTokenizer | None = None
         self.tok_coder: ByteLevelBPETokenizer | None = None
@@ -133,6 +136,7 @@ class MyFinetuner(Fabric):
         self.db_host = db_host
         self.db_port = db_port
         self.milestones = milestones
+        self.cache_dirs = [self.state.cached_home]
         set_tokenizers_parallelism(False)
         if self.state.devices:
             set_cuda_path(cuda_paths)
@@ -151,28 +155,33 @@ class MyFinetuner(Fabric):
                     for k in self.state.log_targets if k in self.state]),
                 columns=["key", "value"]), showindex=False, file=timer.file)
 
-    def ready(self) -> None:
+    def ready(self, show_state=False, draw_figure=False) -> None:
         with MyTimer(f"Preparing({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero):
             # BEGIN
-            with MyTimer(verbose=self.is_global_zero):
-                self.show_state_values(verbose=self.is_global_zero)
-
-            # READY(data)
-            with MyTimer(verbose=self.is_global_zero):
-                self.prepare_datasets(verbose=self.is_global_zero)
-                self.check_tokenizer(sample=self.is_global_zero)
-
-    def run(self) -> None:
-        with MyTimer(f"Finetuning({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero, file=stdout, flush_sec=0.3):
-            with MyTimer(f"Finetuning({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero, file=stderr, flush_sec=0.3, pb=1):
-                # BEGIN
+            print(f"cache cleared : {OK(all(remove_dir_check(x, real=self.reset_cache) for x in self.cache_dirs))}")
+            if show_state:
                 with MyTimer(verbose=self.is_global_zero):
                     self.show_state_values(verbose=self.is_global_zero)
                     assert self.state.data_name and isinstance(self.state.data_name, (Path, str)), f"Invalid data_name: ({type(self.state.data_name).__qualname__}) {self.state.data_name}"
 
+            # READY(data)
+            with MyTimer(verbose=self.is_global_zero):
+                self.prepare_datasets(verbose=self.is_global_zero, draw_figure=draw_figure)
+                self.check_tokenizer(sample=self.is_global_zero)
+
+    def run(self, show_state=True) -> None:
+        with MyTimer(f"Finetuning({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero, file=stdout, flush_sec=0.3):
+            with MyTimer(f"Finetuning({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero, file=stderr, flush_sec=0.3, pb=1):
+                # BEGIN
+                print(f"cache cleared : {OK(all(remove_dir_check(x, real=self.reset_cache) for x in self.cache_dirs))}")
+                if show_state:
+                    with MyTimer(verbose=self.is_global_zero):
+                        self.show_state_values(verbose=self.is_global_zero)
+                        assert self.state.data_name and isinstance(self.state.data_name, (Path, str)), f"Invalid data_name: ({type(self.state.data_name).__qualname__}) {self.state.data_name}"
+
                 # READY(data)
                 with MyTimer(verbose=self.is_global_zero):
-                    self.prepare_datasets(verbose=self.is_global_zero)
+                    self.prepare_datasets(verbose=self.is_global_zero, draw_figure=False)
                     self.prepare_dataloader()
 
                 # READY(finetuning)
@@ -410,15 +419,16 @@ class MyFinetuner(Fabric):
                 continue
             self.dataloader[k] = self.setup_dataloaders(DataLoader(self.input_datasets[k], batch_size=self.state.batch_size_splits[k], shuffle=False))
 
-    def prepare_datasets(self, verbose=True) -> None:
+    def prepare_datasets(self, verbose=True, draw_figure=False) -> None:
         # load datasets
         with MyTimer(verbose=verbose):
-            with MyTimer(verbose=False):
-                datasets.utils.logging.tqdm = self.time_tqdm if verbose else self.mute_tqdm
-                data_files_to_load = {k: str(v) for k, v in self.state.data_files.items()
-                                      if v and k in self.state.dataloader_splits and self.state.dataloader_splits[k]}
-                with MuteDatasetProgress():
-                    self.input_datasets: DatasetDict = load_dataset("json", data_files=data_files_to_load, field="data")
+            datasets.utils.logging.tqdm = self.time_tqdm if verbose else self.mute_tqdm
+            data_files_to_load = {k: str(v) for k, v in self.state.data_files.items()
+                                  if v and k in self.state.dataloader_splits and self.state.dataloader_splits[k]}
+            with MuteDatasetProgress():
+                self.input_datasets: DatasetDict = load_dataset(path="json", field="data", data_files=data_files_to_load,
+                                                                name=','.join(f'{k}={Path(v).parent.name}' for k, v in data_files_to_load.items()),
+                                                                cache_dir=self.state.cached_home / self.state.data_name / self.state.data_part)
             assert len(self.input_datasets.keys()) > 0
         with MyTimer(verbose=verbose, rb=1):
             self.check_datasets(name="raw_datasets")
@@ -446,7 +456,7 @@ class MyFinetuner(Fabric):
             self.check_datasets(name="encoded_datasets")
         if counted_datasets:
             with MyTimer(verbose=verbose):
-                self.display_counts(counted_datasets, verbose=verbose, figure=self.state.command == "check")
+                self.display_counts(counted_datasets, verbose=verbose, figure=draw_figure)
 
         # sample examples
         if 'num_check_samples' in self.state and self.state.num_check_samples >= 1:
@@ -461,13 +471,13 @@ class MyFinetuner(Fabric):
         for split, dataset in self.input_datasets.items():
             current = f"({split:<5s})"
             dataset: Dataset = dataset
-            dataset_path = None if not self.state.encoded_home or not self.state.dataset_home else (
-                    Path(self.state.encoded_home) /
+            dataset_path = None if not self.state.cached_home or not self.state.dataset_home else (
+                    Path(self.state.cached_home) /
                     Path(self.state.data_files[split]).with_suffix('').relative_to(self.state.dataset_home) /
                     '@'.join([
                         f"by-{self.state.pretrained.path.name}@vocab={len(self.tokenizer)}",
                         f"{'@'.join(f'{x.colname}={x.max_tokens}' for x in (self.state.input_text1, self.state.input_text2) if x and x.type and x.colname)}",
-                        f"seq={self.state.max_sequence_length}",
+                        f"max_seq={self.state.max_sequence_length}",
                         f"row={dataset.num_rows}",
                     ])
             )
@@ -492,7 +502,7 @@ class MyFinetuner(Fabric):
                     self.encode_example_batch, batched=True, batch_size=encode_batch_size,
                     desc=f"{current} {f'encoding #{self.global_rank + 1:01d}':>{self.time_tqdm.desc_size}s}"
                 )
-                if dataset_path and encoded_dataset_path and self.is_global_zero:
+                if self.save_cache and self.is_global_zero and dataset_path and encoded_dataset_path:
                     encoded_datasets[split].save_to_disk(str(encoded_dataset_path))
                     print(self.time_tqdm.to_desc(pre=current, desc=f"exported to") + f": {encoded_dataset_path}")
                     if counted_dataset_path:
