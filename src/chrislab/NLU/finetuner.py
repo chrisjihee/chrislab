@@ -36,7 +36,7 @@ from chrisbase.util import tupled, append_intersection, no_space, no_replacement
 from chrisdict import AttrDict
 from chrislab.common.tokenizer_korbert import KorbertTokenizer
 from chrislab.common.util import StageMarker, MuteDatasetProgress, time_tqdm_cls, mute_tqdm_cls, to_tensor_batch, limit_num_samples
-from datasets import Dataset, DatasetDict, load_dataset
+from datasets import Dataset, DatasetDict, load_dataset, DownloadMode
 from datasets.formatting.formatting import LazyBatch
 from datasets.metric import Metric
 from lightning.fabric import Fabric, seed_everything
@@ -426,9 +426,10 @@ class MyFinetuner(Fabric):
             data_files_to_load = {k: str(v) for k, v in self.state.data_files.items()
                                   if v and k in self.state.dataloader_splits and self.state.dataloader_splits[k]}
             with MuteDatasetProgress():
-                self.input_datasets: DatasetDict = load_dataset(path="json", field="data", data_files=data_files_to_load,
+                self.input_datasets: DatasetDict = load_dataset(path="json", field="data",
                                                                 name=','.join(f'{k}={Path(v).parent.name}' for k, v in data_files_to_load.items()),
-                                                                cache_dir=self.state.cached_home / self.state.data_name / self.state.data_part)
+                                                                cache_dir=self.state.cached_home / self.state.data_name / self.state.data_part,
+                                                                data_files=data_files_to_load, download_mode=DownloadMode.REUSE_CACHE_IF_EXISTS)
             assert len(self.input_datasets.keys()) > 0
         with MyTimer(verbose=verbose, rb=1):
             self.check_datasets(name="raw_datasets")
