@@ -32,12 +32,15 @@ def convert_json_lines(infile, outfile):
     return example_count
 
 
-def download_public_task_data(data_dir, data_name, sub_name=None, remove_temporary=True, mute_progress_bar=True):
+def download_public_task_data(data_dir, data_name, sub_name, remove_temporary=True, mute_progress_bar=True):
     with MuteDatasetProgress(mute=mute_progress_bar):
         data_dir: Path = Path(data_dir)
-        outdir: Path = data_dir / data_name / sub_name if sub_name else data_dir / data_name
-        tmpdir: Path = data_dir / data_name / (sub_name + "-temp") if sub_name else data_dir / (data_name + "-temp")
-        raw_datasets = datasets.load_dataset(data_name, sub_name)
+        outdir: Path = data_dir / data_name / sub_name
+        tmpdir: Path = data_dir / data_name / (sub_name + "-temp")
+        if data_name in ["KR", "EN"]:
+            raw_datasets = datasets.load_dataset(sub_name)
+        else:
+            raw_datasets = datasets.load_dataset(data_name, sub_name)
         raw_datasets.save_to_disk(str(tmpdir))
 
         results = []
@@ -66,17 +69,14 @@ def download_public_task_data(data_dir, data_name, sub_name=None, remove_tempora
         return to_dataframe(results)
 
 
-def download_public_dataset(data_dir, data_name, sub_names=None):
-    if sub_names:
-        return pd.concat([download_public_task_data(data_dir, data_name, sub_name)
-                          for sub_name in sub_names]).reset_index(drop=True)
-    else:
-        return download_public_task_data(data_dir, data_name)
+def download_public_dataset(data_dir, data_name, sub_names):
+    return pd.concat([download_public_task_data(data_dir, data_name, sub_name)
+                      for sub_name in sub_names]).reset_index(drop=True)
 
 
-def reload_public_task_data(data_dir, data_name, sub_name=None):
+def reload_public_task_data(data_dir, data_name, sub_name):
     data_dir: Path = Path(data_dir)
-    indir: Path = data_dir / data_name / sub_name if sub_name else data_dir / data_name
+    indir: Path = data_dir / data_name / sub_name
     data_files = {x.stem: str(x) for x in files(indir / "*.json") if x.stem != "info"}
     with MyTimer(verbose=False):
         datasets.utils.logging.tqdm = mute_tqdm
@@ -98,12 +98,9 @@ def reload_public_task_data(data_dir, data_name, sub_name=None):
     return to_dataframe(results)
 
 
-def reload_public_dataset(data_dir, data_name, sub_names=None):
-    if sub_names:
-        return pd.concat([reload_public_task_data(data_dir, data_name, sub_name)
-                          for sub_name in sub_names]).reset_index(drop=True)
-    else:
-        return reload_public_task_data(data_dir, data_name)
+def reload_public_dataset(data_dir, data_name, sub_names):
+    return pd.concat([reload_public_task_data(data_dir, data_name, sub_name)
+                      for sub_name in sub_names]).reset_index(drop=True)
 
 
 def add_column_with_token_tag(infile, outfile, suffix, targets, netloc="129.254.164.137:7100"):
