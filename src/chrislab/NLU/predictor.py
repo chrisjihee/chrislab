@@ -9,6 +9,7 @@
    - [Text classification examples (transformers)](https://github.com/huggingface/transformers/tree/main/examples/pytorch/text-classification)
    - [Image classification examples (lightning)](https://github.com/Lightning-AI/lightning/tree/master/examples/fabric/image_classifier)
    - [Finetuning (KoELECTRA)](https://github.com/monologg/KoELECTRA/tree/master/finetune)
+   - [KE-T5 Downstreams](https://github.com/AIRC-KETI/ke-t5-downstreams)
    - [Process (datasets)](https://huggingface.co/docs/datasets/process)
 """
 from __future__ import annotations
@@ -23,7 +24,8 @@ import evaluate
 from chrisbase.io import MyTimer, load_attrs, exists_or, make_dir, new_path, save_attrs, save_rows, remove_dir_check
 from chrisbase.util import append_intersection, OK
 from chrisdict import AttrDict
-from chrislab.NLU.finetuner import MyFinetuner, HeadModel
+from chrislab.NLU.finetuner import MyFinetuner
+from chrislab.NLU.modeling import BertHeadModel
 from chrislab.common.util import StageMarker, to_tensor_batch
 
 
@@ -52,7 +54,7 @@ class MyPredictor(MyFinetuner):
                     self.prepare_dataloader()
 
                 # READY(finetuning)
-                self.finetuning_model = HeadModel(state=self.state, tokenizer=self.tokenizer)
+                self.finetuning_model = BertHeadModel(state=self.state, tokenizer=self.tokenizer)
                 with MyTimer(verbose=self.is_global_zero, rb=1):
                     self.check_pretrained(sample=self.is_global_zero)
 

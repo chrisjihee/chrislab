@@ -9,6 +9,7 @@
    - [Text classification examples (transformers)](https://github.com/huggingface/transformers/tree/main/examples/pytorch/text-classification)
    - [Image classification examples (lightning)](https://github.com/Lightning-AI/lightning/tree/master/examples/fabric/image_classifier)
    - [Finetuning (KoELECTRA)](https://github.com/monologg/KoELECTRA/tree/master/finetune)
+   - [KE-T5 Downstreams](https://github.com/AIRC-KETI/ke-t5-downstreams)
    - [Process (datasets)](https://huggingface.co/docs/datasets/process)
 """
 from __future__ import annotations
@@ -34,6 +35,7 @@ import evaluate
 from chrisbase.io import MyTimer, load_attrs, merge_attrs, merge_dicts, copy_dict, set_tokenizers_parallelism, set_cuda_path, set_torch_ext_path, file_table, make_dir, new_path, save_attrs, remove_dir_check
 from chrisbase.util import tupled, append_intersection, no_space, no_replacement, no_nonprintable, display_histogram, to_morphemes, OK
 from chrisdict import AttrDict
+from chrislab.NLU.modeling import BertHeadModel, additive_tokens_for_morp_tag
 from chrislab.common.tokenizer_korbert import KorbertTokenizer
 from chrislab.common.util import StageMarker, MuteDatasetProgress, time_tqdm_cls, mute_tqdm_cls, to_tensor_batch, limit_num_samples
 from datasets import Dataset, DatasetDict, load_dataset, DownloadMode
@@ -41,56 +43,10 @@ from datasets.formatting.formatting import LazyBatch
 from datasets.metric import Metric
 from lightning.fabric import Fabric, seed_everything
 from lightning.fabric.strategies import DataParallelStrategy, DDPStrategy, DeepSpeedStrategy
-from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizer, PreTrainedModel, AutoModelForSequenceClassification
+from transformers import AutoTokenizer, PreTrainedTokenizer
 from transformers.modeling_outputs import SequenceClassifierOutput
 from transformers.tokenization_utils_base import TextInput, BatchEncoding, TruncationStrategy
 from transformers.utils import PaddingStrategy
-
-morp_tags_all = [
-    "/NNG", "/NNP", "/NNB", "/NP", "/NR", "/VV", "/VA", "/VX", "/VCP", "/VCN",  # 10
-    "/IC", "/JKS", "/JKC", "/JKG", "/JKO", "/JKB", "/JKV", "/JKQ", "/JX", "/JC",  # 20
-    "/EP", "/EF", "/EC", "/ETN", "/ETM", "/XPN", "/XSN", "/XSV", "/XSA", "/XR",  # 30
-    "/SF", "/SP", "/SS", "/SE", "/SO", "/SW", "/SL", "/SH", "/SN", "/MM",  # 40
-    "/MAG", "/MAJ",  # 42
-]
-
-morp_tags_mid = [
-    "/NN", "/NP", "/NR", "/VV", "/VA", "/VX", "/VC", "/XPN", "/XS", "/XR",  # 10
-    "/MM", "/MA", "/IC", "/JK", "/JX", "/JC", "/EP", "/EF", "/EC", "/ET",  # 20
-    "/SF", "/SP", "/SS", "/SE", "/SO", "/SW", "/SL", "/SH", "/SN",  # 29
-]
-
-morp_tags_big = [
-    "/N", "/V", "/X", "/M", "/IC", "/J", "/E", "/S",  # 8
-]
-
-additive_tokens_for_morp_tag = {
-    "all": morp_tags_all,
-    "mid": morp_tags_mid,
-    "big": morp_tags_big,
-}
-
-
-class HeadModel(PreTrainedModel):
-    """
-    Head for sentence-level classification or regression tasks.
-    - Refer to `transformers.models.big_bird.modeling_big_bird.BigBirdClassificationHead`
-    """
-
-    def __init__(self, state, tokenizer):
-        config = AutoConfig.from_pretrained(state.pretrained.path, num_labels=state.num_classes)
-        super().__init__(config)
-        with MyTimer(verbose=True, mute_logger="transformers.modeling_utils"):
-            self.model = AutoModelForSequenceClassification.from_pretrained(state.pretrained.path, config=config)
-            if state.pretrained.additive_tokens:
-                # https://github.com/huggingface/transformers/issues/1413#issuecomment-538083512
-                # https://github.com/huggingface/transformers/issues/1413#issuecomment-901553079
-                self.model.base_model.resize_token_embeddings(len(tokenizer))
-                with torch.no_grad():
-                    self.model.base_model.embeddings.word_embeddings.weight[-1, :] = torch.zeros([self.model.base_model.config.hidden_size])
-
-    def forward(self, **x):
-        return self.model(**x)
 
 
 class MyFinetuner(Fabric):
@@ -121,7 +77,7 @@ class MyFinetuner(Fabric):
         self.postfix: str | None = postfix if postfix and len(postfix) > 0 else None
         self.save_cache: bool = save_cache
         self.reset_cache: bool = reset_cache
-        self.finetuning_model: HeadModel | None = None
+        self.finetuning_model: BertHeadModel | None = None
         self.tokenizer: PreTrainedTokenizer | None = None
         self.tok_coder: ByteLevelBPETokenizer | None = None
         self.optimizer: Optimizer | None = None
@@ -189,7 +145,7 @@ class MyFinetuner(Fabric):
                 self.state.steps_per_epoch = len(self.dataloader['train'])
                 self.state.total_steps = self.state.num_train_epochs * self.state.steps_per_epoch
                 epoch_per_step = 1.0 / self.state.steps_per_epoch
-                self.finetuning_model = HeadModel(state=self.state, tokenizer=self.tokenizer)
+                self.finetuning_model = BertHeadModel(state=self.state, tokenizer=self.tokenizer)
                 with MyTimer(verbose=self.is_global_zero, rb=1):
                     self.check_pretrained(sample=self.is_global_zero)
 
