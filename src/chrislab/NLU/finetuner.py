@@ -35,7 +35,7 @@ import evaluate
 from chrisbase.io import MyTimer, load_attrs, merge_attrs, merge_dicts, copy_dict, set_tokenizers_parallelism, set_cuda_path, set_torch_ext_path, file_table, make_dir, new_path, save_attrs, remove_dir_check
 from chrisbase.util import tupled, append_intersection, no_space, no_replacement, no_nonprintable, display_histogram, to_morphemes, OK
 from chrisdict import AttrDict
-from chrislab.NLU.modeling import BertHeadModel, additive_tokens_for_morp_tag
+from chrislab.NLU.modeling import BertHeadModel, T5HeadModel, additive_tokens_for_morp_tag
 from chrislab.common.tokenizer_korbert import KorbertTokenizer
 from chrislab.common.util import StageMarker, MuteDatasetProgress, time_tqdm_cls, mute_tqdm_cls, to_tensor_batch, limit_num_samples
 from datasets import Dataset, DatasetDict, load_dataset, DownloadMode
@@ -47,6 +47,11 @@ from transformers import AutoTokenizer, PreTrainedTokenizer
 from transformers.modeling_outputs import SequenceClassifierOutput
 from transformers.tokenization_utils_base import TextInput, BatchEncoding, TruncationStrategy
 from transformers.utils import PaddingStrategy
+
+finetuning_class_mapping = {
+    'BertHeadModel': BertHeadModel,
+    'T5HeadModel': T5HeadModel,
+}
 
 
 class MyFinetuner(Fabric):
@@ -77,7 +82,7 @@ class MyFinetuner(Fabric):
         self.postfix: str | None = postfix if postfix and len(postfix) > 0 else None
         self.save_cache: bool = save_cache
         self.reset_cache: bool = reset_cache
-        self.finetuning_model: BertHeadModel | None = None
+        self.finetuning_model: BertHeadModel | T5HeadModel | None = None
         self.tokenizer: PreTrainedTokenizer | None = None
         self.tok_coder: ByteLevelBPETokenizer | None = None
         self.optimizer: Optimizer | None = None
@@ -145,7 +150,7 @@ class MyFinetuner(Fabric):
                 self.state.steps_per_epoch = len(self.dataloader['train'])
                 self.state.total_steps = self.state.num_train_epochs * self.state.steps_per_epoch
                 epoch_per_step = 1.0 / self.state.steps_per_epoch
-                self.finetuning_model = BertHeadModel(state=self.state, tokenizer=self.tokenizer)
+                self.finetuning_model = finetuning_class_mapping[self.state.finetuning_class](state=self.state, tokenizer=self.tokenizer)
                 with MyTimer(verbose=self.is_global_zero, rb=1):
                     self.check_pretrained(sample=self.is_global_zero)
 
@@ -362,7 +367,7 @@ class MyFinetuner(Fabric):
                 self.tok_coder = ByteLevelBPETokenizer(str(self.state.pretrained.path / "vocab.json"), str(self.state.pretrained.path / "merges.txt"))
             else:
                 self.tokenizer = AutoTokenizer.from_pretrained(self.state.pretrained.path, max_len=self.state.max_sequence_length)
-            if self.state.pretrained.additive_tokens:
+            if 'additive_tokens' in self.state and self.state.pretrained.additive_tokens:
                 if self.state.pretrained.additive_tokens in additive_tokens_for_morp_tag:
                     self.tokenizer.add_tokens(additive_tokens_for_morp_tag[self.state.pretrained.additive_tokens])
                     if self.tok_coder:
