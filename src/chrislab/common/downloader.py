@@ -32,15 +32,23 @@ def convert_json_lines(infile, outfile):
     return example_count
 
 
-def download_public_task_data(data_dir, data_name, sub_name, remove_temporary=True, mute_progress_bar=True):
-    with MuteDatasetProgress(mute=mute_progress_bar):
+def download_public_dataset(data_dir, data_name, sub_names, data_group=False, remove_temporary=True, mute_progress_bar=True):
+    return pd.concat([download_public_task_data(data_dir, data_name, sub_name,
+                                                data_group=data_group,
+                                                remove_temporary=remove_temporary,
+                                                mute_progress_bar=mute_progress_bar)
+                      for sub_name in sub_names]).reset_index(drop=True)
+
+
+def download_public_task_data(data_dir, data_name, sub_name, data_group=False, remove_temporary=True, mute_progress_bar=True):
+    # with MuteDatasetProgress(mute=mute_progress_bar):
         data_dir: Path = Path(data_dir)
         outdir: Path = data_dir / data_name / sub_name
         tmpdir: Path = data_dir / data_name / (sub_name + "-temp")
-        if data_name in ["KR", "EN"]:
-            raw_datasets = datasets.load_dataset(sub_name)
+        if not data_group:
+            raw_datasets = load_dataset(sub_name)
         else:
-            raw_datasets = datasets.load_dataset(data_name, sub_name)
+            raw_datasets = load_dataset(data_name, sub_name)
         raw_datasets.save_to_disk(str(tmpdir))
 
         results = []
@@ -69,8 +77,8 @@ def download_public_task_data(data_dir, data_name, sub_name, remove_temporary=Tr
         return to_dataframe(results)
 
 
-def download_public_dataset(data_dir, data_name, sub_names):
-    return pd.concat([download_public_task_data(data_dir, data_name, sub_name)
+def reload_public_dataset(data_dir, data_name, sub_names):
+    return pd.concat([reload_public_task_data(data_dir, data_name, sub_name)
                       for sub_name in sub_names]).reset_index(drop=True)
 
 
@@ -96,11 +104,6 @@ def reload_public_task_data(data_dir, data_name, sub_name):
             result = pop_keys(result, 'sub_name')
         results.append(result)
     return to_dataframe(results)
-
-
-def reload_public_dataset(data_dir, data_name, sub_names):
-    return pd.concat([reload_public_task_data(data_dir, data_name, sub_name)
-                      for sub_name in sub_names]).reset_index(drop=True)
 
 
 def add_column_with_token_tag(infile, outfile, suffix, targets, netloc="129.254.164.137:7100"):
