@@ -32,23 +32,24 @@ def convert_json_lines(infile, outfile):
     return example_count
 
 
-def download_public_dataset(data_dir, data_name, sub_names, data_group=False, remove_temporary=True, mute_progress_bar=True):
+def download_public_dataset(data_dir, data_name, sub_names, dataset_source=None, data_group=False, remove_temporary=True, mute_progress_bar=True):
     return pd.concat([download_public_task_data(data_dir, data_name, sub_name,
+                                                dataset_source=dataset_source,
                                                 data_group=data_group,
                                                 remove_temporary=remove_temporary,
                                                 mute_progress_bar=mute_progress_bar)
                       for sub_name in sub_names]).reset_index(drop=True)
 
 
-def download_public_task_data(data_dir, data_name, sub_name, data_group=False, remove_temporary=True, mute_progress_bar=True):
-    # with MuteDatasetProgress(mute=mute_progress_bar):
+def download_public_task_data(data_dir, data_name, sub_name, dataset_source=None, data_group=False, remove_temporary=True, mute_progress_bar=True):
+    with MuteDatasetProgress(mute=mute_progress_bar):
         data_dir: Path = Path(data_dir)
         outdir: Path = data_dir / data_name / sub_name
-        tmpdir: Path = data_dir / data_name / (sub_name + "-temp")
+        tmpdir: Path = data_dir / data_name / (sub_name + "-org")
         if not data_group:
-            raw_datasets = load_dataset(sub_name)
+            raw_datasets = load_dataset(sub_name) if not dataset_source else load_dataset(dataset_source)
         else:
-            raw_datasets = load_dataset(data_name, sub_name)
+            raw_datasets = load_dataset(data_name, sub_name) if not dataset_source else load_dataset(dataset_source, sub_name)
         raw_datasets.save_to_disk(str(tmpdir))
 
         results = []
