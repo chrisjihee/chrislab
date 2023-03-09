@@ -53,8 +53,10 @@ def download_public_task_data(data_dir, data_name, sub_name, dataset_source=None
         raw_datasets.save_to_disk(str(tmpdir))
 
         results = []
+        first_split = None
         for k, dataset in raw_datasets.items():
-            k = k.replace('validation', 'valid')
+            if not first_split:
+                first_split = k
             dataset.to_json(tmpdir / f"{k}.json", force_ascii=False)
             tmpfile: Path = tmpdir / f'{k}.json'
             outfile: Path = outdir / f'{k}.json'
@@ -70,8 +72,8 @@ def download_public_task_data(data_dir, data_name, sub_name, dataset_source=None
             if not sub_name:
                 result = pop_keys(result, 'sub_name')
             results.append(result)
-        info_file = tmpdir / "train" / "dataset_info.json"
-        if info_file.exists() and info_file.is_file():
+        info_file = tmpdir / first_split / "dataset_info.json"
+        if first_split and info_file.exists() and info_file.is_file():
             shutil.copyfile(info_file, outdir / "info.json")
         if remove_temporary and tmpdir.exists() and tmpdir.is_dir():
             shutil.rmtree(tmpdir)
@@ -105,6 +107,20 @@ def reload_public_task_data(data_dir, data_name, sub_name):
             result = pop_keys(result, 'sub_name')
         results.append(result)
     return to_dataframe(results)
+
+
+def load_json_dataset(data_dir, data_name, sub_names):
+    return {sub_name: load_json_data(data_dir, data_name, sub_name) for sub_name in sub_names}
+
+
+def load_json_data(data_dir, data_name, sub_name):
+    data_dir: Path = Path(data_dir)
+    indir: Path = data_dir / data_name / sub_name
+    data_files = {x.stem: str(x) for x in files(indir / "*.json") if x.stem != "info"}
+    with MyTimer(verbose=False):
+        datasets.utils.logging.tqdm = mute_tqdm
+        raw_datasets = load_dataset("json", data_files=data_files, field="data")
+    return raw_datasets
 
 
 def add_column_with_token_tag(infile, outfile, suffix, targets, netloc="129.254.164.137:7100"):
