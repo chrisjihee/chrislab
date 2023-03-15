@@ -21,6 +21,15 @@ from chrisbase.time import now
 from chrisbase.util import number_only, NO, tupled, to_dataframe
 
 
+def num_cuda_devices():
+    from torch.cuda import _device_count_nvml
+    nvml_count = _device_count_nvml()
+    if nvml_count >= 0:
+        return nvml_count
+    else:
+        return torch.cuda.device_count()
+
+
 @dataclass
 class GpuProjectEnv(BasicProjectEnv):
     working_gpus: str = field(default="0")
@@ -32,7 +41,7 @@ class GpuProjectEnv(BasicProjectEnv):
         import torch
         super().__post_init__()
         self.working_gpus = working_gpus(self.working_gpus)
-        self.number_of_gpus = torch.cuda.device_count()
+        self.number_of_gpus = num_cuda_devices()
         self.cuda_home_dir = include_cuda_bin_dir()
         self.torch_cuda_ver = torch.version.cuda
 
@@ -100,7 +109,7 @@ def get_options_from_path(default, valid_strategies=('dp', 'ddp', 'deepspeed')):
     return final
 
 
-def set_devices_to_runs(runs, use_gpu, have_gpu=torch.cuda.device_count()):
+def set_devices_to_runs(runs, use_gpu, have_gpu=num_cuda_devices()):
     gpus_for_use = {
         1: {
             0: [0],
