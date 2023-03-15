@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stderr, stdout
 from time import sleep
 
+import datasets
 import torch
 import tqdm.std as tqdm_std
 from pymongo import ASCENDING as ASC
@@ -12,10 +14,27 @@ from pymongo.collection import Collection
 from pymongo.typings import _DocumentType
 from tabulate import tabulate
 
-import datasets
-from chrisbase.io import run_command, make_dir, files_info, load_attrs, get_working_file, hr, merge_dicts
+from chrisbase.io import BasicProjectEnv
+from chrisbase.io import make_dir, files_info, hr, load_attrs, merge_dicts, run_command
+from chrisbase.io import running_file, working_gpus, include_cuda_bin_dir
 from chrisbase.time import now
-from chrisbase.util import number_only, to_dataframe, NO, tupled
+from chrisbase.util import number_only, NO, tupled, to_dataframe
+
+
+@dataclass
+class GpuProjectEnv(BasicProjectEnv):
+    working_gpus: str = field(default="0")
+    number_of_gpus: int = field(init=False, default=0)
+    cuda_home_dir: Path = field(init=False)
+    torch_cuda_ver: str = field(init=False)
+
+    def __post_init__(self):
+        import torch
+        super().__post_init__()
+        self.working_gpus = working_gpus(self.working_gpus)
+        self.number_of_gpus = torch.cuda.device_count()
+        self.cuda_home_dir = include_cuda_bin_dir()
+        self.torch_cuda_ver = torch.version.cuda
 
 
 def copy_ipynb_for_run(infile, run_opts=None):
@@ -44,7 +63,7 @@ def copy_ipynb_for_debug(infile, opts):
 
 def get_options_from_path(default, valid_strategies=('dp', 'ddp', 'deepspeed')):
     final = default
-    this = get_working_file()
+    this = running_file()
     _opt = this.stem if this.parent.name.startswith('note') else this.parent.name
     if len(_opt.rsplit('=', maxsplit=1)) > 1:
         _opt = _opt.split('=', maxsplit=1)[-1]
