@@ -13,7 +13,7 @@ from pymongo.typings import _DocumentType
 from tabulate import tabulate
 
 import datasets
-from chrisbase.io import run_command, make_dir, files_info, load_attrs, get_current_path, hr, merge_dicts
+from chrisbase.io import run_command, make_dir, files_info, load_attrs, get_working_file, hr, merge_dicts
 from chrisbase.time import now
 from chrisbase.util import number_only, to_dataframe, NO, tupled
 
@@ -44,7 +44,7 @@ def copy_ipynb_for_debug(infile, opts):
 
 def get_options_from_path(default, valid_strategies=('dp', 'ddp', 'deepspeed')):
     final = default
-    this = get_current_path()
+    this = get_working_file()
     _opt = this.stem if this.parent.name.startswith('note') else this.parent.name
     if len(_opt.rsplit('=', maxsplit=1)) > 1:
         _opt = _opt.split('=', maxsplit=1)[-1]

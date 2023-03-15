@@ -32,7 +32,7 @@ from torch.utils.data import DataLoader
 
 import datasets
 import evaluate
-from chrisbase.io import MyTimer, load_attrs, merge_attrs, merge_dicts, copy_dict, set_tokenizers_parallelism, set_cuda_path, set_torch_ext_path, file_table, make_dir, new_path, save_attrs, remove_dir_check
+from chrisbase.io import MyTimer, load_attrs, merge_attrs, merge_dicts, copy_dict, set_tokenizers_parallelism, include_cuda_dir, set_torch_ext_path, file_table, make_dir, new_path, save_attrs, remove_dir_check
 from chrisbase.util import tupled, append_intersection, no_space, no_replacement, no_nonprintable, display_histogram, to_morphemes, OK
 from chrisdict import AttrDict
 from chrislab.NLU.modeling import BertHeadModel, T5HeadModel, additive_tokens_for_morp_tag
@@ -100,7 +100,7 @@ class MyFinetuner(Fabric):
         self.cache_dirs = [self.state.cached_home]
         set_tokenizers_parallelism(False)
         if self.state.devices:
-            set_cuda_path(cuda_paths)
+            include_cuda_dir(cuda_paths)
             set_torch_ext_path(dev=self.state.devices[0])
         super(MyFinetuner, self).__init__(precision=self.state.precision if 'precision' in self.state else 32,
                                           devices=self.state.devices if 'devices' in self.state else None,
