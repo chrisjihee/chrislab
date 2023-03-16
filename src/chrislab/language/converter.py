@@ -8,7 +8,7 @@ from sys import stdout
 from chrisbase.io import MyTimer, files, num_lines, make_dir, tsv_lines, first_path_or, merge_dicts, pop_keys, new_path, make_parent_dir, out_hr, first_or
 from chrisbase.time import now
 from chrisbase.util import ES, percent, shuffled, to_prefix, grouped, LF, HT
-from chrislab.common.util import time_tqdm_cls
+from ..common.util import time_tqdm_cls
 
 
 def convert_mlt_rerank(prefix, infile, outdir, max_n, unit, score,

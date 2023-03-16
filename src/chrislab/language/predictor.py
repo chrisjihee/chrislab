@@ -18,15 +18,15 @@ from itertools import chain
 from pathlib import Path
 from sys import stdout, stderr
 
+import evaluate
 import torch
 
-import evaluate
 from chrisbase.io import MyTimer, load_attrs, exists_or, make_dir, new_path, save_attrs, save_rows, remove_dir_check
 from chrisbase.util import append_intersection, OK
 from chrisdict import AttrDict
-from chrislab.NLU.finetuner import MyFinetuner
-from chrislab.NLU.modeling import BertHeadModel
-from chrislab.common.util import StageMarker, to_tensor_batch
+from .finetuner import MyFinetuner
+from .modeling import BertHeadModel
+from ..common.util import StageMarker, to_tensor_batch
 
 
 class MyPredictor(MyFinetuner):

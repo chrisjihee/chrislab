@@ -21,32 +21,32 @@ from random import Random
 from sys import stderr, stdout
 from typing import Dict, Optional
 
+import datasets
+import evaluate
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from tokenizers import ByteLevelBPETokenizer
-from torch.optim import Optimizer
-from torch.utils.data import DataLoader
-
-import datasets
-import evaluate
-from chrisbase.io import MyTimer, load_attrs, merge_attrs, merge_dicts, copy_dict, set_tokenizers_parallelism, include_cuda_dir, set_torch_ext_path, file_table, make_dir, new_path, save_attrs, remove_dir_check
-from chrisbase.util import tupled, append_intersection, no_space, no_replacement, no_nonprintable, display_histogram, to_morphemes, OK
-from chrisdict import AttrDict
-from chrislab.NLU.modeling import BertHeadModel, T5HeadModel, additive_tokens_for_morp_tag
-from chrislab.common.tokenizer_korbert import KorbertTokenizer
-from chrislab.common.util import StageMarker, MuteDatasetProgress, time_tqdm_cls, mute_tqdm_cls, to_tensor_batch, limit_num_samples
 from datasets import Dataset, DatasetDict, load_dataset, DownloadMode
 from datasets.formatting.formatting import LazyBatch
 from datasets.metric import Metric
 from lightning.fabric import Fabric, seed_everything
 from lightning.fabric.strategies import DataParallelStrategy, DDPStrategy, DeepSpeedStrategy
+from tokenizers import ByteLevelBPETokenizer
+from torch.optim import Optimizer
+from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, PreTrainedTokenizer
 from transformers.modeling_outputs import SequenceClassifierOutput
 from transformers.tokenization_utils_base import TextInput, BatchEncoding, TruncationStrategy
 from transformers.utils import PaddingStrategy
+
+from chrisbase.io import MyTimer, load_attrs, merge_attrs, merge_dicts, copy_dict, set_tokenizers_parallelism, include_cuda_dir, set_torch_ext_path, file_table, make_dir, new_path, save_attrs, remove_dir_check
+from chrisbase.util import tupled, append_intersection, no_space, no_replacement, no_nonprintable, display_histogram, to_morphemes, OK
+from chrisdict import AttrDict
+from .modeling import BertHeadModel, T5HeadModel, additive_tokens_for_morp_tag
+from ..common.tokenizer_korbert import KorbertTokenizer
+from ..common.util import StageMarker, MuteDatasetProgress, time_tqdm_cls, mute_tqdm_cls, to_tensor_batch, limit_num_samples
 
 finetuning_class_mapping = {
     'BertHeadModel': BertHeadModel,
