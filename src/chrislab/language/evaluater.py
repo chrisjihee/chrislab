@@ -6,7 +6,7 @@ from sys import stdout
 
 import pandas as pd
 
-from chrisbase.io import files, out_hr, MyTimer, new_path, first_path_or, load_attrs, make_dir, run_command, make_parent_dir
+from chrisbase.io import files, out_hr, JobTimer, new_path, first_path_or, load_attrs, make_dir, run_command, make_parent_dir
 from chrisbase.util import grouped, shuffled, to_prefix, to_postfix
 from ..common.util import time_tqdm_cls
 
@@ -21,7 +21,7 @@ def rerank_output(*predicted_files, id_col, plain_col, tagged_col, predict_col, 
         out_hr(title=f"No predicted_files: {', '.join(map(str, predicted_files))}")
         return
     group_files = {k: list(vs) for k, vs in grouped(all_predicted_files, key=group_name)}
-    with MyTimer(f"Rerank({', '.join(map(str, predicted_files))})", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True):
+    with JobTimer(f"Rerank({', '.join(map(str, predicted_files))})", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True):
         for g, (group, grouped_files) in enumerate(group_files.items()):
             for predicted_file in tqdm(grouped_files, desc=f"({g + 1:02d}/{len(group_files):02d}) {group:<50s}", file=stdout):
                 all_samples = []
@@ -52,7 +52,7 @@ def evaluate_reranked(*predicted_files, nbest=10, verbose=True, group_name=lambd
         out_hr(title=f"No predicted_files: {', '.join(map(str, predicted_files))}")
         return
     group_files = {k: list(vs) for k, vs in grouped(all_predicted_files, key=group_name)}
-    with MyTimer(f"Evaluate({', '.join(map(str, predicted_files))})", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True):
+    with JobTimer(f"Evaluate({', '.join(map(str, predicted_files))})", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True):
         for g, (group, grouped_files) in enumerate(group_files.items()):
             for predicted_file in tqdm(grouped_files, desc=f"({g + 1:02d}/{len(group_files):02d}) {group:<50s}", file=stdout):
                 if verbose:
@@ -110,7 +110,7 @@ def summarize_evaluated(*predicted_files, use_cols, colnames, skiprows=None, ski
         return
     group_files = {k: list(vs) for k, vs in grouped(all_predicted_files, key=group_name)}
     flatted_cols = list(chain([colnames[0]], *colnames[1:]))
-    with MyTimer(f"Summarize({', '.join(map(str, predicted_files))})", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True):
+    with JobTimer(f"Summarize({', '.join(map(str, predicted_files))})", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True):
         results = []
         for g, (group, grouped_files) in enumerate(group_files.items()):
             for predicted_file in tqdm(grouped_files, desc=f"({g + 1:02d}/{len(group_files):02d}) {group:<50s}", file=stdout):
@@ -118,7 +118,7 @@ def summarize_evaluated(*predicted_files, use_cols, colnames, skiprows=None, ski
                     print()
                 if verbose:
                     print(f"- predicted_file       = {predicted_file}")
-                with MyTimer(verbose=verbose, mute_warning="openpyxl", rt=1, rb=1):
+                with JobTimer(verbose=verbose, mute_warning="openpyxl", rt=1, rb=1):
                     result = pd.read_excel(predicted_file, usecols=use_cols, names=flatted_cols, skiprows=skiprows, skipfooter=skipfooter)
                     print(result)
                 result['grand'] = predicted_file.parent.parent.name

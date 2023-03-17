@@ -34,16 +34,16 @@ def num_cuda_devices():
 class GpuProjectEnv(BasicProjectEnv):
     working_gpus: str = field(default="0")
     number_of_gpus: int = field(init=False, default=0)
-    cuda_home_dir: Path = field(init=False)
-    torch_cuda_ver: str = field(init=False)
+    # cuda_home_dir: Path = field(init=False)
+    # torch_cuda_ver: str = field(init=False)
 
     def __post_init__(self):
         import torch
         super().__post_init__()
         self.working_gpus = working_gpus(self.working_gpus)
         self.number_of_gpus = num_cuda_devices()
-        self.cuda_home_dir = include_cuda_bin_dir()
-        self.torch_cuda_ver = torch.version.cuda
+        # self.cuda_home_dir = include_cuda_bin_dir()
+        # self.torch_cuda_ver = torch.version.cuda
 
 
 def copy_ipynb_for_run(infile, run_opts=None):

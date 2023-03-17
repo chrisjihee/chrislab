@@ -5,7 +5,7 @@ from operator import itemgetter
 from pathlib import Path
 from sys import stdout
 
-from chrisbase.io import MyTimer, files, num_lines, make_dir, tsv_lines, first_path_or, merge_dicts, pop_keys, new_path, make_parent_dir, out_hr, first_or
+from chrisbase.io import JobTimer, files, num_lines, make_dir, tsv_lines, first_path_or, merge_dicts, pop_keys, new_path, make_parent_dir, out_hr, first_or
 from chrisbase.time import now
 from chrisbase.util import ES, percent, shuffled, to_prefix, grouped, LF, HT
 from ..common.util import time_tqdm_cls
@@ -16,14 +16,14 @@ def convert_mlt_rerank(prefix, infile, outdir, max_n, unit, score,
                        include_truths={"train": True, "valid": False, "test": False},
                        mini=-1, seed=0):
     tqdm = time_tqdm_cls(bar_size=20, desc_size=42, aline='left')
-    with MyTimer(f"Make Dataset({outdir.stem})", prefix=prefix, mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True):
+    with JobTimer(f"Make Dataset({outdir.stem})", prefix=prefix, mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True):
         assert files(infile), f"No input file: {infile}"
         assert sum(x for x in split_rates.values()) == 1.0, "Sum of split rates should be 1.0"
         infile = files(infile)[0]
         infile_size = num_lines(infile, mini)
         outdir = make_dir(outdir)
         nbest_ranges = {k: list(range(0 if v else 1, max_n + 1)) for k, v in include_truths.items()}
-        with MyTimer(verbose=True, rb=1):
+        with JobTimer(verbose=True, rb=1):
             print(f"- {'infile':30s} = {infile}")
             print(f"- {'outdir':30s} = {outdir}")
             print(f"- {'split_rates':30s} = {' | '.join(k + ES + percent(v, '3.0f').strip() for k, v in split_rates.items())}")
@@ -31,7 +31,7 @@ def convert_mlt_rerank(prefix, infile, outdir, max_n, unit, score,
             print(f"- {'other_options':30s} = unit={unit} | score=(cols[{score[0]}]**{score[1]})*{score[2]} | seed={seed}")
 
         sent_ids = set()
-        with MyTimer(verbose=True, rb=1):
+        with JobTimer(verbose=True, rb=1):
             for cols in tqdm(tsv_lines(infile, mini), total=infile_size, desc=f"splitting {infile.name:<30s}", file=stdout):
                 eid = cols[0]
                 meta: dict = dict([x.strip().split("=") for x in eid.split(",")])
@@ -58,7 +58,7 @@ def convert_mlt_rerank(prefix, infile, outdir, max_n, unit, score,
         data_splits = {'train': [], 'valid': [], 'test': []}
         gold_splits = {'train': [], 'valid': [], 'test': []}
         sample_counts = {'train': 0, 'valid': 0, 'test': 0}
-        with MyTimer(verbose=True, rb=1):
+        with JobTimer(verbose=True, rb=1):
             for cols in tqdm(tsv_lines(infile, mini), total=infile_size, desc=f"converting {infile.name:<30s}", file=stdout):
                 (eid, sent, morp) = cols[:3]
                 label = (float(cols[score[0]]) ** score[1]) * score[2]
@@ -88,7 +88,7 @@ def convert_mlt_rerank(prefix, infile, outdir, max_n, unit, score,
             for k in ('train', 'valid', 'test'):
                 print(f"- {f'sample_counts[{k}]':30s} = {sample_counts[k]:11,d} samples ({percent(sample_counts[k] / sample_counts_sum)})")
 
-        with MyTimer(verbose=True):
+        with JobTimer(verbose=True):
             for split_id, data in gold_splits.items():
                 if len(data) > 0:
                     outfile = outdir / f'{split_id}.tsv'
@@ -116,7 +116,7 @@ def organize_dataset(*predicted_files, origin_dir, output_dir, id_col, plain_col
     group_files: dict[str, list] = {k: list(vs) for k, vs in grouped(all_predicted_files, key=to_group_name)}
     if debug:
         print(f"origin_dir={origin_dir}")
-    with MyTimer(f"Organize Dataset({', '.join(map(str, predicted_files))}, top_pred={top_pred})", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True):
+    with JobTimer(f"Organize Dataset({', '.join(map(str, predicted_files))}, top_pred={top_pred})", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True):
         for g, (group, grouped_files) in enumerate(group_files.items()):
             origin_file: Path = first_path_or(Path(origin_dir) / f"{group}*.tsv")
             if debug:

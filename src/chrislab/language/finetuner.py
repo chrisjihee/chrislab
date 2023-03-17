@@ -41,7 +41,7 @@ from transformers.modeling_outputs import SequenceClassifierOutput
 from transformers.tokenization_utils_base import TextInput, BatchEncoding, TruncationStrategy
 from transformers.utils import PaddingStrategy
 
-from chrisbase.io import MyTimer, load_attrs, merge_attrs, merge_dicts, copy_dict, set_tokenizers_parallelism, include_cuda_dir, set_torch_ext_path, file_table, make_dir, new_path, save_attrs, remove_dir_check
+from chrisbase.io import JobTimer, load_attrs, merge_attrs, merge_dicts, copy_dict, set_tokenizers_parallelism, include_cuda_dir, set_torch_ext_path, file_table, make_dir, new_path, save_attrs, remove_dir_check
 from chrisbase.util import tupled, append_intersection, no_space, no_replacement, no_nonprintable, display_histogram, to_morphemes, OK
 from chrisdict import AttrDict
 from .modeling import BertHeadModel, T5HeadModel, additive_tokens_for_morp_tag
@@ -108,7 +108,7 @@ class MyFinetuner(Fabric):
         self.state.device = self.device
 
     def show_state_values(self, verbose=True):
-        with MyTimer(verbose=verbose, rb=1) as timer:
+        with JobTimer(verbose=verbose, rb=1) as timer:
             file_table(pd.DataFrame(
                 chain.from_iterable([
                     [(f'{k}[{s}]', f'({type(v).__qualname__}) {v}' if v is not None else 'None') for s, v in self.state[k].items()] if k == 'data_files' else
@@ -117,31 +117,31 @@ class MyFinetuner(Fabric):
                 columns=["key", "value"]), showindex=False, file=timer.file)
 
     def ready(self, show_state=False, draw_figure=False) -> None:
-        with MyTimer(f"Preparing({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero):
+        with JobTimer(f"Preparing({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero):
             # BEGIN
             print(f"cache cleared : {OK(all(remove_dir_check(x, real=self.reset_cache) for x in self.cache_dirs))}")
             if show_state:
-                with MyTimer(verbose=self.is_global_zero):
+                with JobTimer(verbose=self.is_global_zero):
                     self.show_state_values(verbose=self.is_global_zero)
                     assert self.state.data_name and isinstance(self.state.data_name, (Path, str)), f"Invalid data_name: ({type(self.state.data_name).__qualname__}) {self.state.data_name}"
 
             # READY(data)
-            with MyTimer(verbose=self.is_global_zero):
+            with JobTimer(verbose=self.is_global_zero):
                 self.prepare_datasets(verbose=self.is_global_zero, draw_figure=draw_figure)
                 self.check_tokenizer(sample=self.is_global_zero)
 
     def run(self, show_state=True) -> None:
-        with MyTimer(f"Finetuning({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero, file=stdout, flush_sec=0.3):
-            with MyTimer(f"Finetuning({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero, file=stderr, flush_sec=0.3, pb=1):
+        with JobTimer(f"Finetuning({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero, file=stdout, flush_sec=0.3):
+            with JobTimer(f"Finetuning({self.state.data_name}/{self.state.data_part})", prefix=self.prefix, postfix=self.postfix, mb=1, rt=1, rb=1, rc='=', verbose=self.is_global_zero, file=stderr, flush_sec=0.3, pb=1):
                 # BEGIN
                 print(f"cache cleared : {OK(all(remove_dir_check(x, real=self.reset_cache) for x in self.cache_dirs))}")
                 if show_state:
-                    with MyTimer(verbose=self.is_global_zero):
+                    with JobTimer(verbose=self.is_global_zero):
                         self.show_state_values(verbose=self.is_global_zero)
                         assert self.state.data_name and isinstance(self.state.data_name, (Path, str)), f"Invalid data_name: ({type(self.state.data_name).__qualname__}) {self.state.data_name}"
 
                 # READY(data)
-                with MyTimer(verbose=self.is_global_zero):
+                with JobTimer(verbose=self.is_global_zero):
                     self.prepare_datasets(verbose=self.is_global_zero, draw_figure=False)
                     self.prepare_dataloader()
 
@@ -151,10 +151,10 @@ class MyFinetuner(Fabric):
                 self.state.total_steps = self.state.num_train_epochs * self.state.steps_per_epoch
                 epoch_per_step = 1.0 / self.state.steps_per_epoch
                 self.finetuning_model = finetuning_class_mapping[self.state.finetuning_class](state=self.state, tokenizer=self.tokenizer)
-                with MyTimer(verbose=self.is_global_zero, rb=1):
+                with JobTimer(verbose=self.is_global_zero, rb=1):
                     self.check_pretrained(sample=self.is_global_zero)
 
-                with MyTimer(verbose=self.is_global_zero, rb=1 if self.state.strategy == 'deepspeed' else 0):
+                with JobTimer(verbose=self.is_global_zero, rb=1 if self.state.strategy == 'deepspeed' else 0):
                     self.optimizer = self.configure_optimizer()
                     self.scheduler = self.configure_scheduler()
                     self.loss_metric = self.configure_loss()
@@ -166,7 +166,7 @@ class MyFinetuner(Fabric):
                     self.state['score_metric'] = f"{self.state.score_metric.major}/{self.state.score_metric.minor}"
                     for k in ('finetuning_model', 'optimizer', 'scheduler', 'loss_metric', 'score_metric'):
                         print(f"- {k:30s} = {self.state[k]}")
-                with MyTimer(verbose=self.is_global_zero, rb=1, rc='='):
+                with JobTimer(verbose=self.is_global_zero, rb=1, rc='='):
                     self.finetuning_model, self.optimizer = self.setup(self.finetuning_model, self.optimizer)
 
                 # READY(output)
@@ -192,12 +192,12 @@ class MyFinetuner(Fabric):
                 with StageMarker(self.global_rank, self.world_size, self.milestones,
                                  db_name=self.state.data_name, tab_name=tab_name, host=self.db_host, port=self.db_port) as marker:
                     for epoch in range(1, self.state.num_train_epochs + 1):
-                        with MyTimer(verbose=True, rb=1 if self.is_global_zero and epoch < self.state.num_train_epochs else 0):
+                        with JobTimer(verbose=True, rb=1 if self.is_global_zero and epoch < self.state.num_train_epochs else 0):
                             # INIT
                             current = f"(Epoch {epoch:02d})"
                             marker.initialize(stage=current)
                             metrics = {}
-                            with MyTimer(verbose=self.is_global_zero):
+                            with JobTimer(verbose=self.is_global_zero):
                                 print(self.time_tqdm.to_desc(pre=current, desc=f"composed #{self.global_rank + 1:01d}") + f": learning_rate={self.get_learning_rate():.10f}")
                             marker.mark_done("INIT", stage=current, state_table_file=stderr)
 
@@ -211,7 +211,7 @@ class MyFinetuner(Fabric):
                                         continue
                                     outputs = []
                                     dataloader = self.dataloader['train']
-                                    with MyTimer() as timer:
+                                    with JobTimer() as timer:
                                         tqdm = self.time_tqdm if self.is_global_zero else self.mute_tqdm
                                         for batch_idx, batch in enumerate(
                                                 tqdm(dataloader, position=self.global_rank,
@@ -239,7 +239,7 @@ class MyFinetuner(Fabric):
                                         continue
                                     outputs = []
                                     dataloader = self.dataloader[k]
-                                    with MyTimer() as timer:
+                                    with JobTimer() as timer:
                                         tqdm = self.time_tqdm if self.is_global_zero else self.mute_tqdm
                                         for batch_idx, batch in enumerate(
                                                 tqdm(dataloader, position=self.global_rank,
@@ -248,7 +248,7 @@ class MyFinetuner(Fabric):
                                             output = self.each_step(batch, batch_idx, input_keys=self.tokenizer.model_input_names)
                                             outputs.append(output)
                                     metrics[k] = self.outputs_to_metrics(outputs, timer=timer)
-                            with MyTimer(verbose=True):
+                            with JobTimer(verbose=True):
                                 for name, score in metrics.items():
                                     print(self.time_tqdm.to_desc(pre=current, desc=f"measured #{self.global_rank + 1:01d}") +
                                           f": {name:<5s} | {', '.join(f'{k}={score[k]:.4f}' for k in append_intersection(score.keys(), ['runtime']))}")
@@ -269,7 +269,7 @@ class MyFinetuner(Fabric):
                                     })
                                     self.state.records = logs["record"]
                                     save_attrs(self.state, file=logs["state_path"], keys=self.state.log_targets)
-                                with MyTimer(verbose=True):
+                                with JobTimer(verbose=True):
                                     if self.is_global_zero and logs["model_path"].exists():
                                         print(self.time_tqdm.to_desc(pre=current, desc=f"exported #{self.global_rank + 1:01d}") + f": model | {logs['model_path']}")
                                 marker.mark_done("SAVE", stage=current, state_table_file=stderr)
@@ -343,7 +343,7 @@ class MyFinetuner(Fabric):
         loss = self.loss_metric(input=p, target=y)
         return {'y': y, 'p': p, 'loss': loss}
 
-    def outputs_to_metrics(self, outputs, timer: Optional[MyTimer] = None) -> dict:
+    def outputs_to_metrics(self, outputs, timer: Optional[JobTimer] = None) -> dict:
         score = dict()
         if timer:
             score['runtime'] = timer.td.total_seconds()
@@ -359,7 +359,7 @@ class MyFinetuner(Fabric):
         return self.optimizer.param_groups[0]['lr']
 
     def load_tokenizer(self, verbose=True) -> None:
-        with MyTimer(verbose=verbose, mute_logger="transformers.tokenization_utils_base"):
+        with JobTimer(verbose=verbose, mute_logger="transformers.tokenization_utils_base"):
             if self.state.pretrained.type == 'morp':
                 self.tokenizer = KorbertTokenizer.from_pretrained(self.state.pretrained.path, max_len=self.state.max_sequence_length, use_fast=False, do_lower_case=False, tokenize_chinese_chars=False)
             elif self.state.pretrained.type == 'bbpe':
@@ -382,7 +382,7 @@ class MyFinetuner(Fabric):
 
     def prepare_datasets(self, verbose=True, draw_figure=False) -> None:
         # load datasets
-        with MyTimer(verbose=verbose):
+        with JobTimer(verbose=verbose):
             datasets.utils.logging.tqdm = self.time_tqdm if verbose else self.mute_tqdm
             data_files_to_load = {k: str(v) for k, v in self.state.data_files.items()
                                   if v and k in self.state.dataloader_splits and self.state.dataloader_splits[k]}
@@ -392,7 +392,7 @@ class MyFinetuner(Fabric):
                                                                 cache_dir=self.state.cached_home / self.state.data_name / self.state.data_part,
                                                                 data_files=data_files_to_load, download_mode=DownloadMode.REUSE_CACHE_IF_EXISTS)
             assert len(self.input_datasets.keys()) > 0
-        with MyTimer(verbose=verbose, rb=1):
+        with JobTimer(verbose=verbose, rb=1):
             self.check_datasets(name="raw_datasets")
 
         # shuffle datasets
@@ -412,12 +412,12 @@ class MyFinetuner(Fabric):
         self.load_tokenizer(verbose=verbose)
 
         # encode datasets
-        with MyTimer(verbose=verbose, rb=1):
+        with JobTimer(verbose=verbose, rb=1):
             self.input_datasets, counted_datasets = self.encode_datasets()
-        with MyTimer(verbose=verbose, rb=1):
+        with JobTimer(verbose=verbose, rb=1):
             self.check_datasets(name="encoded_datasets")
         if counted_datasets:
-            with MyTimer(verbose=verbose):
+            with JobTimer(verbose=verbose):
                 self.display_counts(counted_datasets, verbose=verbose, figure=draw_figure)
 
         # sample examples
@@ -534,7 +534,7 @@ class MyFinetuner(Fabric):
             }
             if verbose and figure:
                 display_histogram(encoded_lengths, title=f"sequence lengths in {split} dataset")
-            with MyTimer(verbose=verbose, rb=1):
+            with JobTimer(verbose=verbose, rb=1):
                 for text_field in encoded_lengths:
                     seq_lens = sorted(Counter(encoded_lengths[text_field]).items())
                     print(f"{self.time_tqdm.to_desc(pre=current, desc=f'#({text_field})')}: "
@@ -570,7 +570,7 @@ class MyFinetuner(Fabric):
             encoded_batch = self.encode_example_batch(self.sample_dataset)
             if self.sample_dataset:
                 for eid, example in enumerate(self.sample_dataset):
-                    with MyTimer(verbose=self.is_global_zero, rt=1):
+                    with JobTimer(verbose=self.is_global_zero, rt=1):
                         input_text = [example[x.colname] for x in (self.state.input_text1, self.state.input_text2) if x and x.type and x.colname]
                         print(f"- {f'encoded[{eid}].input_txt':30s} = {input_text}")
                         for column_name in encoded_batch.keys():
@@ -599,7 +599,7 @@ class MyFinetuner(Fabric):
                 *[torch.tensor(encoded_batch[input_name]) for input_name in self.tokenizer.model_input_names]
             )
             last_hidden = forwarded.last_hidden_state
-            with MyTimer(verbose=self.is_global_zero, rt=1):
+            with JobTimer(verbose=self.is_global_zero, rt=1):
                 sample_eid = 0
                 for column_name in self.tokenizer.model_input_names:
                     ids = encoded_batch[column_name][sample_eid]

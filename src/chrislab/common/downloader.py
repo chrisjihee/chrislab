@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 import datasets.utils.logging
-from chrisbase.io import files, MyTimer, file_size, file_mtime, make_parent_dir, pop_keys
+from chrisbase.io import files, JobTimer, file_size, file_mtime, make_parent_dir, pop_keys
 from chrisbase.morp import MorpClient
 from chrisbase.util import to_dataframe
 from chrislab.common.util import time_tqdm_cls, mute_tqdm_cls, MuteDatasetProgress
@@ -89,7 +89,7 @@ def reload_public_task_data(data_dir, data_name, sub_name):
     data_dir: Path = Path(data_dir)
     indir: Path = data_dir / data_name / sub_name
     data_files = {x.stem: str(x) for x in files(indir / "*.json") if x.stem != "info"}
-    with MyTimer(verbose=False):
+    with JobTimer(verbose=False):
         datasets.utils.logging.tqdm = mute_tqdm
         raw_datasets = load_dataset("json", data_files=data_files, field="data")
     results = []
@@ -117,14 +117,14 @@ def load_json_data(data_dir, data_name, sub_name):
     data_dir: Path = Path(data_dir)
     indir: Path = data_dir / data_name / sub_name
     data_files = {x.stem: str(x) for x in files(indir / "*.json") if x.stem != "info"}
-    with MyTimer(verbose=False):
+    with JobTimer(verbose=False):
         datasets.utils.logging.tqdm = mute_tqdm
         raw_datasets = load_dataset("json", data_files=data_files, field="data")
     return raw_datasets
 
 
 def add_column_with_token_tag(infile, outfile, suffix, targets, netloc="129.254.164.137:7100"):
-    with MyTimer(verbose=True, flush_sec=0.3):
+    with JobTimer(verbose=True, flush_sec=0.3):
         tagger = MorpClient(netloc=netloc)
         infile = Path(infile)
         outfile = make_parent_dir(outfile)
@@ -136,14 +136,14 @@ def add_column_with_token_tag(infile, outfile, suffix, targets, netloc="129.254.
                     if f'{target}_{suffix}' not in example:
                         example[f'{target}_{suffix}'] = tagger.token_tag(example[target])
                         num_update += 1
-    with MyTimer(verbose=True, flush_sec=0.3):
+    with JobTimer(verbose=True, flush_sec=0.3):
         if num_update > 0:
             with outfile.open('w') as out:
                 json.dump({"version": f"datasets_1.0", "data": contents['data']}, out, ensure_ascii=False, indent=4)
 
 
 def add_column_with_token_only(infile, outfile, suffix, targets, netloc="129.254.164.137:7105"):
-    with MyTimer(verbose=True, flush_sec=0.3):
+    with JobTimer(verbose=True, flush_sec=0.3):
         tagger = MorpClient(netloc=netloc)
         infile = Path(infile)
         outfile = make_parent_dir(outfile)
@@ -155,7 +155,7 @@ def add_column_with_token_only(infile, outfile, suffix, targets, netloc="129.254
                     if f'{target}_{suffix}' not in example:
                         example[f'{target}_{suffix}'] = tagger.token_only(example[target])
                         num_update += 1
-    with MyTimer(verbose=True, flush_sec=0.3):
+    with JobTimer(verbose=True, flush_sec=0.3):
         if num_update > 0:
             with outfile.open('w') as out:
                 json.dump({"version": f"datasets_1.0", "data": contents['data']}, out, ensure_ascii=False, indent=4)
