@@ -16,6 +16,7 @@ from tabulate import tabulate
 
 from chrisbase.io import BasicProjectEnv
 from chrisbase.io import make_dir, files_info, hr, load_attrs, merge_dicts, run_command
+from chrisbase.io import out_hr, out_table
 from chrisbase.io import running_file, working_gpus
 from chrisbase.time import now
 from chrisbase.util import number_only, NO, tupled, to_dataframe
@@ -52,6 +53,15 @@ class GpuProjectEnv(BasicProjectEnv):
             self.postfix = postfix
         if self.postfix:
             self.config_file = self.config_file.with_stem(self.config_file.stem + f"-{self.postfix}")
+        return self
+
+    def __enter__(self) -> GpuProjectEnv:
+        return self
+
+    def __exit__(self, type_, value, traceback_) -> GpuProjectEnv:
+        if self.running_file.suffix == '.py':
+            out_table(to_dataframe(self, columns=[GpuProjectEnv.__name__, "value"]))
+            out_hr(c='-')
         return self
 
 
