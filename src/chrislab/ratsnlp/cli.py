@@ -47,7 +47,7 @@ def train(config: str, prefix: str = "", postfix: str = ""):
             do_lower_case=False,
         )
         print(f"tokenizer={tokenizer}")
-        print(f"tokenized example={tokenizer.tokenize('안녕하세요. 반갑습니다.')}")
+        print(f"tokenized={tokenizer.tokenize('안녕하세요. 반갑습니다.')}")
         out_hr(c='-')
 
         corpus = NsmcCorpus()
