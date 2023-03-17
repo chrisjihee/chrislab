@@ -41,7 +41,7 @@ from transformers.modeling_outputs import SequenceClassifierOutput
 from transformers.tokenization_utils_base import TextInput, BatchEncoding, TruncationStrategy
 from transformers.utils import PaddingStrategy
 
-from chrisbase.io import JobTimer, load_attrs, merge_attrs, merge_dicts, copy_dict, set_tokenizers_parallelism, include_cuda_dir, set_torch_ext_path, file_table, make_dir, new_path, save_attrs, remove_dir_check
+from chrisbase.io import JobTimer, load_attrs, merge_attrs, merge_dicts, copy_dict, set_tokenizers_parallelism, include_cuda_bin_dir, set_torch_ext_path, file_table, make_dir, new_path, save_attrs, remove_dir_check
 from chrisbase.util import tupled, append_intersection, no_space, no_replacement, no_nonprintable, display_histogram, to_morphemes, OK
 from chrisdict import AttrDict
 from .modeling import BertHeadModel, T5HeadModel, additive_tokens_for_morp_tag
@@ -63,7 +63,6 @@ class MyFinetuner(Fabric):
     def __init__(
             self, config, prefix=None, postfix=None, save_cache=True, reset_cache=False,
             db_host="localhost", db_port=6382, milestones=("INIT", "TRAIN", "METER", "SAVE"),
-            cuda_paths=("/usr/local/cuda-12.0", "/usr/local/cuda-11.4", "/usr/local/cuda-11.3", "/usr/local/cuda-11.1", "/usr/local/cuda-11.0", "/usr/local/cuda")  # check for your environment
     ):
         self.state: AttrDict = load_attrs(config)
         self.state = merge_attrs(self.state, post={
@@ -100,7 +99,7 @@ class MyFinetuner(Fabric):
         self.cache_dirs = [self.state.cached_home]
         set_tokenizers_parallelism(False)
         if self.state.devices:
-            include_cuda_dir(cuda_paths)
+            include_cuda_bin_dir()
             set_torch_ext_path(dev=self.state.devices[0])
         super(MyFinetuner, self).__init__(precision=self.state.precision if 'precision' in self.state else 32,
                                           devices=self.state.devices if 'devices' in self.state else None,
