@@ -37,13 +37,13 @@ def train(config: str, prefix: str = "", postfix: str = ""):
         out_hr(c='-')
 
         Korpora.fetch(
-            corpus_name=args.downstream_corpus_name,
-            root_dir=args.downstream_corpus_root_dir,
+            corpus_name=args.downstream_data_name,
+            root_dir=args.downstream_data_home,
         )
         out_hr(c='-')
 
         tokenizer = BertTokenizer.from_pretrained(
-            args.pretrained_model_name,
+            args.pretrained_model_path,
             do_lower_case=False,
         )
         print(f"tokenizer={tokenizer}")
@@ -84,11 +84,11 @@ def train(config: str, prefix: str = "", postfix: str = ""):
         out_hr(c='-')
 
         pretrained_model_config = BertConfig.from_pretrained(
-            args.pretrained_model_name,
+            args.pretrained_model_path,
             num_labels=corpus.num_labels,
         )
         model = BertForSequenceClassification.from_pretrained(
-            args.pretrained_model_name,
+            args.pretrained_model_path,
             config=pretrained_model_config,
         )
         out_hr(c='-')
