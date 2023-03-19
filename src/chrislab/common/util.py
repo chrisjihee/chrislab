@@ -33,15 +33,16 @@ def num_cuda_devices():
 
 @dataclass
 class GpuProjectEnv(BasicProjectEnv):
-    working_gpus: str = field(default="0")
-    number_of_gpus: int = field(init=False, default=0)
+    working_gpus: str = field(default=None)
+    number_of_gpus: int = field(default=None)
     config_file: str | Path = field(default=None)
     postfix: str = field(default=None)
 
     def __post_init__(self):
         super().__post_init__()
-        self.working_gpus = working_gpus(self.working_gpus)
-        self.number_of_gpus = num_cuda_devices()
+        if self.working_gpus:
+            self.working_gpus = working_gpus(self.working_gpus)
+            self.number_of_gpus = num_cuda_devices()
         if not self.config_file:
             self.config_file = self.running_file.with_suffix('.json')
         else:
