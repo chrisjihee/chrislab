@@ -43,6 +43,7 @@ class GpuProjectEnv(BasicProjectEnv):
         if self.working_gpus:
             self.working_gpus = working_gpus(self.working_gpus)
             self.number_of_gpus = num_cuda_devices()
+        assert torch.cuda.is_available() and self.number_of_gpus > 0, "No GPU device or driver, or improperly installed torch"
         if not self.config_file:
             self.config_file = self.running_file.with_suffix('.json')
         else:
