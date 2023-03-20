@@ -35,26 +35,12 @@ def num_cuda_devices():
 class GpuProjectEnv(BasicProjectEnv):
     working_gpus: str = field(default="0")
     number_of_gpus: int = field(init=False, default=0)
-    config_file: str | Path = field(default=None)
-    postfix: str = field(default=None)
 
     def __post_init__(self):
         super().__post_init__()
         self.working_gpus = working_gpus(self.working_gpus)
         self.number_of_gpus = num_cuda_devices()
         assert torch.cuda.is_available() and self.number_of_gpus > 0, "No GPU device or driver, or improperly installed torch"
-        if not self.config_file:
-            self.config_file = self.running_file.with_suffix('.json')
-        else:
-            self.config_file = Path(self.config_file)
-        self.apply_postfix()
-
-    def apply_postfix(self, postfix=None):
-        if postfix:
-            self.postfix = postfix
-        if self.postfix:
-            self.config_file = self.config_file.with_stem(self.config_file.stem + f"-{self.postfix}")
-        return self
 
     def __enter__(self) -> GpuProjectEnv:
         return self

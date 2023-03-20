@@ -24,7 +24,7 @@ def check(config: str, prefix: str = "", postfix: str = ""):
 
 
 @app.command()
-def train(config: str, prefix: str = "", postfix: str = ""):
+def train(config: str | Path, prefix: str = "", postfix: str = ""):
     config = Path(config)
     args = ClassificationTrainArguments.from_json(config.read_text())
     out_table(to_dataframe(args, columns=[args.__class__.__name__, "value"]))
