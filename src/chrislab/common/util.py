@@ -14,9 +14,8 @@ from pymongo.collection import Collection
 from pymongo.typings import _DocumentType
 from tabulate import tabulate
 
-from chrisbase.io import BasicProjectEnv
+from chrisbase.io import BaseProjectEnv
 from chrisbase.io import make_dir, files_info, hr, load_attrs, merge_dicts, run_command
-from chrisbase.io import out_hr, out_table
 from chrisbase.io import running_file, working_gpus
 from chrisbase.time import now
 from chrisbase.util import number_only, NO, tupled, to_dataframe
@@ -32,7 +31,7 @@ def num_cuda_devices():
 
 
 @dataclass
-class GpuProjectEnv(BasicProjectEnv):
+class GpuProjectEnv(BaseProjectEnv):
     working_gpus: str = field(default="0")
     number_of_gpus: int = field(init=False, default=0)
 
@@ -41,15 +40,6 @@ class GpuProjectEnv(BasicProjectEnv):
         self.working_gpus = working_gpus(self.working_gpus)
         self.number_of_gpus = num_cuda_devices()
         assert torch.cuda.is_available() and self.number_of_gpus > 0, "No GPU device or driver, or improperly installed torch"
-
-    def __enter__(self) -> GpuProjectEnv:
-        return self
-
-    def __exit__(self, type_, value, traceback_) -> GpuProjectEnv:
-        if self.running_file.suffix == '.py':
-            out_table(to_dataframe(self, columns=[GpuProjectEnv.__name__, "value"]))
-            out_hr(c='-')
-        return self
 
 
 def copy_ipynb_for_run(infile, run_opts=None):
