@@ -9,7 +9,7 @@ from typer import Typer
 from chrisbase.io import JobTimer, out_hr, out_table
 from chrisbase.util import to_dataframe
 from ratsnlp import nlpbook
-from ratsnlp.nlpbook.classification import ClassificationTask
+from ratsnlp.nlpbook.classification import ClassificationTask, ClassificationDeployArguments
 from ratsnlp.nlpbook.classification import ClassificationTrainArguments
 from ratsnlp.nlpbook.classification import NsmcCorpus, ClassificationDataset
 from transformers import BertConfig, BertForSequenceClassification
@@ -19,7 +19,7 @@ app = Typer()
 
 
 @app.command()
-def check(config: str, prefix: str = "", postfix: str = ""):
+def check(config: str | Path, prefix: str = "", postfix: str = ""):
     print(f"config={config}, prefix={prefix}, postfix={postfix}")
 
 
@@ -102,5 +102,12 @@ def train(config: str | Path, prefix: str = "", postfix: str = ""):
 
 
 @app.command()
-def apply(config: str, prefix: str = "", postfix: str = ""):
-    print(f"config={config}, prefix={prefix}, postfix={postfix}")
+def deploy(config: str | Path, prefix: str = "", postfix: str = ""):
+    config = Path(config)
+    args = ClassificationDeployArguments.from_json(config.read_text())
+    out_table(to_dataframe(args, columns=[args.__class__.__name__, "value"]))
+    out_hr(c='-')
+
+    with JobTimer(f"chrialab.ratsnlp deploy(config={config}, prefix={prefix}, postfix={postfix})",
+                  mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
+        pass
