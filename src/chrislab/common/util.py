@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stderr, stdout
@@ -8,14 +9,14 @@ from time import sleep
 import datasets
 import torch
 import tqdm.std as tqdm_std
+from dataclasses_json import DataClassJsonMixin
 from pymongo import ASCENDING as ASC
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.typings import _DocumentType
 from tabulate import tabulate
 
-from chrisbase.io import BaseProjectEnv
-from chrisbase.io import make_dir, files_info, hr, load_attrs, merge_dicts, run_command
+from chrisbase.io import make_dir, files_info, hr, load_attrs, merge_dicts, run_command, get_hostname, get_hostaddr, cwd, first_or
 from chrisbase.io import running_file, working_gpus
 from chrisbase.time import now
 from chrisbase.util import number_only, NO, tupled, to_dataframe
@@ -31,6 +32,25 @@ def num_cuda_devices():
 
 
 @dataclass
+class BaseProjectEnv(DataClassJsonMixin):
+    env_type: str = field(init=False)
+    hostname: str = field(init=False)
+    hostaddr: str = field(init=False)
+    python_path: Path = field(init=False)
+    project_name: str = field()
+    working_path: Path = field(init=False)
+    running_file: Path = field(init=False)
+
+    def __post_init__(self):
+        self.env_type = self.__class__.__name__
+        self.hostname = get_hostname()
+        self.hostaddr = get_hostaddr()
+        self.python_path = Path(sys.executable)
+        self.working_path = cwd(first_or([x for x in running_file().parents if x.name.startswith(self.project_name)]))
+        self.running_file = running_file().relative_to(self.working_path)
+
+
+@dataclass
 class GpuProjectEnv(BaseProjectEnv):
     working_gpus: str = field(default="0")
     number_of_gpus: int = field(init=False, default=0)
@@ -39,7 +59,8 @@ class GpuProjectEnv(BaseProjectEnv):
         super().__post_init__()
         self.working_gpus = working_gpus(self.working_gpus)
         self.number_of_gpus = num_cuda_devices()
-        assert torch.cuda.is_available() and self.number_of_gpus > 0, "No GPU device or driver, or improperly installed torch"
+        assert torch.cuda.is_available() and self.number_of_gpus > 0, \
+            "No GPU device or driver, or improperly installed torch"
 
 
 def copy_ipynb_for_run(infile, run_opts=None):
