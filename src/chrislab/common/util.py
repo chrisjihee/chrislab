@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stderr, stdout
 from time import sleep
@@ -15,26 +14,12 @@ from pymongo.collection import Collection
 from pymongo.typings import _DocumentType
 from tabulate import tabulate
 
-from chrisbase.io import make_dir, files_info, dirs, exists_or, hr
 from chrisbase.io import load_attrs, merge_dicts
-from chrisbase.io import running_file, run_command
+from chrisbase.io import make_dir, files_info, dirs, exists_or, hr
 from chrisbase.io import prepend_to_global_path
-from chrisbase.io import BaseProjectEnv
+from chrisbase.io import running_file, run_command
 from chrisbase.time import now
 from chrisbase.util import number_only, NO, tupled, to_dataframe
-
-
-@dataclass
-class GpuProjectEnv(BaseProjectEnv):
-    working_gpus: str = field(default="0")
-    number_of_gpus: int = field(init=False, default=0)
-
-    def __post_init__(self):
-        super().__post_init__()
-        self.working_gpus = working_gpus(self.working_gpus)
-        self.number_of_gpus = num_cuda_devices()
-        assert torch.cuda.is_available() and self.number_of_gpus > 0, \
-            "No GPU device or driver, or improperly installed torch"
 
 
 def working_gpus(gpus=None):

@@ -1,34 +1,22 @@
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import ClassVar
 
 import pandas as pd
 from dataclasses_json import DataClassJsonMixin
 
+from chrisbase.io import ProjectEnv
 from chrisbase.io import files, make_parent_dir, out_hr, out_table
 from chrisbase.util import to_dataframe
-from chrislab.common.util import BaseProjectEnv, GpuProjectEnv
 
 
 @dataclass
 class ClassificationArguments(DataClassJsonMixin):
-    env_classes: ClassVar = {
-        "BaseProjectEnv": BaseProjectEnv,
-        "GpuProjectEnv": GpuProjectEnv,
-    }
-
-    @classmethod
-    def env_class(cls, env_type: str) -> BaseProjectEnv | GpuProjectEnv:
-        return cls.env_classes[env_type]
-
-    def env_data(self) -> GpuProjectEnv | BaseProjectEnv:
-        if isinstance(self.env, (GpuProjectEnv, BaseProjectEnv)):
+    def env_data(self) -> ProjectEnv:
+        if isinstance(self.env, ProjectEnv):
             return self.env
         else:
-            env_type = self.env["env_type"]
-            env_class = ClassificationArguments.env_class(env_type)
-            return env_class.from_dict(self.env)
+            return ProjectEnv.from_dict(self.env)
 
     def env_dict(self) -> dict:
         if isinstance(self.env, DataClassJsonMixin):
@@ -41,8 +29,8 @@ class ClassificationArguments(DataClassJsonMixin):
         self.working_config_file = self.env.running_file.with_suffix('.json').name
         self.downstream_model_home = Path(self.downstream_model_home)
 
-    env: GpuProjectEnv | BaseProjectEnv | dict = field(
-        metadata={"help": "current project environment (GpuProjectEnv)"}
+    env: ProjectEnv | dict = field(
+        metadata={"help": "current project environment"}
     )
     pretrained_model_path: Path | str | None = field(
         default="beomi/kcbert-base",
