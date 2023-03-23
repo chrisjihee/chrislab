@@ -15,8 +15,11 @@ from pymongo.collection import Collection
 from pymongo.typings import _DocumentType
 from tabulate import tabulate
 
-from chrisbase.io import make_dir, files_info, hr, load_attrs, merge_dicts, run_command, BaseProjectEnv, dirs, exists_or, prepend_to_global_path
-from chrisbase.io import running_file
+from chrisbase.io import make_dir, files_info, dirs, exists_or, hr
+from chrisbase.io import load_attrs, merge_dicts
+from chrisbase.io import running_file, run_command
+from chrisbase.io import prepend_to_global_path
+from chrisbase.io import BaseProjectEnv
 from chrisbase.time import now
 from chrisbase.util import number_only, NO, tupled, to_dataframe
 
