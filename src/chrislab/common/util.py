@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import sys
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stderr, stdout
@@ -9,45 +9,16 @@ from time import sleep
 import datasets
 import torch
 import tqdm.std as tqdm_std
-from dataclasses_json import DataClassJsonMixin
 from pymongo import ASCENDING as ASC
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.typings import _DocumentType
 from tabulate import tabulate
 
-from chrisbase.io import make_dir, files_info, hr, load_attrs, merge_dicts, run_command, get_hostname, get_hostaddr, cwd, first_or
-from chrisbase.io import running_file, working_gpus
+from chrisbase.io import make_dir, files_info, hr, load_attrs, merge_dicts, run_command, BaseProjectEnv, dirs, exists_or, prepend_to_global_path
+from chrisbase.io import running_file
 from chrisbase.time import now
 from chrisbase.util import number_only, NO, tupled, to_dataframe
-
-
-def num_cuda_devices():
-    from torch.cuda import _device_count_nvml
-    nvml_count = _device_count_nvml()
-    if nvml_count >= 0:
-        return nvml_count
-    else:
-        return torch.cuda.device_count()
-
-
-@dataclass
-class BaseProjectEnv(DataClassJsonMixin):
-    env_type: str = field(init=False)
-    hostname: str = field(init=False)
-    hostaddr: str = field(init=False)
-    python_path: Path = field(init=False)
-    project_name: str = field()
-    working_path: Path = field(init=False)
-    running_file: Path = field(init=False)
-
-    def __post_init__(self):
-        self.env_type = self.__class__.__name__
-        self.hostname = get_hostname()
-        self.hostaddr = get_hostaddr()
-        self.python_path = Path(sys.executable)
-        self.working_path = cwd(first_or([x for x in running_file().parents if x.name.startswith(self.project_name)]))
-        self.running_file = running_file().relative_to(self.working_path)
 
 
 @dataclass
@@ -61,6 +32,44 @@ class GpuProjectEnv(BaseProjectEnv):
         self.number_of_gpus = num_cuda_devices()
         assert torch.cuda.is_available() and self.number_of_gpus > 0, \
             "No GPU device or driver, or improperly installed torch"
+
+
+def working_gpus(gpus=None):
+    if gpus:
+        os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+        os.environ["CUDA_VISIBLE_DEVICES"] = gpus
+    return os.environ.get("CUDA_VISIBLE_DEVICES")
+
+
+def num_cuda_devices():
+    from torch.cuda import _device_count_nvml
+    nvml_count = _device_count_nvml()
+    if nvml_count >= 0:
+        return nvml_count
+    else:
+        return torch.cuda.device_count()
+
+
+def include_cuda_bin_dir(candidate_dirs=None) -> Path:
+    if candidate_dirs is None:
+        candidate_dirs = sorted(dirs("/usr/local/cuda*"), reverse=True)
+    cuda_dir = None
+    for candidate_dir in candidate_dirs:
+        if exists_or(candidate_dir) and exists_or(f"{candidate_dir}/bin"):
+            cuda_dir = Path(candidate_dir)
+            break
+    if cuda_dir:
+        prepend_to_global_path(f"{cuda_dir}/bin")
+    return cuda_dir
+
+
+def set_torch_ext_path(dev=1):
+    torch_ext_dir = Path(f"cache/torch_extensions/dev={dev}")
+    os.environ['TORCH_EXTENSIONS_DIR'] = f"{torch_ext_dir.absolute()}"
+
+
+def set_tokenizers_parallelism(value=False):
+    os.environ["TOKENIZERS_PARALLELISM"] = f"{value}".lower()
 
 
 def copy_ipynb_for_run(infile, run_opts=None):
