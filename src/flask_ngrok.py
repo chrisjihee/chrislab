@@ -4,6 +4,7 @@ import os
 import platform
 import shutil
 import subprocess
+import tarfile
 import tempfile
 import time
 import zipfile
@@ -35,13 +36,13 @@ def subdir():
     return "ngrok"
 
 
-def download_file(url, block_size=1024 * 4):
+def download_file(url, block_size=1024 * 4) -> Path:
     url_fname = url.split('/')[-1]
     r = requests.get(url, stream=True)
     total_size = int(r.headers.get('content-length', 0))
-    download_path = str(Path(tempfile.gettempdir(), url_fname))
+    download_path = Path(tempfile.gettempdir(), url_fname)
     with tqdm(total=total_size, unit='iB', unit_scale=True, desc=f"Download to {download_path}") as p:
-        with open(download_path, 'wb') as f:
+        with download_path.open('wb') as f:
             for data in r.iter_content(block_size):
                 p.update(len(data))
                 f.write(data)
@@ -72,8 +73,12 @@ def download_ngrok(to, ver=None):
         raise Exception(f"{system} is not supported")
     download_path = download_file(url)
     print(f"Extract to {to}")
-    with zipfile.ZipFile(download_path, "r") as zip_ref:
-        zip_ref.extractall(to)
+    if download_path.suffix == ".zip":
+        with zipfile.ZipFile(download_path, "r") as zip_ref:
+            zip_ref.extractall(to)
+    else:
+        with tarfile.open(download_path) as tar_ref:
+            tar_ref.extractall(to)
     if str(Path(to, fname())) != str(Path(to, fname(ver=ver))):
         print(f"Copy {Path(to, fname())} to {Path(to, fname(ver=ver))}")
         shutil.copy(Path(to, fname()), Path(to, fname(ver=ver)))
