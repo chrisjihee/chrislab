@@ -26,15 +26,15 @@ class ClassificationArguments(DataClassJsonMixin):
 
     def __post_init__(self):
         self.env = self.env_data()
-        self.working_config_file = self.env.running_file.with_suffix('.json').name
         self.downstream_model_home = Path(self.downstream_model_home)
+        self.working_config_file = self.downstream_model_home.with_suffix('.json').name
 
     env: ProjectEnv | dict = field(
         metadata={"help": "current project environment"}
     )
-    pretrained_model_path: Path | str | None = field(
-        default="beomi/kcbert-base",
-        metadata={"help": "name/path of pretrained model"}
+    downstream_task_name: str = field(
+        default="document-classification",
+        metadata={"help": "name of downstream task"}
     )
     downstream_model_home: Path | str | None = field(
         default=None,
@@ -44,25 +44,24 @@ class ClassificationArguments(DataClassJsonMixin):
         default=None,
         metadata={"help": "filename or filename format of output model"}
     )
-    downstream_task_name: str = field(
-        default="document-classification",
-        metadata={"help": "name of downstream task"}
+    pretrained_model_path: Path | str | None = field(
+        default="beomi/kcbert-base",
+        metadata={"help": "name/path of pretrained model"}
+    )
+    working_config_file: str | None = field(
+        init=False,
+        metadata={"help": "filename of current config"}
     )
     max_seq_length: int = field(
         default=128,
         metadata={"help": "The maximum total input sequence length after tokenization. "
                           "Sequences longer than this will be truncated, sequences shorter will be padded."}
     )
-    working_config_file: str | None = field(
-        init=False,
-        metadata={"help": "filename of current config"}
-    )
 
     def save_working_config(self, to: Path | str = None) -> Path:
         self.env = self.env_dict()
-        config_file = make_parent_dir(to) if to \
-            else make_parent_dir(self.downstream_model_home / self.working_config_file)
-        config_file.write_text(self.to_json(default=str, ensure_ascii=False, indent=2))
+        config_file = to if to else self.downstream_model_home.parent / self.working_config_file
+        make_parent_dir(config_file).write_text(self.to_json(default=str, ensure_ascii=False, indent=2))
         return config_file
 
     def as_dataframe(self):
