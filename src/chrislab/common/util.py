@@ -22,7 +22,7 @@ from chrisbase.time import now
 from chrisbase.util import number_only, NO, tupled, to_dataframe
 
 
-def working_gpus(gpus=None):
+def cuda_visible_devices(gpus=None):
     if gpus:
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         os.environ["CUDA_VISIBLE_DEVICES"] = gpus
