@@ -23,10 +23,11 @@ def get_trainer(args: ClassificationTrainArguments, return_trainer_only=True):
         num_sanity_val_steps=None if args.test_mode else 0,
         callbacks=[checkpoint_callback],
         default_root_dir=ckpt_path,
-        # For GPU Setup
         deterministic=torch.cuda.is_available() and args.seed is not None,
-        devices=torch.cuda.device_count() if torch.cuda.is_available() else None,
-        precision=16 if args.fp16 else 32,
+        accelerator=args.accelerator if args.accelerator else "auto",
+        precision=args.precision if args.precision else "32-true",
+        strategy=args.strategy if not args.strategy else "auto",
+        devices=args.devices if not args.devices else "auto",
     )
     if return_trainer_only:
         return trainer

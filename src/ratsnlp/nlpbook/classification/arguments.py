@@ -1,6 +1,7 @@
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import List
 
 import pandas as pd
 from dataclasses_json import DataClassJsonMixin
@@ -8,6 +9,8 @@ from dataclasses_json import DataClassJsonMixin
 from chrisbase.io import ProjectEnv
 from chrisbase.io import files, make_parent_dir, out_hr, out_table
 from chrisbase.util import to_dataframe
+from lightning.pytorch.accelerators import Accelerator
+from lightning.pytorch.strategies import Strategy
 
 
 @dataclass
@@ -134,9 +137,21 @@ class ClassificationTrainArguments(ClassificationArguments):
         default=os.cpu_count(),
         metadata={"help": "number of CPU workers"}
     )
-    fp16: bool = field(
-        default=False,
-        metadata={"help": "enable train on floating point 16"}
+    accelerator: str | Accelerator = field(
+        default="auto",
+        metadata={"help": 'accelerator types ("cpu", "gpu", "tpu", "ipu", "hpu", "mps", "auto")'}
+    )
+    precision: str | int = field(
+        default="32-true",
+        metadata={"help": "floating-point precision type"}
+    )
+    strategy: str | Strategy = field(
+        default="auto",
+        metadata={"help": 'training strategies'}
+    )
+    devices: List[int] | str | int = field(
+        default="auto",
+        metadata={"help": 'devices to use'}
     )
 
 
