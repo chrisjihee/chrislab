@@ -19,7 +19,12 @@ app = Typer()
 
 
 @app.command()
-def train(config: Path | str):
+def train_ner(config: Path | str):
+    config = Path(config)
+
+
+@app.command()
+def train_cls(config: Path | str):
     config = Path(config)
     assert config.exists(), f"No config file: {config}"
     args = ClassificationTrainArguments.from_json(config.read_text())
@@ -97,7 +102,7 @@ def train(config: Path | str):
 
 
 @app.command()
-def serve(config: Path | str):
+def serve_cls(config: Path | str):
     config = Path(config)
     assert config.exists(), f"No config file: {config}"
     args = ClassificationDeployArguments.from_json(config.read_text())
