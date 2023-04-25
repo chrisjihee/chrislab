@@ -58,17 +58,17 @@ class NERCorpus:
 
     def get_labels(self):
         label_map_path = os.path.join(
-            self.args.downstream_model_dir,
+            self.args.downstream_model_home,
             "label_map.txt",
         )
         if not os.path.exists(label_map_path):
             logger.info("processing NER tag dictionary...")
-            os.makedirs(self.args.downstream_model_dir, exist_ok=True)
+            os.makedirs(self.args.downstream_model_home, exist_ok=True)
             ner_tags = []
             regex_ner = re.compile('<(.+?):[A-Z]{3}>')
             train_corpus_path = os.path.join(
-                self.args.downstream_corpus_root_dir,
-                self.args.downstream_corpus_name,
+                self.args.downstream_data_home,
+                self.args.downstream_data_name,
                 "train.txt",
             )
             target_sentences = [line.split("\u241E")[1].strip()
@@ -265,13 +265,13 @@ class NERDataset(Dataset):
             raise KeyError(f"mode({mode}) is not a valid split name")
         # Load data features from cache or dataset file
         cached_features_file = os.path.join(
-            args.downstream_corpus_root_dir,
-            args.downstream_corpus_name,
+            args.downstream_data_home,
+            args.downstream_data_name,
             "cached_{}_{}_{}_{}_{}".format(
                 mode,
                 tokenizer.__class__.__name__,
                 str(args.max_seq_length),
-                args.downstream_corpus_name,
+                args.downstream_data_name,
                 args.downstream_task_name,
             ),
         )
@@ -289,8 +289,8 @@ class NERDataset(Dataset):
                 )
             else:
                 corpus_path = os.path.join(
-                    args.downstream_corpus_root_dir,
-                    args.downstream_corpus_name,
+                    args.downstream_data_home,
+                    args.downstream_data_name,
                 )
                 logger.info(f"Creating features from dataset file at {corpus_path}")
                 examples = self.corpus.get_examples(corpus_path, mode)
