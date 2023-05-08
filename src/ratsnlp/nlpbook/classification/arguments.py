@@ -30,7 +30,6 @@ class ClassificationArguments(DataClassJsonMixin):
     def __post_init__(self):
         self.env = self.env_data()
         self.downstream_model_home = Path(self.downstream_model_home)
-        self.working_config_file = self.downstream_model_home.with_suffix('.json').name
 
     env: ProjectEnv | dict = field(
         metadata={"help": "current project environment"}
@@ -52,7 +51,7 @@ class ClassificationArguments(DataClassJsonMixin):
         metadata={"help": "name/path of pretrained model"}
     )
     working_config_file: str | None = field(
-        init=False,
+        default=None,
         metadata={"help": "filename of current config"}
     )
     max_seq_length: int = field(
@@ -63,6 +62,7 @@ class ClassificationArguments(DataClassJsonMixin):
 
     def save_working_config(self, to: Path | str = None) -> Path:
         self.env = self.env_dict()
+        self.downstream_model_home = Path(self.downstream_model_home)
         config_file = to if to else self.downstream_model_home.parent / self.working_config_file
         make_parent_dir(config_file).write_text(self.to_json(default=str, ensure_ascii=False, indent=2))
         return config_file
@@ -85,9 +85,13 @@ class ClassificationArguments(DataClassJsonMixin):
 class ClassificationTrainArguments(ClassificationArguments):
     def __post_init__(self):
         super().__post_init__()
+        self.downstream_data_home = Path(self.downstream_data_home)
+        if not self.working_config_file:
+            self.working_config_file = self.downstream_model_home \
+                .with_stem(self.downstream_model_home.stem + "=train") \
+                .with_suffix('.json').name
         if not self.save_top_k:
             self.save_top_k = self.epochs
-        self.downstream_data_home = Path(self.downstream_data_home)
 
     downstream_data_home: Path | str | None = field(
         default="/content/Korpora",
@@ -159,6 +163,10 @@ class ClassificationTrainArguments(ClassificationArguments):
 class ClassificationDeployArguments(ClassificationArguments):
     def __post_init__(self):
         super().__post_init__()
+        if not self.working_config_file:
+            self.working_config_file = self.downstream_model_home \
+                .with_stem(self.downstream_model_home.stem + "=deploy") \
+                .with_suffix('.json').name
         if not self.downstream_model_file:
             assert self.downstream_model_home.exists() and self.downstream_model_home.is_dir(), \
                 f"downstream_model_path is not a directory: {self.downstream_model_home}"
