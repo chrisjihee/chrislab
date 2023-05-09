@@ -1,15 +1,16 @@
-import os
 import csv
-import time
-import torch
 import logging
-from filelock import FileLock
+import os
+import time
 from dataclasses import dataclass
 from typing import List, Optional
-from torch.utils.data.dataset import Dataset
-from transformers import PreTrainedTokenizer
-from ratsnlp.nlpbook.classification.arguments import ClassificationTrainArguments
 
+import torch
+from filelock import FileLock
+from torch.utils.data.dataset import Dataset
+
+from ratsnlp.nlpbook import NLUTrainerArguments
+from transformers import PreTrainedTokenizer
 
 logger = logging.getLogger("ratsnlp")
 
@@ -57,7 +58,7 @@ class NsmcCorpus:
 def _convert_examples_to_classification_features(
         examples: List[ClassificationExample],
         tokenizer: PreTrainedTokenizer,
-        args: ClassificationTrainArguments,
+        args: NLUTrainerArguments,
         label_list: List[str],
 ):
     label_map = {label: i for i, label in enumerate(label_list)}
@@ -101,7 +102,7 @@ class ClassificationDataset(Dataset):
 
     def __init__(
             self,
-            args: ClassificationTrainArguments,
+            args: NLUTrainerArguments,
             tokenizer: PreTrainedTokenizer,
             corpus,
             mode: Optional[str] = "train",

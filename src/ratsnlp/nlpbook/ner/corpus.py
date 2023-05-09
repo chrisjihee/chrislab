@@ -1,19 +1,19 @@
+import logging
 import os
 import re
 import time
-import torch
-import logging
-from filelock import FileLock
-from typing import List, Optional
 from dataclasses import dataclass
-from transformers import BertTokenizer
+from typing import List, Optional
+
+import torch
+from filelock import FileLock
 from torch.utils.data.dataset import Dataset
-from ratsnlp.nlpbook.ner import NERTrainArguments
+
+from ratsnlp.nlpbook import NLUTrainerArguments
+from transformers import BertTokenizer
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
 
-
 logger = logging.getLogger("ratsnlp")
-
 
 # 자체 제작 NER 코퍼스 기준의 레이블 시퀀스를 만들기 위한 ID 체계
 # 나 는 삼성 에 입사 했다
@@ -43,7 +43,7 @@ class NERCorpus:
 
     def __init__(
             self,
-            args: NERTrainArguments
+            args: NLUTrainerArguments
     ):
         self.args = args
 
@@ -204,54 +204,54 @@ def _process_target_sentence(
 def _convert_examples_to_ner_features(
         examples: List[NERExample],
         tokenizer: BertTokenizer,
-        args: NERTrainArguments,
+        args: NLUTrainerArguments,
         label_list: List[str],
         cls_token_at_end: Optional[bool] = False,
-    ):
-        """
-        `cls_token_at_end` define the location of the CLS token:
-                - False (Default, BERT/XLM pattern): [CLS] + A + [SEP] + B + [SEP]
-                - True (XLNet/GPT pattern): A + [SEP] + B + [SEP] + [CLS]
-        """
-        label_map = {label: i for i, label in enumerate(label_list)}
-        id_to_label = {i: label for i, label in enumerate(label_list)}
+):
+    """
+    `cls_token_at_end` define the location of the CLS token:
+            - False (Default, BERT/XLM pattern): [CLS] + A + [SEP] + B + [SEP]
+            - True (XLNet/GPT pattern): A + [SEP] + B + [SEP] + [CLS]
+    """
+    label_map = {label: i for i, label in enumerate(label_list)}
+    id_to_label = {i: label for i, label in enumerate(label_list)}
 
-        features = []
-        for example in examples:
-            tokens = tokenizer.tokenize(example.text)
-            inputs = tokenizer._encode_plus(
-                tokens,
-                max_length=args.max_seq_length,
-                truncation_strategy=TruncationStrategy.LONGEST_FIRST,
-                padding_strategy=PaddingStrategy.MAX_LENGTH,
-            )
-            label_ids = _process_target_sentence(
-                tokens=tokens,
-                origin_sentence=example.text,
-                target_sentence=example.label,
-                max_length=args.max_seq_length,
-                label_map=label_map,
-                tokenizer=tokenizer,
-                cls_token_at_end=cls_token_at_end,
-            )
-            features.append(NERFeatures(**inputs, label_ids=label_ids))
+    features = []
+    for example in examples:
+        tokens = tokenizer.tokenize(example.text)
+        inputs = tokenizer._encode_plus(
+            tokens,
+            max_length=args.max_seq_length,
+            truncation_strategy=TruncationStrategy.LONGEST_FIRST,
+            padding_strategy=PaddingStrategy.MAX_LENGTH,
+        )
+        label_ids = _process_target_sentence(
+            tokens=tokens,
+            origin_sentence=example.text,
+            target_sentence=example.label,
+            max_length=args.max_seq_length,
+            label_map=label_map,
+            tokenizer=tokenizer,
+            cls_token_at_end=cls_token_at_end,
+        )
+        features.append(NERFeatures(**inputs, label_ids=label_ids))
 
-        for i, example in enumerate(examples[:5]):
-            logger.info("*** Example ***")
-            logger.info("sentence: %s" % (example.text))
-            logger.info("target: %s" % (example.label))
-            logger.info("tokens: %s" % (" ".join(tokenizer.convert_ids_to_tokens(features[i].input_ids))))
-            logger.info("label: %s" % (" ".join([id_to_label[label_id] for label_id in features[i].label_ids])))
-            logger.info("features: %s" % features[i])
+    for i, example in enumerate(examples[:5]):
+        logger.info("*** Example ***")
+        logger.info("sentence: %s" % (example.text))
+        logger.info("target: %s" % (example.label))
+        logger.info("tokens: %s" % (" ".join(tokenizer.convert_ids_to_tokens(features[i].input_ids))))
+        logger.info("label: %s" % (" ".join([id_to_label[label_id] for label_id in features[i].label_ids])))
+        logger.info("features: %s" % features[i])
 
-        return features
+    return features
 
 
 class NERDataset(Dataset):
 
     def __init__(
             self,
-            args: NERTrainArguments,
+            args: NLUTrainerArguments,
             tokenizer: BertTokenizer,
             corpus: NERCorpus,
             mode: Optional[str] = "train",

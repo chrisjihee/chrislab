@@ -2,7 +2,7 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import ExponentialLR
 
 from lightning import LightningModule
-from ratsnlp.nlpbook.classification.arguments import ClassificationTrainArguments
+from ratsnlp.nlpbook import NLUTrainerArguments
 from ratsnlp.nlpbook.metrics import accuracy
 from transformers import PreTrainedModel
 
@@ -11,8 +11,8 @@ class ClassificationTask(LightningModule):
 
     def __init__(self,
                  model: PreTrainedModel,
-                 args: ClassificationTrainArguments,
-    ):
+                 args: NLUTrainerArguments,
+                 ):
         super().__init__()
         self.model = model
         self.args = args

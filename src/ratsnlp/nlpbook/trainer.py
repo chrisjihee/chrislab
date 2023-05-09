@@ -4,11 +4,10 @@ import torch
 
 from lightning import Trainer
 from lightning.pytorch.callbacks import ModelCheckpoint
-from ratsnlp.nlpbook.classification.arguments import ClassificationTrainArguments
-from ratsnlp.nlpbook.ner.arguments import NERTrainArguments
+from ratsnlp.nlpbook.arguments import NLUTrainerArguments
 
 
-def get_trainer(args: ClassificationTrainArguments | NERTrainArguments, return_trainer_only=True):
+def get_trainer(args: NLUTrainerArguments, return_trainer_only=True):
     ckpt_path = os.path.abspath(args.downstream_model_home)
     os.makedirs(ckpt_path, exist_ok=True)
     checkpoint_callback = ModelCheckpoint(
