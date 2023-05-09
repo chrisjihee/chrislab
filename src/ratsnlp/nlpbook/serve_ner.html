@@ -46,7 +46,7 @@
                 $("#result").html("");
                 $('#sentence').html(data.sentence);
                 for (i = 0; i < data.result.length; i++)
-                    $("#result").append("<tr><th scope=\"row\">" + i.toString() + "</th><td>" + data.result[i]['token'] + "</td><td>" + data.result[i]['predicted_tag'] + "</td><td>" + data.result[i]['top_prob'] + "</td></tr>");
+                    $("#result").append("<tr><th scope=\"row\">" + i.toString() + "</th><td>" + data.result[i]['token'] + "</td><td>" + data.result[i]['label'] + "</td><td>" + data.result[i]['prob'] + "</td></tr>");
                 $("#input").val("");
             },
             error: function (jqXhr, textStatus, errorThrown) {

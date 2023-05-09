@@ -8,11 +8,10 @@ from typer import Typer
 
 from chrisbase.io import JobTimer, out_hr
 from ratsnlp import nlpbook
-from ratsnlp.nlpbook.classification.arguments import ClassificationTrainArguments, ClassificationDeployArguments
+from ratsnlp.nlpbook.deploy import get_web_service_app
+from ratsnlp.nlpbook.arguments import NLUTrainerArguments, NLUServerArguments
 from ratsnlp.nlpbook.classification.corpus import NsmcCorpus, ClassificationDataset
-from ratsnlp.nlpbook.classification.deploy import get_web_service_app
 from ratsnlp.nlpbook.classification.task import ClassificationTask
-from ratsnlp.nlpbook.ner.arguments import NERTrainArguments
 from ratsnlp.nlpbook.ner.corpus import NERCorpus, NERDataset
 from ratsnlp.nlpbook.ner.task import NERTask
 from transformers import BertConfig, BertForSequenceClassification, BertForTokenClassification
@@ -25,11 +24,10 @@ app = Typer()
 def train_ner(config: Path | str):
     config = Path(config)
     assert config.exists(), f"No config file: {config}"
-    args = NERTrainArguments.from_json(config.read_text())
+    args = NLUTrainerArguments.from_json(config.read_text())
     args.print_dataframe()
 
-    with JobTimer(f"chrialab.ratsnlp train_ner {config}",
-                  mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
+    with JobTimer(f"chrialab.ratsnlp train_ner {config}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
         nlpbook.set_seed(args)
         nlpbook.set_logger()
         out_hr(c='-')
@@ -100,11 +98,10 @@ def train_ner(config: Path | str):
 def train_cls(config: Path | str):
     config = Path(config)
     assert config.exists(), f"No config file: {config}"
-    args = ClassificationTrainArguments.from_json(config.read_text())
+    args = NLUTrainerArguments.from_json(config.read_text())
     args.print_dataframe()
 
-    with JobTimer(f"chrialab.ratsnlp train_cls {config}",
-                  mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
+    with JobTimer(f"chrialab.ratsnlp train_cls {config}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
         nlpbook.set_seed(args)
         nlpbook.set_logger()
         out_hr(c='-')
@@ -175,24 +172,84 @@ def train_cls(config: Path | str):
 
 
 @app.command()
+def serve_ner(config: Path | str):
+    config = Path(config)
+    assert config.exists(), f"No config file: {config}"
+    args = NLUServerArguments.from_json(config.read_text())
+    args.print_dataframe()
+
+    with JobTimer(f"chrialab.ratsnlp serve {config}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
+        downstream_model_path = args.downstream_model_home / args.downstream_model_file
+        assert downstream_model_path.exists(), f"No downstream model file: {downstream_model_path}"
+        downstream_model_ckpt = torch.load(downstream_model_path, map_location=torch.device("cpu"))
+        pretrained_model_config = BertConfig.from_pretrained(
+            args.pretrained_model_path,
+            num_labels=downstream_model_ckpt['state_dict']['model.classifier.bias'].shape.numel(),
+        )
+        model = BertForTokenClassification(pretrained_model_config)
+        model.load_state_dict({k.replace("model.", ""): v for k, v in downstream_model_ckpt['state_dict'].items()})
+        model.eval()
+
+        tokenizer = BertTokenizer.from_pretrained(
+            args.pretrained_model_path,
+            do_lower_case=False,
+        )
+
+        downstream_label_path: Path = args.downstream_model_home / "label_map.txt"
+        assert downstream_label_path.exists(), f"No downstream label file: {downstream_label_path}"
+        labels = downstream_label_path.read_text().splitlines(keepends=False)
+        id_to_label = {idx: label for idx, label in enumerate(labels)}
+
+        def inference_fn(sentence):
+            from transformers.modeling_outputs import TokenClassifierOutput
+            from torch import Tensor
+            inputs = tokenizer(
+                [sentence],
+                max_length=args.max_seq_length,
+                padding="max_length",
+                truncation=True,
+            )
+            with torch.no_grad():
+                outputs: TokenClassifierOutput = model(**{k: torch.tensor(v) for k, v in inputs.items()})
+                all_probs: Tensor = outputs.logits[0].softmax(dim=1)
+                top_probs, top_preds = torch.topk(all_probs, dim=1, k=1)
+                tokens = tokenizer.convert_ids_to_tokens(inputs["input_ids"][0])
+                top_labels = [id_to_label[pred[0].item()] for pred in top_preds]
+                result = []
+                for token, label, top_prob in zip(tokens, top_labels, top_probs):
+                    if token in tokenizer.all_special_tokens:
+                        continue
+                    result.append({
+                        "token": token,
+                        "label": label,
+                        "prob": f"{round(top_prob[0].item(), 4):.4f}",
+                    })
+            return {
+                'sentence': sentence,
+                'result': result,
+            }
+
+        service = get_web_service_app(inference_fn, template_file="serve_ner.html", ngrok_home=args.env.working_path)
+        service.run()
+
+
+@app.command()
 def serve_cls(config: Path | str):
     config = Path(config)
     assert config.exists(), f"No config file: {config}"
-    args = ClassificationDeployArguments.from_json(config.read_text())
+    args = NLUServerArguments.from_json(config.read_text())
     args.print_dataframe()
 
-    with JobTimer(f"chrialab.ratsnlp serve {config}",
-                  mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
-        fine_tuned_model_ckpt = torch.load(
-            Path(args.downstream_model_home) / args.downstream_model_file,
-            map_location=torch.device("cpu")
-        )
+    with JobTimer(f"chrialab.ratsnlp serve {config}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
+        downstream_model_path = args.downstream_model_home / args.downstream_model_file
+        assert downstream_model_path.exists(), f"No downstream model file: {downstream_model_path}"
+        downstream_model_ckpt = torch.load(downstream_model_path, map_location=torch.device("cpu"))
         pretrained_model_config = BertConfig.from_pretrained(
             args.pretrained_model_path,
-            num_labels=fine_tuned_model_ckpt['state_dict']['model.classifier.bias'].shape.numel(),
+            num_labels=downstream_model_ckpt['state_dict']['model.classifier.bias'].shape.numel(),
         )
         model = BertForSequenceClassification(pretrained_model_config)
-        model.load_state_dict({k.replace("model.", ""): v for k, v in fine_tuned_model_ckpt['state_dict'].items()})
+        model.load_state_dict({k.replace("model.", ""): v for k, v in downstream_model_ckpt['state_dict'].items()})
         model.eval()
 
         tokenizer = BertTokenizer.from_pretrained(
@@ -216,11 +273,11 @@ def serve_cls(config: Path | str):
             return {
                 'sentence': sentence,
                 'prediction': pred,
-                'positive_data': f"긍정 {positive_prob}",
-                'negative_data': f"부정 {negative_prob}",
+                'positive_data': f"긍정 {positive_prob:.4f}",
+                'negative_data': f"부정 {negative_prob:.4f}",
                 'positive_width': f"{positive_prob * 100}%",
                 'negative_width': f"{negative_prob * 100}%",
             }
 
-        service = get_web_service_app(inference_fn, ngrok_home=args.env.working_path)
+        service = get_web_service_app(inference_fn, template_file="serve_cls.html", ngrok_home=args.env.working_path)
         service.run()

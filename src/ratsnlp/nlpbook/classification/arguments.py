@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from ratsnlp.nlpbook.arguments import NLUArguments, NLUTrainArguments, NLUDeployArguments
+from ratsnlp.nlpbook.arguments import NLUArguments, NLUTrainerArguments, NLUServerArguments
 
 
 @dataclass
@@ -9,10 +9,10 @@ class ClassificationArguments(NLUArguments):
 
 
 @dataclass
-class ClassificationTrainArguments(NLUTrainArguments):
+class ClassificationTrainArguments(NLUTrainerArguments):
     pass
 
 
 @dataclass
-class ClassificationDeployArguments(NLUDeployArguments):
+class ClassificationDeployArguments(NLUServerArguments):
     pass

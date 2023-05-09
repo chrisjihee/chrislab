@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify, render_template
 
 
-def get_web_service_app(inference_fn, ngrok_home=None):
+def get_web_service_app(inference_fn, template_file, ngrok_home=None):
     app = Flask(__name__, template_folder='')
     if ngrok_home:
         from flask_ngrok import run_with_ngrok
@@ -12,7 +12,7 @@ def get_web_service_app(inference_fn, ngrok_home=None):
 
     @app.route('/')
     def index():
-        return render_template('index.html')
+        return render_template(template_file)
 
     @app.route('/api', methods=['POST'])
     def api():

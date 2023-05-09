@@ -34,9 +34,9 @@ class NLUArguments(DataClassJsonMixin):
     env: ProjectEnv | dict = field(
         metadata={"help": "current project environment"}
     )
-    downstream_task_name: str = field(
-        default="document-classification",
-        metadata={"help": "name of downstream task"}
+    pretrained_model_path: Path | str | None = field(
+        default="beomi/kcbert-base",
+        metadata={"help": "name/path of pretrained model"}
     )
     downstream_model_home: Path | str | None = field(
         default=None,
@@ -46,9 +46,9 @@ class NLUArguments(DataClassJsonMixin):
         default=None,
         metadata={"help": "filename or filename format of output model"}
     )
-    pretrained_model_path: Path | str | None = field(
-        default="beomi/kcbert-base",
-        metadata={"help": "name/path of pretrained model"}
+    downstream_task_name: str | None = field(
+        default=None,
+        metadata={"help": "name of downstream task"}
     )
     working_config_file: str | None = field(
         default=None,
@@ -81,7 +81,7 @@ class NLUArguments(DataClassJsonMixin):
 
 
 @dataclass
-class NLUTrainArguments(NLUArguments):
+class NLUTrainerArguments(NLUArguments):
     def __post_init__(self):
         super().__post_init__()
         self.downstream_data_home = Path(self.downstream_data_home)
@@ -159,14 +159,14 @@ class NLUTrainArguments(NLUArguments):
 
 
 @dataclass
-class NLUDeployArguments(NLUArguments):
+class NLUServerArguments(NLUArguments):
     def __post_init__(self):
         super().__post_init__()
         assert self.downstream_model_home.exists(), f"downstream_model_home does not exist: {self.downstream_model_home}"
         assert self.downstream_model_home.is_dir(), f"downstream_model_home is not a directory: {self.downstream_model_home}"
         if not self.working_config_file:
             self.working_config_file = self.downstream_model_home \
-                .with_stem(self.downstream_model_home.stem + "=deploy") \
+                .with_stem(self.downstream_model_home.stem + "=serve") \
                 .with_suffix('.json').name
         if not self.downstream_model_file:
             ckpt_files = files(self.downstream_model_home / "*.ckpt")
