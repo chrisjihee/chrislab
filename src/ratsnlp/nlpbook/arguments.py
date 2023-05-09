@@ -14,7 +14,7 @@ from lightning.pytorch.strategies import Strategy
 
 
 @dataclass
-class NERArguments(DataClassJsonMixin):
+class NLUArguments(DataClassJsonMixin):
     def env_data(self) -> ProjectEnv:
         if isinstance(self.env, ProjectEnv):
             return self.env
@@ -35,7 +35,7 @@ class NERArguments(DataClassJsonMixin):
         metadata={"help": "current project environment"}
     )
     downstream_task_name: str = field(
-        default="named-entity-recognition",
+        default="document-classification",
         metadata={"help": "name of downstream task"}
     )
     downstream_model_home: Path | str | None = field(
@@ -81,7 +81,7 @@ class NERArguments(DataClassJsonMixin):
 
 
 @dataclass
-class NERTrainArguments(NERArguments):
+class NLUTrainArguments(NLUArguments):
     def __post_init__(self):
         super().__post_init__()
         self.downstream_data_home = Path(self.downstream_data_home)
@@ -159,7 +159,7 @@ class NERTrainArguments(NERArguments):
 
 
 @dataclass
-class NERDeployArguments(NERArguments):
+class NLUDeployArguments(NLUArguments):
     def __post_init__(self):
         super().__post_init__()
         assert self.downstream_model_home.exists(), f"downstream_model_home does not exist: {self.downstream_model_home}"
