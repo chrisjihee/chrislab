@@ -22,7 +22,7 @@ class NERTask(LightningModule):
         scheduler = ExponentialLR(optimizer, gamma=0.9)
         return {
             'optimizer': optimizer,
-            'scheduler': scheduler,
+            'lr_scheduler': scheduler,
         }
 
     def training_step(self, inputs, batch_idx):
