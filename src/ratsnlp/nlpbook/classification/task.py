@@ -1,7 +1,7 @@
+from pytorch_lightning import LightningModule
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import ExponentialLR
 
-from lightning import LightningModule
 from ratsnlp.nlpbook import NLUTrainerArguments
 from ratsnlp.nlpbook.metrics import accuracy
 from transformers import PreTrainedModel
@@ -22,7 +22,7 @@ class ClassificationTask(LightningModule):
         scheduler = ExponentialLR(optimizer, gamma=0.9)
         return {
             'optimizer': optimizer,
-            'lr_scheduler': scheduler,
+            'scheduler': scheduler,
         }
 
     def training_step(self, inputs, batch_idx):

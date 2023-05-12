@@ -1,7 +1,7 @@
+from pytorch_lightning import LightningModule
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import ExponentialLR
 
-from lightning import LightningModule
 from ratsnlp.nlpbook.metrics import accuracy
 from ratsnlp.nlpbook.qa import QATrainArguments
 from transformers import PreTrainedModel
@@ -12,7 +12,7 @@ class QATask(LightningModule):
     def __init__(self,
                  model: PreTrainedModel,
                  args: QATrainArguments,
-    ):
+                 ):
         super().__init__()
         self.model = model
         self.args = args

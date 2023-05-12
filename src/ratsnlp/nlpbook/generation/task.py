@@ -1,7 +1,7 @@
+from pytorch_lightning import LightningModule
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import ExponentialLR
 
-from lightning import LightningModule
 from ratsnlp.nlpbook.generation.arguments import GenerationTrainArguments
 from transformers import PreTrainedModel
 
@@ -11,7 +11,7 @@ class GenerationTask(LightningModule):
     def __init__(self,
                  model: PreTrainedModel,
                  args: GenerationTrainArguments,
-    ):
+                 ):
         super().__init__()
         self.model = model
         self.args = args

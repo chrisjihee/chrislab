@@ -1,7 +1,7 @@
+from pytorch_lightning import LightningModule
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import ExponentialLR
 
-from lightning import LightningModule
 from ratsnlp.nlpbook import NLUTrainerArguments
 from ratsnlp.nlpbook.metrics import accuracy
 from ratsnlp.nlpbook.ner import NER_PAD_ID

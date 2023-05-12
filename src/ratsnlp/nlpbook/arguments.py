@@ -5,12 +5,12 @@ from typing import List
 
 import pandas as pd
 from dataclasses_json import DataClassJsonMixin
+from pytorch_lightning.accelerators import Accelerator
+from pytorch_lightning.strategies import Strategy
 
 from chrisbase.io import ProjectEnv
 from chrisbase.io import files, make_parent_dir, out_hr, out_table
 from chrisbase.util import to_dataframe
-from lightning.pytorch.accelerators import Accelerator
-from lightning.pytorch.strategies import Strategy
 
 
 @dataclass
