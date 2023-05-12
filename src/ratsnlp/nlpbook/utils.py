@@ -27,7 +27,7 @@ REMOTE_DATA_MAP = {
             "fname": "klue_nli_dev.json",
         }
     },
-    "ner": {
+    "kmou-ner": {
         "train": {
             "googledrive_file_id": "1RP764owqs1kZeHcjFnCX7zXt2EcjGY1i",
             "fname": "train.txt",
