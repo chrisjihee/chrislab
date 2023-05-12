@@ -49,7 +49,7 @@ class NERTask(LightningModule):
         self.log("val_acc", acc, prog_bar=True, logger=True, on_step=False, on_epoch=True)
         return outputs.loss
 
-    def validation_epoch_end(
+    def x_validation_epoch_end(
         self, outputs: List[Dict[str, torch.Tensor]], data_type: str = "valid", write_predictions: bool = False
     ) -> None:
         """When validation step ends, either token- or character-level predicted

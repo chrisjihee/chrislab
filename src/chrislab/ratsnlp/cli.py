@@ -21,6 +21,61 @@ app = Typer()
 
 
 @app.command()
+def valid_ner(config: Path | str):
+    config = Path(config)
+    assert config.exists(), f"No config file: {config}"
+    args = NLUTrainerArguments.from_json(config.read_text())
+    args.print_dataframe()
+
+    with JobTimer(f"chrialab.ratsnlp train_ner {config}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
+        nlpbook.set_seed(args)
+        nlpbook.set_logger()
+        out_hr(c='-')
+
+        nlpbook.download_downstream_dataset(args)
+        out_hr(c='-')
+
+        tokenizer = BertTokenizer.from_pretrained(
+            args.pretrained_model_path,
+            do_lower_case=False,
+        )
+        out_hr(c='-')
+
+        corpus = NERCorpus(args)
+        val_dataset = NERDataset(
+            args=args,
+            corpus=corpus,
+            tokenizer=tokenizer,
+            mode="val",
+        )
+        val_dataloader = DataLoader(
+            val_dataset,
+            batch_size=args.batch_size,
+            sampler=SequentialSampler(val_dataset),
+            collate_fn=nlpbook.data_collator,
+            drop_last=False,
+            num_workers=args.cpu_workers,
+        )
+        out_hr(c='-')
+
+        pretrained_model_config = BertConfig.from_pretrained(
+            args.pretrained_model_path,
+            num_labels=corpus.num_labels,
+        )
+        model = BertForTokenClassification.from_pretrained(
+            args.pretrained_model_path,
+            config=pretrained_model_config,
+        )
+        out_hr(c='-')
+
+        torch.set_float32_matmul_precision('high')
+        nlpbook.get_trainer(args).validate(
+            NERTask(model, args),
+            dataloaders=val_dataloader,
+        )
+
+
+@app.command()
 def train_ner(config: Path | str):
     config = Path(config)
     assert config.exists(), f"No config file: {config}"
