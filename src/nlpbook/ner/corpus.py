@@ -3,13 +3,14 @@ import os
 import re
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List, Optional
 
 import torch
 from filelock import FileLock
 from torch.utils.data.dataset import Dataset
 
-from ratsnlp.nlpbook import NLUTrainerArguments
+from nlpbook.arguments import NLUTrainerArguments, NLUTesterArguments
 from transformers import BertTokenizer
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
 
@@ -43,15 +44,14 @@ class NERCorpus:
 
     def __init__(
             self,
-            args: NLUTrainerArguments
+            args: NLUTrainerArguments | NLUTesterArguments,
     ):
         self.args = args
 
-    def get_examples(self, data_root_path, mode):
-        data_fpath = os.path.join(data_root_path, f"{mode}.txt")
-        logger.info(f"loading {mode} data... LOOKING AT {data_fpath}")
+    def get_examples(self, data_path):
+        logger.info(f"loading data from {data_path}...")
         examples = []
-        for line in open(data_fpath, "r", encoding="utf-8").readlines():
+        for line in open(data_path, "r", encoding="utf-8").readlines():
             text, label = line.split("\u241E")
             examples.append(NERExample(text=text, label=label))
         return examples
@@ -251,24 +251,21 @@ class NERDataset(Dataset):
 
     def __init__(
             self,
-            args: NLUTrainerArguments,
+            args: NLUTrainerArguments | NLUTesterArguments,
             tokenizer: BertTokenizer,
             corpus: NERCorpus,
-            mode: Optional[str] = "train",
             convert_examples_to_features_fn=_convert_examples_to_ner_features,
     ):
         if corpus is not None:
             self.corpus = corpus
         else:
             raise KeyError("corpus is not valid")
-        if not mode in ["train", "val", "test"]:
-            raise KeyError(f"mode({mode}) is not a valid split name")
         # Load data features from cache or dataset file
         cached_features_file = os.path.join(
             args.downstream_data_home,
             args.downstream_data_name,
             "cached_{}_{}_{}_{}_{}".format(
-                mode,
+                Path(args.downstream_data_file).stem,
                 tokenizer.__class__.__name__,
                 str(args.max_seq_length),
                 args.downstream_data_name,
@@ -291,9 +288,10 @@ class NERDataset(Dataset):
                 corpus_path = os.path.join(
                     args.downstream_data_home,
                     args.downstream_data_name,
+                    args.downstream_data_file,
                 )
                 logger.info(f"Creating features from dataset file at {corpus_path}")
-                examples = self.corpus.get_examples(corpus_path, mode)
+                examples = self.corpus.get_examples(corpus_path)
                 self.features = convert_examples_to_features_fn(
                     examples,
                     tokenizer,

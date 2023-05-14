@@ -2,9 +2,10 @@ from pytorch_lightning import LightningModule
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import ExponentialLR
 
-from ratsnlp.nlpbook import NLUTrainerArguments
-from ratsnlp.nlpbook.metrics import accuracy
+from nlpbook.arguments import NLUTrainerArguments
+from nlpbook.metrics import accuracy
 from transformers import PreTrainedModel
+from transformers.modeling_outputs import SequenceClassifierOutput
 
 
 class ClassificationTask(LightningModule):
@@ -26,8 +27,7 @@ class ClassificationTask(LightningModule):
         }
 
     def training_step(self, inputs, batch_idx):
-        # outputs: SequenceClassifierOutput
-        outputs = self.model(**inputs)
+        outputs: SequenceClassifierOutput = self.model(**inputs)
         preds = outputs.logits.argmax(dim=-1)
         labels = inputs["labels"]
         acc = accuracy(preds, labels)
@@ -36,8 +36,7 @@ class ClassificationTask(LightningModule):
         return outputs.loss
 
     def validation_step(self, inputs, batch_idx):
-        # outputs: SequenceClassifierOutput
-        outputs = self.model(**inputs)
+        outputs: SequenceClassifierOutput = self.model(**inputs)
         preds = outputs.logits.argmax(dim=-1)
         labels = inputs["labels"]
         acc = accuracy(preds, labels)

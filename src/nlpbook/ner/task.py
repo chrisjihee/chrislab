@@ -5,17 +5,17 @@ from pytorch_lightning import LightningModule
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import ExponentialLR
 
-from ratsnlp.nlpbook import NLUTrainerArguments
-from ratsnlp.nlpbook.metrics import accuracy
-from ratsnlp.nlpbook.ner import NER_PAD_ID
+from nlpbook.arguments import NLUTrainerArguments, NLUTesterArguments
+from nlpbook.metrics import accuracy
+from nlpbook.ner import NER_PAD_ID
 from transformers import BertPreTrainedModel
+from transformers.modeling_outputs import TokenClassifierOutput
 
 
 class NERTask(LightningModule):
-
     def __init__(self,
                  model: BertPreTrainedModel,
-                 args: NLUTrainerArguments,
+                 args: NLUTrainerArguments | NLUTesterArguments,
                  ):
         super().__init__()
         self.model = model
@@ -30,8 +30,7 @@ class NERTask(LightningModule):
         }
 
     def training_step(self, inputs, batch_idx):
-        # outputs: TokenClassifierOutput
-        outputs = self.model(**inputs)
+        outputs: TokenClassifierOutput = self.model(**inputs)
         preds = outputs.logits.argmax(dim=-1)
         labels = inputs["labels"]
         acc = accuracy(preds, labels, ignore_index=NER_PAD_ID)
@@ -40,8 +39,7 @@ class NERTask(LightningModule):
         return outputs.loss
 
     def validation_step(self, inputs, batch_idx):
-        # outputs: TokenClassifierOutput
-        outputs = self.model(**inputs)
+        outputs: TokenClassifierOutput = self.model(**inputs)
         preds = outputs.logits.argmax(dim=-1)
         labels = inputs["labels"]
         acc = accuracy(preds, labels, ignore_index=NER_PAD_ID)
@@ -49,8 +47,17 @@ class NERTask(LightningModule):
         self.log("val_acc", acc, prog_bar=True, logger=True, on_step=False, on_epoch=True)
         return outputs.loss
 
+    def test_step(self, inputs, batch_idx):
+        outputs: TokenClassifierOutput = self.model(**inputs)
+        preds = outputs.logits.argmax(dim=-1)
+        labels = inputs["labels"]
+        acc = accuracy(preds, labels, ignore_index=NER_PAD_ID)
+        self.log("test_loss", outputs.loss, prog_bar=True, logger=True, on_step=False, on_epoch=True)
+        self.log("test_acc", acc, prog_bar=True, logger=True, on_step=False, on_epoch=True)
+        return outputs.loss
+
     def x_validation_epoch_end(
-        self, outputs: List[Dict[str, torch.Tensor]], data_type: str = "valid", write_predictions: bool = False
+            self, outputs: List[Dict[str, torch.Tensor]], data_type: str = "valid", write_predictions: bool = False
     ) -> None:
         """When validation step ends, either token- or character-level predicted
         labels are aligned with the original character-level labels and then

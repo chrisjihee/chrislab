@@ -1,18 +1,19 @@
+import json
+import logging
 import os
 import time
-import json
-import torch
-import logging
-from tqdm import tqdm
-from functools import partial
-from filelock import FileLock
 from dataclasses import dataclass
-from typing import List, Optional
+from functools import partial
 from multiprocessing import Pool, cpu_count
-from transformers import PreTrainedTokenizer
-from torch.utils.data.dataset import Dataset
-from ratsnlp.nlpbook.qa import QATrainArguments
+from typing import List, Optional
 
+import torch
+from filelock import FileLock
+from torch.utils.data.dataset import Dataset
+from tqdm import tqdm
+
+from nlpbook.qa import QATrainArguments
+from transformers import PreTrainedTokenizer
 
 logger = logging.getLogger("ratsnlp")
 
@@ -112,7 +113,7 @@ def _improve_answer_span(doc_tokens, input_start, input_end, tokenizer, orig_ans
     tok_answer_text = " ".join(tokenizer.tokenize(orig_answer_text))
     for new_start in range(input_start, input_end + 1):
         for new_end in range(input_end, new_start - 1, -1):
-            text_span = " ".join(doc_tokens[new_start : (new_end + 1)])
+            text_span = " ".join(doc_tokens[new_start: (new_end + 1)])
             if text_span == tok_answer_text:
                 return new_start, new_end
     return input_start, input_end
@@ -244,7 +245,7 @@ def _squad_convert_example_to_features(example, max_seq_length, doc_stride, max_
         spans.append(encoded_dict)
 
         if "overflowing_tokens" not in encoded_dict or (
-            "overflowing_tokens" in encoded_dict and len(encoded_dict["overflowing_tokens"]) == 0
+                "overflowing_tokens" in encoded_dict and len(encoded_dict["overflowing_tokens"]) == 0
         ):
             break
         # tokenizer.encode_plus에서 return_overflowing_tokens=True로 켜면

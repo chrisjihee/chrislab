@@ -9,25 +9,23 @@ import torch
 from filelock import FileLock
 from torch.utils.data.dataset import Dataset
 
-from ratsnlp.nlpbook import NLUTrainerArguments
-from transformers import PreTrainedTokenizer
+from nlpbook.generation.arguments import GenerationTrainArguments
+from transformers import PreTrainedTokenizerFast
 
 logger = logging.getLogger("ratsnlp")
 
 
 @dataclass
-class ClassificationExample:
-    text_a: str
-    text_b: Optional[str] = None
-    label: Optional[str] = None
+class GenerationExample:
+    text: str
 
 
 @dataclass
-class ClassificationFeatures:
+class GenerationFeatures:
     input_ids: List[int]
     attention_mask: Optional[List[int]] = None
     token_type_ids: Optional[List[int]] = None
-    label: Optional[int] = None
+    labels: Optional[List[int]] = None
 
 
 class NsmcCorpus:
@@ -35,41 +33,38 @@ class NsmcCorpus:
     def __init__(self):
         pass
 
-    def get_examples(self, data_root_path, mode):
-        data_fpath = os.path.join(data_root_path, f"ratings_{mode}.txt")
-        logger.info(f"loading {mode} data... LOOKING AT {data_fpath}")
-        lines = list(csv.reader(open(data_fpath, "r", encoding="utf-8"), delimiter="\t", quotechar='"'))
+    def _read_corpus(cls, input_file, quotechar='"'):
+        with open(input_file, "r", encoding="utf-8") as f:
+            return list(csv.reader(f, delimiter="\t", quotechar=quotechar))
+
+    def _create_examples(self, lines):
         examples = []
         for (i, line) in enumerate(lines):
             if i == 0:
                 continue
-            _, text_a, label = line
-            examples.append(ClassificationExample(text_a=text_a, text_b=None, label=label))
+            _, review_sentence, sentiment = line
+            sentiment = "긍정" if sentiment == "1" else "부정"
+            text = sentiment + " " + review_sentence
+            examples.append(GenerationExample(text=text))
         return examples
 
-    def get_labels(self):
-        return ["0", "1"]
-
-    @property
-    def num_labels(self):
-        return len(self.get_labels())
+    def get_examples(self, data_root_path, mode):
+        data_fpath = os.path.join(data_root_path, f"ratings_{mode}.txt")
+        logger.info(f"loading {mode} data... LOOKING AT {data_fpath}")
+        return self._create_examples(self._read_corpus(data_fpath))
 
 
-def _convert_examples_to_classification_features(
-        examples: List[ClassificationExample],
-        tokenizer: PreTrainedTokenizer,
-        args: NLUTrainerArguments,
-        label_list: List[str],
+def _convert_examples_to_generation_features(
+        examples: List[GenerationExample],
+        tokenizer: PreTrainedTokenizerFast,
+        args: GenerationTrainArguments,
 ):
-    label_map = {label: i for i, label in enumerate(label_list)}
-    labels = [label_map[example.label] for example in examples]
-
     logger.info(
         "tokenize sentences, it could take a lot of time..."
     )
     start = time.time()
     batch_encoding = tokenizer(
-        [(example.text_a, example.text_b) for example in examples],
+        [example.text for example in examples],
         max_length=args.max_seq_length,
         padding="max_length",
         truncation=True,
@@ -81,32 +76,27 @@ def _convert_examples_to_classification_features(
     features = []
     for i in range(len(examples)):
         inputs = {k: batch_encoding[k][i] for k in batch_encoding}
-        feature = ClassificationFeatures(**inputs, label=labels[i])
+        feature = GenerationFeatures(**inputs, labels=batch_encoding["input_ids"][i])
         features.append(feature)
 
     for i, example in enumerate(examples[:5]):
         logger.info("*** Example ***")
-        if example.text_b is None:
-            logger.info("sentence: %s" % (example.text_a))
-        else:
-            sentence = example.text_a + " + " + example.text_b
-            logger.info("sentence A, B: %s" % (sentence))
+        logger.info("sentence: %s" % (example.text))
         logger.info("tokens: %s" % (" ".join(tokenizer.convert_ids_to_tokens(features[i].input_ids))))
-        logger.info("label: %s" % (example.label))
         logger.info("features: %s" % features[i])
 
     return features
 
 
-class ClassificationDataset(Dataset):
+class GenerationDataset(Dataset):
 
     def __init__(
             self,
-            args: NLUTrainerArguments,
-            tokenizer: PreTrainedTokenizer,
+            args: GenerationTrainArguments,
+            tokenizer: PreTrainedTokenizerFast,
             corpus,
             mode: Optional[str] = "train",
-            convert_examples_to_features_fn=_convert_examples_to_classification_features,
+            convert_examples_to_features_fn=_convert_examples_to_generation_features,
     ):
         if corpus is not None:
             self.corpus = corpus
@@ -116,13 +106,13 @@ class ClassificationDataset(Dataset):
             raise KeyError(f"mode({mode}) is not a valid split name")
         # Load data features from cache or dataset file
         cached_features_file = os.path.join(
-            args.downstream_data_home,
-            args.downstream_data_name,
+            args.downstream_corpus_root_dir,
+            args.downstream_corpus_name,
             "cached_{}_{}_{}_{}_{}".format(
                 mode,
                 tokenizer.__class__.__name__,
                 str(args.max_seq_length),
-                args.downstream_data_name,
+                args.downstream_corpus_name,
                 args.downstream_task_name,
             ),
         )
@@ -140,16 +130,16 @@ class ClassificationDataset(Dataset):
                 )
             else:
                 corpus_path = os.path.join(
-                    args.downstream_data_home,
-                    args.downstream_data_name,
+                    args.downstream_corpus_root_dir,
+                    args.downstream_corpus_name,
                 )
                 logger.info(f"Creating features from dataset file at {corpus_path}")
                 examples = self.corpus.get_examples(corpus_path, mode)
+                tokenizer.pad_token = tokenizer.eos_token
                 self.features = convert_examples_to_features_fn(
                     examples,
                     tokenizer,
                     args,
-                    label_list=self.corpus.get_labels(),
                 )
                 start = time.time()
                 logger.info(

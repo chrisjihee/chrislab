@@ -1,7 +1,7 @@
 import os
 import json
 import logging
-from ratsnlp.nlpbook.classification.corpus import ClassificationExample
+from nlpbook.cls.corpus import ClassificationExample
 
 
 logger = logging.getLogger("ratsnlp")
