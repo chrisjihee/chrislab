@@ -73,7 +73,7 @@ class NLUArguments(DataClassJsonMixin):
         metadata={"help": "filename of downstream data"}
     )
     overwrite_cache: bool = field(
-        default=False,
+        default=True,  # TODO: after debugging, change to False
         metadata={"help": "overwrite the cached training and evaluation sets"}
     )
     force_download: bool = field(
