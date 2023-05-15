@@ -12,8 +12,7 @@ from nlpbook.arguments import NLUTrainerArguments, NLUServerArguments
 from nlpbook.cls.corpus import NsmcCorpus, ClassificationDataset
 from nlpbook.cls.task import ClassificationTask
 from nlpbook.deploy import get_web_service_app
-from transformers import BertConfig, BertForSequenceClassification
-from transformers import BertTokenizer
+from transformers import BertConfig, BertForSequenceClassification, PreTrainedTokenizerFast, AutoTokenizer
 
 app = Typer()
 
@@ -36,10 +35,8 @@ def train_cls(config: Path | str):
         )
         out_hr(c='-')
 
-        tokenizer = BertTokenizer.from_pretrained(
-            args.pretrained_model_path,
-            do_lower_case=False,
-        )
+        tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
+        assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
         print(f"tokenizer={tokenizer}")
         print(f"tokenized={tokenizer.tokenize('안녕하세요. 반갑습니다.')}")
         out_hr(c='-')
@@ -114,7 +111,8 @@ def serve_cls(config: Path | str):
         model.load_state_dict({k.replace("model.", ""): v for k, v in downstream_model_ckpt['state_dict'].items()})
         model.eval()
 
-        tokenizer = BertTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
+        tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
+        assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
 
         def inference_fn(sentence):
             inputs = tokenizer(

@@ -5,14 +5,13 @@ from torch.utils.data import DataLoader, RandomSampler
 from torch.utils.data import SequentialSampler
 from typer import Typer
 
-from chrisbase.io import JobTimer, out_hr
 import nlpbook
+from chrisbase.io import JobTimer, out_hr
 from nlpbook.arguments import NLUTrainerArguments, NLUServerArguments, NLUTesterArguments
 from nlpbook.deploy import get_web_service_app
 from nlpbook.ner.corpus import NERCorpus, NERDataset
 from nlpbook.ner.task import NERTask
-from transformers import BertConfig, BertForTokenClassification
-from transformers import BertTokenizer
+from transformers import BertConfig, BertForTokenClassification, PreTrainedTokenizerFast, AutoTokenizer
 
 app = Typer()
 
@@ -31,7 +30,8 @@ def train_ner(config: Path | str):
         out_hr(c='-')
 
         corpus = NERCorpus(args)
-        tokenizer = BertTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
+        tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
+        assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
         train_dataset = NERDataset(args=args, corpus=corpus, tokenizer=tokenizer)
         train_dataloader = DataLoader(train_dataset,
                                       batch_size=args.batch_size,
@@ -81,7 +81,8 @@ def test_ner(config: Path | str):
         out_hr(c='-')
 
         corpus = NERCorpus(args)
-        tokenizer = BertTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
+        tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
+        assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
         test_dataset = NERDataset(args=args, corpus=corpus, tokenizer=tokenizer)
         test_dataloader = DataLoader(test_dataset,
                                      batch_size=args.batch_size,
@@ -126,7 +127,8 @@ def serve_ner(config: Path | str):
         model.load_state_dict({k.replace("model.", ""): v for k, v in downstream_model_ckpt['state_dict'].items()})
         model.eval()
 
-        tokenizer = BertTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
+        tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
+        assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
         downstream_label_path: Path = args.downstream_model_home / "label_map.txt"
         assert downstream_label_path.exists(), f"No downstream label file: {downstream_label_path}"
         labels = downstream_label_path.read_text().splitlines(keepends=False)
