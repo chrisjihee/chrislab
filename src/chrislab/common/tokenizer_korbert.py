@@ -153,35 +153,35 @@ class KorbertWordpieceTokenizer(WordpieceTokenizer):
 
 if __name__ == "__main__":
     tokenizer1A = AutoTokenizer.from_pretrained(
-        "pretrained/KoELECTRA-Base-v3",
+        "model/pretrained-com/KcELECTRA-Base",
         max_len=512,
         use_fast=True,
     )
     tokenizer1B = BertTokenizer(
-        vocab_file="pretrained/KoELECTRA-Base-v3/vocab.txt",
+        vocab_file="model/pretrained-com/KcELECTRA-Base/vocab.txt",
         do_lower_case=False,
         tokenize_chinese_chars=False,
     )
     tokenizer2A = KorbertTokenizer.from_pretrained(
-        "pretrained/ELECTRA-morp20.05",
+        "model/pretrained-pro/ETRI-ELECTRA-Base-morp20.05",
         max_len=512,
         use_fast=False,
         do_lower_case=False,
         tokenize_chinese_chars=False,
     )
     tokenizer2B = KorbertTokenizer(
-        vocab_file="pretrained/ELECTRA-morp20.05/vocab.txt",
+        vocab_file="model/pretrained-pro/ETRI-ELECTRA-Base-morp20.05/vocab.txt",
         do_lower_case=False,
     )
     tokenizer3A = AutoTokenizer.from_pretrained(
-        "pretrained/RoBERTa-bbpe21.07-added",
+        "model/pretrained-pro/ETRI-RoBERTa-Base-bbpe22.07",
         max_len=512,
         use_fast=False,
         do_lower_case=False,
     )
     tokenizer3B = RobertaTokenizer(
-        "pretrained/RoBERTa-bbpe21.07-added/vocab.json",
-        "pretrained/RoBERTa-bbpe21.07-added/merges.txt",
+        "model/pretrained-pro/ETRI-RoBERTa-Base-bbpe22.07/vocab.json",
+        "model/pretrained-pro/ETRI-RoBERTa-Base-bbpe22.07/merges.txt",
         max_len=512,
         use_fast=False,
         do_lower_case=False,
@@ -202,7 +202,7 @@ if __name__ == "__main__":
     #                         "/XPN", "/XSN", "/XSV", "/XSA", "/XR",  # 33
     #                         "/SF", "/SP", "/SS", "/SE", "/SO",  # 38
     #                         "/SW", "/SL", "/SH", "/SN"])  # 42
-    bbpe_tokenizer = ByteLevelBPETokenizer("pretrained/RoBERTa-bbpe21.07-added/vocab.json", "pretrained/RoBERTa-bbpe21.07-added/merges.txt", lowercase=False)
+    bbpe_tokenizer = ByteLevelBPETokenizer("model/pretrained-pro/ETRI-RoBERTa-Base-bbpe22.07/vocab.json", "model/pretrained-pro/ETRI-RoBERTa-Base-bbpe22.07/merges.txt", lowercase=False)
     # bbpe_tokenizer.add_tokens(["/NN", "/NP", "/NR", "/VV", "/VA",
     #                            "/VX", "/VC", "/MM", "/MA", "/IC",
     #                            "/JK", "/JX", "/JC", "/EP", "/EF",
@@ -222,7 +222,7 @@ if __name__ == "__main__":
     print(f"tokenizer3B(#={len(tokenizer3B)})({type(tokenizer3B)}) = {tokenizer3B}")
     print(f"bbpe_tokenizer()({type(bbpe_tokenizer)}) = {bbpe_tokenizer}")
     vocab_items = []
-    with Path("pretrained/RoBERTa-bbpe21.07-added/vocab.json").open() as inp, Path("pretrained/RoBERTa-bbpe21.07-added/vocab_items.txt").open('w') as out:
+    with Path("model/pretrained-pro/ETRI-RoBERTa-Base-bbpe22.07/vocab.json").open() as inp, Path("model/pretrained-pro/ETRI-RoBERTa-Base-bbpe22.07/vocab_items.txt").open('w') as out:
         for t, i in list(json.load(inp).items()):
             vocab_items.append({
                 'id': i,
