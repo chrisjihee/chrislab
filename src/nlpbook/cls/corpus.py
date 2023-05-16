@@ -36,10 +36,9 @@ class NsmcCorpus:
     def __init__(self):
         pass
 
-    def get_examples(self, data_root_path, mode):
-        data_fpath = os.path.join(data_root_path, f"ratings_{mode}.txt")
-        logger.info(f"loading {mode} data... LOOKING AT {data_fpath}")
-        lines = list(csv.reader(open(data_fpath, "r", encoding="utf-8"), delimiter="\t", quotechar='"'))
+    def get_examples(self, data_path):
+        logger.info(f"loading data from {data_path}...")
+        lines = list(csv.reader(open(data_path, "r", encoding="utf-8"), delimiter="\t", quotechar='"'))
         examples = []
         for (i, line) in enumerate(lines):
             if i == 0:
@@ -103,6 +102,7 @@ class ClassificationDataset(Dataset):
 
     def __init__(
             self,
+            split: str,
             args: NLUTrainerArguments,
             tokenizer: PreTrainedTokenizer,
             corpus,
@@ -133,7 +133,7 @@ class ClassificationDataset(Dataset):
         lock_path = cached_features_file + ".lock"
         with FileLock(lock_path):
 
-            if os.path.exists(cached_features_file) and not args.overwrite_cache:
+            if os.path.exists(cached_features_file) and not args.downstream_data_caching:
                 start = time.time()
                 self.features = torch.load(cached_features_file)
                 logger.info(

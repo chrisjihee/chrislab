@@ -12,13 +12,13 @@ from nlpbook.arguments import NLUTrainerArguments, NLUServerArguments
 from nlpbook.cls.corpus import NsmcCorpus, ClassificationDataset
 from nlpbook.cls.task import ClassificationTask
 from nlpbook.deploy import get_web_service_app
-from transformers import BertConfig, BertForSequenceClassification, PreTrainedTokenizerFast, AutoTokenizer
+from transformers import BertConfig, BertForSequenceClassification, PreTrainedTokenizerFast, AutoTokenizer, BertTokenizer
 
 app = Typer()
 
 
 @app.command()
-def train_cls(config: Path | str):
+def train(config: Path | str):
     config = Path(config)
     assert config.exists(), f"No config file: {config}"
     args = NLUTrainerArguments.from_json(config.read_text())
@@ -35,19 +35,15 @@ def train_cls(config: Path | str):
         )
         out_hr(c='-')
 
-        tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
-        assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
+        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
+        # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False, use_fast=True)
+        # assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
         print(f"tokenizer={tokenizer}")
         print(f"tokenized={tokenizer.tokenize('안녕하세요. 반갑습니다.')}")
         out_hr(c='-')
 
         corpus = NsmcCorpus()
-        train_dataset = ClassificationDataset(
-            args=args,
-            corpus=corpus,
-            tokenizer=tokenizer,
-            mode="train",
-        )
+        train_dataset = ClassificationDataset(args=args, corpus=corpus, tokenizer=tokenizer)
         train_dataloader = DataLoader(
             train_dataset,
             batch_size=args.batch_size,
@@ -58,12 +54,7 @@ def train_cls(config: Path | str):
         )
         out_hr(c='-')
 
-        val_dataset = ClassificationDataset(
-            args=args,
-            corpus=corpus,
-            tokenizer=tokenizer,
-            mode="test",
-        )
+        val_dataset = ClassificationDataset(args=args, corpus=corpus, tokenizer=tokenizer)
         val_dataloader = DataLoader(
             val_dataset,
             batch_size=args.batch_size,
@@ -93,7 +84,7 @@ def train_cls(config: Path | str):
 
 
 @app.command()
-def serve_cls(config: Path | str):
+def serve(config: Path | str):
     config = Path(config)
     assert config.exists(), f"No config file: {config}"
     args = NLUServerArguments.from_json(config.read_text())
@@ -111,8 +102,10 @@ def serve_cls(config: Path | str):
         model.load_state_dict({k.replace("model.", ""): v for k, v in downstream_model_ckpt['state_dict'].items()})
         model.eval()
 
-        tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
-        assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
+        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
+
+        # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False, use_fast=True)
+        # assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
 
         def inference_fn(sentence):
             inputs = tokenizer(

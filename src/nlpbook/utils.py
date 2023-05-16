@@ -174,14 +174,14 @@ def download_downstream_dataset(args):
                     url=value["web_url"],
                     save_fname=value["fname"],
                     cache_dir=cache_dir,
-                    force_download=args.force_download,
+                    force_download=args.downstream_data_download,
                 )
             else:
                 google_download(
                     file_id=value["googledrive_file_id"],
                     save_fname=value["fname"],
                     cache_dir=cache_dir,
-                    force_download=args.force_download
+                    force_download=args.downstream_data_download
                 )
     else:
         raise ValueError(f"not valid data name({data_name}), cannot download resources")
@@ -197,14 +197,12 @@ def download_pretrained_model(args, config_only=False):
                         url=value["web_url"],
                         save_fname=value["fname"],
                         cache_dir=args.pretrained_model_cache_dir,
-                        force_download=args.force_download,
                     )
                 else:
                     google_download(
                         file_id=value["googledrive_file_id"],
                         save_fname=value["fname"],
                         cache_dir=args.pretrained_model_cache_dir,
-                        force_download=args.force_download,
                     )
     else:
         raise ValueError(f"not valid model name({pretrained_model_name}), cannot download resources")

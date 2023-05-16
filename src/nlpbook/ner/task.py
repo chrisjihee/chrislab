@@ -1,5 +1,6 @@
 from typing import List, Dict
 
+import pytorch_lightning as pl
 import torch
 from pytorch_lightning import LightningModule
 from torch.optim import AdamW
@@ -13,13 +14,15 @@ from transformers.modeling_outputs import TokenClassifierOutput
 
 
 class NERTask(LightningModule):
-    def __init__(self,
-                 model: BertPreTrainedModel,
+    def __init__(self, model: BertPreTrainedModel,
                  args: NLUTrainerArguments | NLUTesterArguments,
-                 ):
+                 trainer: pl.Trainer):
         super().__init__()
         self.model = model
         self.args = args
+        self.trainer = trainer
+        self.train_acc = -1.0
+        self.train_loss = -1.0
 
     def configure_optimizers(self):
         optimizer = AdamW(self.parameters(), lr=self.args.learning_rate)
@@ -34,27 +37,33 @@ class NERTask(LightningModule):
         preds = outputs.logits.argmax(dim=-1)
         labels = inputs["labels"]
         acc = accuracy(preds, labels, ignore_index=NER_PAD_ID)
-        self.log("loss", outputs.loss, prog_bar=False, logger=True, on_step=True, on_epoch=False)
-        self.log("acc", acc, prog_bar=True, logger=True, on_step=True, on_epoch=False)
-        return outputs.loss
+        self.train_acc = acc
+        self.train_loss = outputs.loss
+        return {"loss": outputs.loss, "acc": acc}
 
     def validation_step(self, inputs, batch_idx):
         outputs: TokenClassifierOutput = self.model(**inputs)
         preds = outputs.logits.argmax(dim=-1)
         labels = inputs["labels"]
         acc = accuracy(preds, labels, ignore_index=NER_PAD_ID)
-        self.log("val_loss", outputs.loss, prog_bar=True, logger=True, on_step=False, on_epoch=True)
-        self.log("val_acc", acc, prog_bar=True, logger=True, on_step=False, on_epoch=True)
-        return outputs.loss
+        self.log("train_loss", self.train_loss, prog_bar=True, logger=False, on_step=False, on_epoch=True)
+        self.log("train_acc", self.train_acc, prog_bar=True, logger=False, on_step=False, on_epoch=True)
+        self.log("val_loss", outputs.loss, prog_bar=True, logger=False, on_step=False, on_epoch=True)
+        self.log("val_acc", acc, prog_bar=True, logger=False, on_step=False, on_epoch=True)
+        self.log("global_step", self.trainer.lightning_module.global_step * 1.0, prog_bar=True, logger=False, on_step=True, on_epoch=False)
+        return {"val_loss": outputs.loss, "val_acc": acc}
 
     def test_step(self, inputs, batch_idx):
         outputs: TokenClassifierOutput = self.model(**inputs)
         preds = outputs.logits.argmax(dim=-1)
         labels = inputs["labels"]
         acc = accuracy(preds, labels, ignore_index=NER_PAD_ID)
-        self.log("test_loss", outputs.loss, prog_bar=True, logger=True, on_step=False, on_epoch=True)
-        self.log("test_acc", acc, prog_bar=True, logger=True, on_step=False, on_epoch=True)
-        return outputs.loss
+        self.log("train_loss", self.train_loss, prog_bar=True, logger=False, on_step=False, on_epoch=True)
+        self.log("train_acc", self.train_acc, prog_bar=True, logger=False, on_step=False, on_epoch=True)
+        self.log("test_loss", outputs.loss, prog_bar=True, logger=False, on_step=False, on_epoch=True)
+        self.log("test_acc", acc, prog_bar=True, logger=False, on_step=False, on_epoch=True)
+        self.log("global_step", self.trainer.lightning_module.global_step * 1.0, prog_bar=True, logger=False, on_step=True, on_epoch=False)
+        return {"test_loss": outputs.loss, "test_acc": acc}
 
     def x_validation_epoch_end(
             self, outputs: List[Dict[str, torch.Tensor]], data_type: str = "valid", write_predictions: bool = False

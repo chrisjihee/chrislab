@@ -1,3 +1,4 @@
+import pytorch_lightning as pl
 from pathlib import Path
 
 import torch
@@ -6,21 +7,22 @@ from torch.utils.data import SequentialSampler
 from typer import Typer
 
 import nlpbook
-from chrisbase.io import JobTimer, out_hr
-from nlpbook.arguments import NLUTrainerArguments, NLUServerArguments, NLUTesterArguments
+from chrisbase.io import JobTimer, out_hr, make_dir
+from nlpbook.arguments import NLUTrainerArguments, NLUServerArguments, NLUTesterArguments, RuntimeCheckingOnArgs
 from nlpbook.deploy import get_web_service_app
 from nlpbook.ner.corpus import NERCorpus, NERDataset
 from nlpbook.ner.task import NERTask
-from transformers import BertConfig, BertForTokenClassification, PreTrainedTokenizerFast, AutoTokenizer
+from transformers import BertConfig, BertForTokenClassification, PreTrainedTokenizerFast, AutoTokenizer, BertTokenizer
 
 app = Typer()
 
 
 @app.command()
-def train_ner(config: Path | str):
+def train(config: Path | str):
     config = Path(config)
     assert config.exists(), f"No config file: {config}"
     args = NLUTrainerArguments.from_json(config.read_text())
+    print(f"args.env.working_path={args.env.working_path}")
     args.print_dataframe()
 
     with JobTimer(f"chrialab.ratsnlp train_ner {config}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
@@ -30,9 +32,10 @@ def train_ner(config: Path | str):
         out_hr(c='-')
 
         corpus = NERCorpus(args)
-        tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
-        assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
-        train_dataset = NERDataset(args=args, corpus=corpus, tokenizer=tokenizer)
+        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
+        # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False, use_fast=True)
+        # assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
+        train_dataset = NERDataset("train", args=args, corpus=corpus, tokenizer=tokenizer)
         train_dataloader = DataLoader(train_dataset,
                                       batch_size=args.batch_size,
                                       sampler=RandomSampler(train_dataset, replacement=False),
@@ -41,7 +44,7 @@ def train_ner(config: Path | str):
                                       num_workers=args.cpu_workers)
         out_hr(c='-')
 
-        val_dataset = NERDataset(args=args, corpus=corpus, tokenizer=tokenizer)
+        val_dataset = NERDataset("valid", args=args, corpus=corpus, tokenizer=tokenizer)
         val_dataloader = DataLoader(val_dataset,
                                     batch_size=args.batch_size,
                                     sampler=SequentialSampler(val_dataset),
@@ -61,13 +64,16 @@ def train_ner(config: Path | str):
         out_hr(c='-')
 
         torch.set_float32_matmul_precision('high')
-        nlpbook.get_trainer(args).fit(NERTask(model, args),
-                                      train_dataloaders=train_dataloader,
-                                      val_dataloaders=val_dataloader)
+        trainer: pl.Trainer = nlpbook.get_trainer(args)
+        pl_module: pl.LightningModule = NERTask(model, args, trainer)
+        with RuntimeCheckingOnArgs(args, trainer.logger.log_dir):
+            trainer.fit(pl_module,
+                        train_dataloaders=train_dataloader,
+                        val_dataloaders=val_dataloader)
 
 
 @app.command()
-def test_ner(config: Path | str):
+def test(config: Path | str):
     config = Path(config)
     assert config.exists(), f"No config file: {config}"
     args = NLUTesterArguments.from_json(config.read_text())
@@ -81,9 +87,10 @@ def test_ner(config: Path | str):
         out_hr(c='-')
 
         corpus = NERCorpus(args)
-        tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
-        assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
-        test_dataset = NERDataset(args=args, corpus=corpus, tokenizer=tokenizer)
+        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
+        # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False, use_fast=True)
+        # assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
+        test_dataset = NERDataset("test", args=args, corpus=corpus, tokenizer=tokenizer)
         test_dataloader = DataLoader(test_dataset,
                                      batch_size=args.batch_size,
                                      sampler=SequentialSampler(test_dataset),
@@ -109,7 +116,7 @@ def test_ner(config: Path | str):
 
 
 @app.command()
-def serve_ner(config: Path | str):
+def serve(config: Path | str):
     config = Path(config)
     assert config.exists(), f"No config file: {config}"
     args = NLUServerArguments.from_json(config.read_text())
@@ -127,8 +134,9 @@ def serve_ner(config: Path | str):
         model.load_state_dict({k.replace("model.", ""): v for k, v in downstream_model_ckpt['state_dict'].items()})
         model.eval()
 
-        tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
-        assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
+        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
+        # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False, use_fast=True)
+        # assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
         downstream_label_path: Path = args.downstream_model_home / "label_map.txt"
         assert downstream_label_path.exists(), f"No downstream label file: {downstream_label_path}"
         labels = downstream_label_path.read_text().splitlines(keepends=False)

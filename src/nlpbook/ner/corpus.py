@@ -10,6 +10,7 @@ import torch
 from filelock import FileLock
 from torch.utils.data.dataset import Dataset
 
+from chrisbase.io import make_parent_dir
 from nlpbook.arguments import NLUTrainerArguments, NLUTesterArguments
 from transformers import BertTokenizer
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
@@ -57,22 +58,15 @@ class NERCorpus:
         return examples
 
     def get_labels(self):
-        label_map_path = os.path.join(
-            self.args.downstream_model_home,
-            "label_map.txt",
-        )
-        if not os.path.exists(label_map_path):
+        label_map_path = make_parent_dir(self.args.downstream_model_home / self.args.downstream_data_name / "label_map.txt")
+        if not label_map_path.exists():
             logger.info("processing NER tag dictionary...")
             os.makedirs(self.args.downstream_model_home, exist_ok=True)
             ner_tags = []
             regex_ner = re.compile('<(.+?):[A-Z]{3}>')
-            train_corpus_path = os.path.join(
-                self.args.downstream_data_home,
-                self.args.downstream_data_name,
-                "train.txt",
-            )
+            train_corpus_path = self.args.downstream_data_home / self.args.downstream_data_name / "train.txt"
             target_sentences = [line.split("\u241E")[1].strip()
-                                for line in open(train_corpus_path, "r", encoding="utf-8").readlines()]
+                                for line in train_corpus_path.open("r", encoding="utf-8").readlines()]
             for target_sentence in target_sentences:
                 regex_filter_res = regex_ner.finditer(target_sentence)
                 for match_item in regex_filter_res:
@@ -82,7 +76,7 @@ class NERCorpus:
             b_tags = [f"B-{ner_tag}" for ner_tag in ner_tags]
             i_tags = [f"I-{ner_tag}" for ner_tag in ner_tags]
             labels = [NER_CLS_TOKEN, NER_SEP_TOKEN, NER_PAD_TOKEN, NER_MASK_TOKEN, "O"] + b_tags + i_tags
-            with open(label_map_path, "w", encoding="utf-8") as f:
+            with label_map_path.open("w", encoding="utf-8") as f:
                 for tag in labels:
                     f.writelines(tag + "\n")
         else:
@@ -248,64 +242,50 @@ def _convert_examples_to_ner_features(
 
 
 class NERDataset(Dataset):
-
     def __init__(
             self,
+            split: str,
             args: NLUTrainerArguments | NLUTesterArguments,
             tokenizer: BertTokenizer,
             corpus: NERCorpus,
             convert_examples_to_features_fn=_convert_examples_to_ner_features,
     ):
-        if corpus is not None:
-            self.corpus = corpus
-        else:
-            raise KeyError("corpus is not valid")
-        # Load data features from cache or dataset file
-        cached_features_file = os.path.join(
-            args.downstream_data_home,
-            args.downstream_data_name,
-            "cached_{}_{}_{}_{}_{}".format(
-                Path(args.downstream_data_file).stem,
-                tokenizer.__class__.__name__,
-                str(args.max_seq_length),
-                args.downstream_data_name,
-                args.downstream_task_name,
-            ),
-        )
+        assert corpus, "corpus is not valid"
+        self.corpus = corpus
 
-        # Make sure only the first process in distributed training processes the dataset,
-        # and the others will use the cache.
-        lock_path = cached_features_file + ".lock"
-        with FileLock(lock_path):
+        assert args.downstream_data_home, \
+            f"No downstream_data_home: {args.downstream_data_home}"
+        assert args.downstream_data_name, \
+            f"No downstream_data_name: {args.downstream_data_name}"
+        downstream_data_file_dict: dict = args.downstream_data_file.to_dict()
+        assert split in downstream_data_file_dict, \
+            f"No '{split}' split in downstream_data_file: should be one of {list(downstream_data_file_dict.keys())}"
+        assert downstream_data_file_dict[split], \
+            f"No downstream_data_file for '{split}' split: {args.downstream_data_file}"
+        downstream_data_text_path: Path = Path(args.downstream_data_home) / args.downstream_data_name / downstream_data_file_dict[split]
+        assert downstream_data_text_path.exists() and downstream_data_text_path.is_file(), \
+            f"No downstream_data_text_path: {downstream_data_text_path}"
+        downstream_data_cache_path = downstream_data_text_path \
+            .with_stem(downstream_data_text_path.stem + f"-by-{tokenizer.__class__.__name__}-with-{args.max_seq_length}") \
+            .with_suffix(".cache")
+        downstream_data_cache_lock = downstream_data_cache_path.with_suffix(".lock")
 
-            if os.path.exists(cached_features_file) and not args.overwrite_cache:
+        # Make sure only the first process in distributed training processes the dataset, and the others will use the cache.
+        with FileLock(downstream_data_cache_lock):
+            if os.path.exists(downstream_data_cache_path) and not args.downstream_data_caching:
+                # Load data features from cached file
                 start = time.time()
-                self.features = torch.load(cached_features_file)
-                logger.info(
-                    f"Loading features from cached file {cached_features_file} [took %.3f s]", time.time() - start
-                )
+                self.features = torch.load(downstream_data_cache_path)
+                logger.info(f"Loading features from cached file at {downstream_data_cache_path} [took {time.time() - start:.3f} s]")
             else:
-                corpus_path = os.path.join(
-                    args.downstream_data_home,
-                    args.downstream_data_name,
-                    args.downstream_data_file,
-                )
-                logger.info(f"Creating features from dataset file at {corpus_path}")
-                examples = self.corpus.get_examples(corpus_path)
-                self.features = convert_examples_to_features_fn(
-                    examples,
-                    tokenizer,
-                    args,
-                    label_list=self.corpus.get_labels(),
-                )
+                # Load data features from dataset file
+                logger.info(f"Creating features from dataset file at {downstream_data_text_path}")
+                examples = self.corpus.get_examples(downstream_data_text_path)
+                self.features = convert_examples_to_features_fn(examples, tokenizer, args, label_list=self.corpus.get_labels())
                 start = time.time()
-                logger.info(
-                    "Saving features into cached file, it could take a lot of time..."
-                )
-                torch.save(self.features, cached_features_file)
-                logger.info(
-                    "Saving features into cached file %s [took %.3f s]", cached_features_file, time.time() - start
-                )
+                logger.info("Saving features into cached file, it could take a lot of time...")
+                torch.save(self.features, downstream_data_cache_path)
+                logger.info(f"Saving features into cached file at {downstream_data_cache_path} [took {time.time() - start:.3f} s]")
 
     def __len__(self):
         return len(self.features)
