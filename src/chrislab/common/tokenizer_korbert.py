@@ -153,76 +153,46 @@ class KorbertWordpieceTokenizer(WordpieceTokenizer):
 
 if __name__ == "__main__":
     tokenizer1A = AutoTokenizer.from_pretrained(
-        "model/pretrained-com/KcELECTRA-Base",
+        "/dat/proj/pretrained-com/KcELECTRA-Base",
         max_len=512,
         use_fast=True,
     )
     tokenizer1B = BertTokenizer(
-        vocab_file="model/pretrained-com/KcELECTRA-Base/vocab.txt",
+        vocab_file="/dat/proj/pretrained-com/KcELECTRA-Base/vocab.txt",
         do_lower_case=False,
         tokenize_chinese_chars=False,
     )
     tokenizer2A = KorbertTokenizer.from_pretrained(
-        "model/pretrained-pro/ETRI-ELECTRA-Base-morp20.05",
+        "/dat/proj/pretrained-pro/ETRI-ELECTRA-Base-morp20.05",
         max_len=512,
         use_fast=False,
         do_lower_case=False,
         tokenize_chinese_chars=False,
     )
     tokenizer2B = KorbertTokenizer(
-        vocab_file="model/pretrained-pro/ETRI-ELECTRA-Base-morp20.05/vocab.txt",
+        vocab_file="/dat/proj/pretrained-pro/ETRI-ELECTRA-Base-morp20.05/vocab.txt",
         do_lower_case=False,
     )
     tokenizer3A = AutoTokenizer.from_pretrained(
-        "model/pretrained-pro/ETRI-RoBERTa-Base-bbpe22.07",
+        "/dat/proj/pretrained-pro/ETRI-RoBERTa-Base-bbpe22.07",
         max_len=512,
         use_fast=False,
         do_lower_case=False,
     )
     tokenizer3B = RobertaTokenizer(
-        "model/pretrained-pro/ETRI-RoBERTa-Base-bbpe22.07/vocab.json",
-        "model/pretrained-pro/ETRI-RoBERTa-Base-bbpe22.07/merges.txt",
+        "/dat/proj/pretrained-pro/ETRI-RoBERTa-Base-bbpe22.07/vocab.json",
+        "/dat/proj/pretrained-pro/ETRI-RoBERTa-Base-bbpe22.07/merges.txt",
         max_len=512,
         use_fast=False,
         do_lower_case=False,
     )
     # https://github.com/huggingface/transformers/issues/1413#issuecomment-538083512
-    # tokenizer3A.add_tokens(["/NN", "/NP", "/NR", "/VV", "/VA",
-    #                         "/VX", "/VC", "/MM", "/MA", "/IC",
-    #                         "/JK", "/JX", "/JC", "/EP", "/EF",
-    #                         "/EC", "/ET", "/XP", "/XS", "/XR",
-    #                         "/SF", "/SP", "/SS", "/SE", "/SO",
-    #                         "/SW", "/SL", "/SH", "/SN"])
-    # tokenizer3A.add_tokens(["/NNG", "/NNP", "/NNB", "/NP", "/NR",
-    #                         "/VV", "/VA", "/VX", "/VCP", "/VCN",  # 10
-    #                         "/MM", "/MAG", "/MAJ", "/IC",  # 14
-    #                         "/JKS", "/JKC", "/JKG", "/JKO", "/JKB",  # 19
-    #                         "/JKV", "/JKQ", "/JX", "/JC",  # 23
-    #                         "/EP", "/EF", "/EC", "/ETN", "/ETM",  # 28
-    #                         "/XPN", "/XSN", "/XSV", "/XSA", "/XR",  # 33
-    #                         "/SF", "/SP", "/SS", "/SE", "/SO",  # 38
-    #                         "/SW", "/SL", "/SH", "/SN"])  # 42
-    bbpe_tokenizer = ByteLevelBPETokenizer("model/pretrained-pro/ETRI-RoBERTa-Base-bbpe22.07/vocab.json", "model/pretrained-pro/ETRI-RoBERTa-Base-bbpe22.07/merges.txt", lowercase=False)
-    # bbpe_tokenizer.add_tokens(["/NN", "/NP", "/NR", "/VV", "/VA",
-    #                            "/VX", "/VC", "/MM", "/MA", "/IC",
-    #                            "/JK", "/JX", "/JC", "/EP", "/EF",
-    #                            "/EC", "/ET", "/XP", "/XS", "/XR",
-    #                            "/SF", "/SP", "/SS", "/SE", "/SO",
-    #                            "/SW", "/SL", "/SH", "/SN"])
-    # bbpe_tokenizer.add_tokens(["/NNG", "/NNP", "/NNB", "/NP", "/NR",
-    #                            "/VV", "/VA", "/VX", "/VCP", "/VCN",  # 10
-    #                            "/MM", "/MAG", "/MAJ", "/IC",  # 14
-    #                            "/JKS", "/JKC", "/JKG", "/JKO", "/JKB",  # 19
-    #                            "/JKV", "/JKQ", "/JX", "/JC",  # 23
-    #                            "/EP", "/EF", "/EC", "/ETN", "/ETM",  # 28
-    #                            "/XPN", "/XSN", "/XSV", "/XSA", "/XR",  # 33
-    #                            "/SF", "/SP", "/SS", "/SE", "/SO",  # 38
-    #                            "/SW", "/SL", "/SH", "/SN"])  # 42
+    bbpe_tokenizer = ByteLevelBPETokenizer("/dat/proj/pretrained-pro/ETRI-RoBERTa-Base-bbpe22.07/vocab.json", "/dat/proj/pretrained-pro/ETRI-RoBERTa-Base-bbpe22.07/merges.txt", lowercase=False)
     print(f"tokenizer3A(#={len(tokenizer3A)})({type(tokenizer3A)}) = {tokenizer3A}")
     print(f"tokenizer3B(#={len(tokenizer3B)})({type(tokenizer3B)}) = {tokenizer3B}")
     print(f"bbpe_tokenizer()({type(bbpe_tokenizer)}) = {bbpe_tokenizer}")
     vocab_items = []
-    with Path("model/pretrained-pro/ETRI-RoBERTa-Base-bbpe22.07/vocab.json").open() as inp, Path("model/pretrained-pro/ETRI-RoBERTa-Base-bbpe22.07/vocab_items.txt").open('w') as out:
+    with Path("/dat/proj/pretrained-pro/ETRI-RoBERTa-Base-bbpe22.07/vocab.json").open() as inp, Path("/dat/proj/pretrained-pro/ETRI-RoBERTa-Base-bbpe22.07/vocab_items.txt").open('w') as out:
         for t, i in list(json.load(inp).items()):
             vocab_items.append({
                 'id': i,
@@ -243,8 +213,8 @@ if __name__ == "__main__":
     # print(f"plain={plain}")
     # print(f"morps={morps}")
 
-    # print('tokenizer1A:', tokenizer1A.cls_token, tokenizer1A.cls_token_id, tokenizer1A.sep_token, tokenizer1A.sep_token_id, tokenizer1A.pad_token, tokenizer1A.pad_token_id)
-    # print('tokenizer2A:', tokenizer2A.cls_token, tokenizer2A.cls_token_id, tokenizer2A.sep_token, tokenizer2A.sep_token_id, tokenizer2A.pad_token, tokenizer2A.pad_token_id)
+    print('tokenizer1A:', tokenizer1A.cls_token, tokenizer1A.cls_token_id, tokenizer1A.sep_token, tokenizer1A.sep_token_id, tokenizer1A.pad_token, tokenizer1A.pad_token_id)
+    print('tokenizer2A:', tokenizer2A.cls_token, tokenizer2A.cls_token_id, tokenizer2A.sep_token, tokenizer2A.sep_token_id, tokenizer2A.pad_token, tokenizer2A.pad_token_id)
     print('tokenizer3A:', tokenizer3A.cls_token, tokenizer3A.cls_token_id, tokenizer3A.sep_token, tokenizer3A.sep_token_id, tokenizer3A.pad_token, tokenizer3A.pad_token_id)
 
 
@@ -259,10 +229,10 @@ if __name__ == "__main__":
 
 
     print(f"tokens from plain={tokenizer1A.tokenize(f'{tokenizer1A.cls_token} {sentence1_plain} {tokenizer1A.sep_token} {sentence2_plain} {tokenizer1A.pad_token}')}")
-    # print(f"tokens from plain={tokenizer1B.tokenize(f'{tokenizer1B.cls_token} {sentence1_plain} {tokenizer1B.sep_token} {sentence2_plain} {tokenizer1B.pad_token}')}")
+    print(f"tokens from plain={tokenizer1B.tokenize(f'{tokenizer1B.cls_token} {sentence1_plain} {tokenizer1B.sep_token} {sentence2_plain} {tokenizer1B.pad_token}')}")
 
     print(f"tokens from morps={tokenizer2A.tokenize(f'{tokenizer2A.cls_token} {sentence1_morps} {tokenizer2A.sep_token} {sentence2_morps} {tokenizer2A.pad_token}')}")
-    # print(f"tokens from morps={tokenizer2B.tokenize(f'{tokenizer2B.cls_token} {sentence1_morps} {tokenizer2B.sep_token} {sentence2_morps} {tokenizer2B.pad_token}')}")
+    print(f"tokens from morps={tokenizer2B.tokenize(f'{tokenizer2B.cls_token} {sentence1_morps} {tokenizer2B.sep_token} {sentence2_morps} {tokenizer2B.pad_token}')}")
 
     print(f"tokens from plain={tokenizer3A.tokenize(f'{tokenizer3A.cls_token} {sentence1_plain} {tokenizer3A.sep_token} {sentence2_plain} {tokenizer3A.pad_token}')}")
     print(f"tokens from lemma={tokenizer3A.tokenize(f'{tokenizer3A.cls_token} {sentence1_lemma} {tokenizer3A.sep_token} {sentence2_lemma} {tokenizer3A.pad_token}')}")
