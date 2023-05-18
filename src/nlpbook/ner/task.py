@@ -46,11 +46,12 @@ class NERTask(LightningModule):
         preds = outputs.logits.argmax(dim=-1)
         labels = inputs["labels"]
         acc = accuracy(preds, labels, ignore_index=NER_PAD_ID)
-        self.log("train_loss", self.train_loss, prog_bar=True, logger=False, on_step=False, on_epoch=True)
-        self.log("train_acc", self.train_acc, prog_bar=True, logger=False, on_step=False, on_epoch=True)
-        self.log("val_loss", outputs.loss, prog_bar=True, logger=False, on_step=False, on_epoch=True)
-        self.log("val_acc", acc, prog_bar=True, logger=False, on_step=False, on_epoch=True)
-        self.log("global_step", self.trainer.lightning_module.global_step * 1.0, prog_bar=True, logger=False, on_step=True, on_epoch=False)
+        global_step = self.trainer.lightning_module.global_step * 1.0
+        self.log(prog_bar=True, logger=False, on_epoch=True, name="global_step", value=global_step)
+        self.log(prog_bar=True, logger=False, on_epoch=True, name="train_loss", value=self.train_loss)
+        self.log(prog_bar=True, logger=False, on_epoch=True, name="train_acc", value=self.train_acc)
+        self.log(prog_bar=True, logger=False, on_epoch=True, name="val_loss", value=outputs.loss)
+        self.log(prog_bar=True, logger=False, on_epoch=True, name="val_acc", value=acc)
         return {"val_loss": outputs.loss, "val_acc": acc}
 
     def test_step(self, inputs, batch_idx):
@@ -58,8 +59,8 @@ class NERTask(LightningModule):
         preds = outputs.logits.argmax(dim=-1)
         labels = inputs["labels"]
         acc = accuracy(preds, labels, ignore_index=NER_PAD_ID)
-        self.log("test_loss", outputs.loss, prog_bar=False, logger=True, on_step=False, on_epoch=True)
-        self.log("test_acc", acc, prog_bar=False, logger=True, on_step=False, on_epoch=True)
+        self.log(prog_bar=False, logger=True, on_epoch=True, name="test_loss", value=outputs.loss)
+        self.log(prog_bar=False, logger=True, on_epoch=True, name="test_acc", value=acc)
         return {"test_loss": outputs.loss, "test_acc": acc}
 
     def x_validation_epoch_end(
