@@ -58,13 +58,13 @@ class NERCorpus:
         return examples
 
     def get_labels(self):
-        label_map_path = make_parent_dir(self.args.downstream_model_home / self.args.downstream_data_name / "label_map.txt")
+        label_map_path = make_parent_dir(self.args.model.finetuned_home / self.args.model.data_name / "label_map.txt")
         if not label_map_path.exists():
             logger.info("processing NER tag dictionary...")
-            os.makedirs(self.args.downstream_model_home, exist_ok=True)
+            os.makedirs(self.args.model.finetuned_home, exist_ok=True)
             ner_tags = []
             regex_ner = re.compile('<(.+?):[A-Z]{3}>')
-            train_corpus_path = self.args.downstream_data_home / self.args.downstream_data_name / "train.txt"
+            train_corpus_path = self.args.model.data_home / self.args.model.data_name / "train.txt"
             target_sentences = [line.split("\u241E")[1].strip()
                                 for line in train_corpus_path.open("r", encoding="utf-8").readlines()]
             for target_sentence in target_sentences:
@@ -215,7 +215,7 @@ def _convert_examples_to_ner_features(
         tokens = tokenizer.tokenize(example.text)
         inputs = tokenizer._encode_plus(
             tokens,
-            max_length=args.max_seq_length,
+            max_length=args.model.max_seq_length,
             truncation_strategy=TruncationStrategy.LONGEST_FIRST,
             padding_strategy=PaddingStrategy.MAX_LENGTH,
         )
@@ -223,14 +223,14 @@ def _convert_examples_to_ner_features(
             tokens=tokens,
             origin_sentence=example.text,
             target_sentence=example.label,
-            max_length=args.max_seq_length,
+            max_length=args.model.max_seq_length,
             label_map=label_map,
             tokenizer=tokenizer,
             cls_token_at_end=cls_token_at_end,
         )
         features.append(NERFeatures(**inputs, label_ids=label_ids))
 
-    for i, example in enumerate(examples[:5]):
+    for i, example in enumerate(examples[:3]):
         logger.info("*** Example ***")
         logger.info("sentence: %s" % (example.text))
         logger.info("target: %s" % (example.label))
@@ -272,7 +272,7 @@ class NERDataset(Dataset):
 
         # Make sure only the first process in distributed training processes the dataset, and the others will use the cache.
         with FileLock(data_cache_lock):
-            if os.path.exists(cache_data_path) and not args.model.data_caching:
+            if os.path.exists(cache_data_path) and args.model.data_caching:
                 # Load data features from cached file
                 start = time.time()
                 self.features = torch.load(cache_data_path)

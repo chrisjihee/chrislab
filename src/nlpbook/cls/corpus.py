@@ -70,7 +70,7 @@ def _convert_examples_to_classification_features(
     start = time.time()
     batch_encoding = tokenizer(
         [(example.text_a, example.text_b) for example in examples],
-        max_length=args.max_seq_length,
+        max_length=args.model.max_seq_length,
         padding="max_length",
         truncation=True,
     )
@@ -117,14 +117,14 @@ class ClassificationDataset(Dataset):
             raise KeyError(f"mode({mode}) is not a valid split name")
         # Load data features from cache or dataset file
         cached_features_file = os.path.join(
-            args.downstream_data_home,
-            args.downstream_data_name,
+            args.model.data_home,
+            args.model.data_name,
             "cached_{}_{}_{}_{}_{}".format(
-                Path(args.downstream_data_file).stem,
+                Path(args.model.data_file).stem,
                 tokenizer.__class__.__name__,
-                str(args.max_seq_length),
-                args.downstream_data_name,
-                args.downstream_task_name,
+                str(args.model.max_seq_length),
+                args.model.data_name,
+                args.model.task_name,
             ),
         )
 
@@ -133,7 +133,7 @@ class ClassificationDataset(Dataset):
         lock_path = cached_features_file + ".lock"
         with FileLock(lock_path):
 
-            if os.path.exists(cached_features_file) and not args.downstream_data_caching:
+            if os.path.exists(cached_features_file) and args.model.data_caching:
                 start = time.time()
                 self.features = torch.load(cached_features_file)
                 logger.info(
@@ -141,9 +141,9 @@ class ClassificationDataset(Dataset):
                 )
             else:
                 corpus_path = os.path.join(
-                    args.downstream_data_home,
-                    args.downstream_data_name,
-                    args.downstream_data_file,
+                    args.model.data_home,
+                    args.model.data_name,
+                    args.model.data_file,
                 )
                 logger.info(f"Creating features from dataset file at {corpus_path}")
                 examples = self.corpus.get_examples(corpus_path)

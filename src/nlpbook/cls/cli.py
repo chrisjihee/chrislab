@@ -21,8 +21,7 @@ app = Typer()
 def train(config: Path | str):
     config = Path(config)
     assert config.exists(), f"No config file: {config}"
-    args = TrainerArguments.from_json(config.read_text())
-    args.print_dataframe()
+    args = TrainerArguments.from_json(config.read_text()).print_dataframe()
 
     with JobTimer(f"chrialab.ratsnlp train_cls {config}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
         nlpbook.set_seed(args)
@@ -30,13 +29,13 @@ def train(config: Path | str):
         out_hr(c='-')
 
         Korpora.fetch(
-            corpus_name=args.downstream_data_name,
-            root_dir=args.downstream_data_home,
+            corpus_name=args.model.data_name,
+            root_dir=args.model.data_home,
         )
         out_hr(c='-')
 
-        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
-        # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False, use_fast=True)
+        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.model.pretrained_name, do_lower_case=False)
+        # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained_name, do_lower_case=False, use_fast=True)
         # assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
         print(f"tokenizer={tokenizer}")
         print(f"tokenized={tokenizer.tokenize('안녕하세요. 반갑습니다.')}")
@@ -66,11 +65,11 @@ def train(config: Path | str):
         out_hr(c='-')
 
         pretrained_model_config = BertConfig.from_pretrained(
-            args.pretrained_model_path,
+            args.model.pretrained_name,
             num_labels=corpus.num_labels,
         )
         model = BertForSequenceClassification.from_pretrained(
-            args.pretrained_model_path,
+            args.model.pretrained_name,
             config=pretrained_model_config,
         )
         out_hr(c='-')
@@ -91,26 +90,26 @@ def serve(config: Path | str):
     args.print_dataframe()
 
     with JobTimer(f"chrialab.ratsnlp serve_cls {config}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
-        downstream_model_path = args.downstream_model_home / args.downstream_model_file
+        downstream_model_path = args.model.finetuned_home / args.model.finetuned_name
         assert downstream_model_path.exists(), f"No downstream model file: {downstream_model_path}"
         downstream_model_ckpt = torch.load(downstream_model_path, map_location=torch.device("cpu"))
         pretrained_model_config = BertConfig.from_pretrained(
-            args.pretrained_model_path,
+            args.model.pretrained_name,
             num_labels=downstream_model_ckpt['state_dict']['model.classifier.bias'].shape.numel(),
         )
         model = BertForSequenceClassification(pretrained_model_config)
         model.load_state_dict({k.replace("model.", ""): v for k, v in downstream_model_ckpt['state_dict'].items()})
         model.eval()
 
-        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
+        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.model.pretrained_name, do_lower_case=False)
 
-        # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False, use_fast=True)
+        # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained_name, do_lower_case=False, use_fast=True)
         # assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
 
         def inference_fn(sentence):
             inputs = tokenizer(
                 [sentence],
-                max_length=args.max_seq_length,
+                max_length=args.model.max_seq_length,
                 padding="max_length",
                 truncation=True,
             )

@@ -22,7 +22,6 @@ def train(args_file: Path | str):
     args_file = Path(args_file)
     assert args_file.exists(), f"No args_file file: {args_file}"
     args = TrainerArguments.from_json(args_file.read_text()).print_dataframe()
-    exit(1)
 
     with JobTimer(f"chrialab.ratsnlp train_ner {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
         nlpbook.set_seed(args)
@@ -31,33 +30,33 @@ def train(args_file: Path | str):
         out_hr(c='-')
 
         corpus = NERCorpus(args)
-        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
-        # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False, use_fast=True)
+        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.model.pretrained_name, do_lower_case=False)
+        # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained_name, do_lower_case=False, use_fast=True)
         # assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
         train_dataset = NERDataset("train", args=args, corpus=corpus, tokenizer=tokenizer)
         train_dataloader = DataLoader(train_dataset,
-                                      batch_size=args.batch_size,
+                                      batch_size=args.hardware.batch_size,
                                       sampler=RandomSampler(train_dataset, replacement=False),
                                       collate_fn=nlpbook.data_collator,
                                       drop_last=False,
-                                      num_workers=args.cpu_workers)
+                                      num_workers=args.hardware.cpu_workers)
         out_hr(c='-')
 
         val_dataset = NERDataset("valid", args=args, corpus=corpus, tokenizer=tokenizer)
         val_dataloader = DataLoader(val_dataset,
-                                    batch_size=args.batch_size,
+                                    batch_size=args.hardware.batch_size,
                                     sampler=SequentialSampler(val_dataset),
                                     collate_fn=nlpbook.data_collator,
                                     drop_last=False,
-                                    num_workers=args.cpu_workers)
+                                    num_workers=args.hardware.cpu_workers)
         out_hr(c='-')
 
         pretrained_model_config = BertConfig.from_pretrained(
-            args.pretrained_model_path,
+            args.model.pretrained_name,
             num_labels=corpus.num_labels
         )
         model = BertForTokenClassification.from_pretrained(
-            args.pretrained_model_path,
+            args.model.pretrained_name,
             config=pretrained_model_config
         )
         out_hr(c='-')
@@ -79,15 +78,15 @@ def test(args_file: Path | str):
     args.print_dataframe()
 
     with JobTimer(f"chrialab.ratsnlp test_ner {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
-        downstream_model_path = args.downstream_model_home / args.downstream_model_file
+        downstream_model_path = args.model.finetuned_home / args.model.finetuned_name
         assert downstream_model_path.exists(), f"No downstream model file: {downstream_model_path}"
         nlpbook.set_logger()
         nlpbook.download_downstream_dataset(args)
         out_hr(c='-')
 
         corpus = NERCorpus(args)
-        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
-        # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False, use_fast=True)
+        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.model.pretrained_name, do_lower_case=False)
+        # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained_name, do_lower_case=False, use_fast=True)
         # assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
         test_dataset = NERDataset("test", args=args, corpus=corpus, tokenizer=tokenizer)
         test_dataloader = DataLoader(test_dataset,
@@ -99,11 +98,11 @@ def test(args_file: Path | str):
         out_hr(c='-')
 
         pretrained_model_config = BertConfig.from_pretrained(
-            args.pretrained_model_path,
+            args.model.pretrained_name,
             num_labels=corpus.num_labels
         )
         model = BertForTokenClassification.from_pretrained(
-            args.pretrained_model_path,
+            args.model.pretrained_name,
             config=pretrained_model_config
         )
         out_hr(c='-')
@@ -122,21 +121,21 @@ def serve(args_file: Path | str):
     args.print_dataframe()
 
     with JobTimer(f"chrialab.ratsnlp serve_ner {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
-        downstream_model_path = args.downstream_model_home / args.downstream_model_file
+        downstream_model_path = args.model.finetuned_home / args.model.finetuned_name
         assert downstream_model_path.exists(), f"No downstream model file: {downstream_model_path}"
         downstream_model_ckpt = torch.load(downstream_model_path, map_location=torch.device("cpu"))
         pretrained_model_config = BertConfig.from_pretrained(
-            args.pretrained_model_path,
+            args.model.pretrained_name,
             num_labels=downstream_model_ckpt['state_dict']['model.classifier.bias'].shape.numel(),
         )
         model = BertForTokenClassification(pretrained_model_config)
         model.load_state_dict({k.replace("model.", ""): v for k, v in downstream_model_ckpt['state_dict'].items()})
         model.eval()
 
-        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False)
-        # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.pretrained_model_path, do_lower_case=False, use_fast=True)
+        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.model.pretrained_name, do_lower_case=False)
+        # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained_name, do_lower_case=False, use_fast=True)
         # assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
-        downstream_label_path: Path = args.downstream_model_home / "label_map.txt"
+        downstream_label_path: Path = args.model.finetuned_home / "label_map.txt"
         assert downstream_label_path.exists(), f"No downstream label file: {downstream_label_path}"
         labels = downstream_label_path.read_text().splitlines(keepends=False)
         id_to_label = {idx: label for idx, label in enumerate(labels)}
@@ -146,7 +145,7 @@ def serve(args_file: Path | str):
             from torch import Tensor
             inputs = tokenizer(
                 [sentence],
-                max_length=args.max_seq_length,
+                max_length=args.model.max_seq_length,
                 padding="max_length",
                 truncation=True,
             )

@@ -1,10 +1,12 @@
+import logging
 import os
 import sys
-import tqdm
-import logging
-import requests
-from transformers import HfArgumentParser
 
+import requests
+import tqdm
+
+from transformers import HfArgumentParser
+from .arguments import TrainerArguments, TesterArguments
 
 REMOTE_DATA_MAP = {
     "nsmc": {
@@ -34,7 +36,7 @@ REMOTE_DATA_MAP = {
         },
         "val": {
             "googledrive_file_id": "1bEPNWT5952rD3xjg0LfJBy3hLHry3yUL",
-            "fname": "val.txt",
+            "fname": "valid.txt",
         },
     },
     "korquad-v1": {
@@ -113,6 +115,7 @@ def google_download(file_id,
             if key.startswith('download_warning'):
                 return value
         return None
+
     valid_save_path = get_valid_path(cache_dir, save_fname)
     # 캐시 파일이 있으면 캐시 사용
     if os.path.exists(valid_save_path) and not force_download:
@@ -164,24 +167,24 @@ def web_download(url,
     return valid_save_path
 
 
-def download_downstream_dataset(args):
-    data_name = args.downstream_data_name.lower()
+def download_downstream_dataset(args: TesterArguments):
+    data_name = args.model.data_name.lower()
     if data_name in REMOTE_DATA_MAP.keys():
-        cache_dir = os.path.join(args.downstream_data_home, data_name)
+        cache_dir = os.path.join(args.model.data_home, data_name)
         for value in REMOTE_DATA_MAP[data_name].values():
             if "web_url" in value.keys():
                 web_download(
                     url=value["web_url"],
                     save_fname=value["fname"],
                     cache_dir=cache_dir,
-                    force_download=args.downstream_data_download,
+                    force_download=args.model.data_download,
                 )
             else:
                 google_download(
                     file_id=value["googledrive_file_id"],
                     save_fname=value["fname"],
                     cache_dir=cache_dir,
-                    force_download=args.downstream_data_download
+                    force_download=args.model.data_download
                 )
     else:
         raise ValueError(f"not valid data name({data_name}), cannot download resources")
@@ -220,12 +223,13 @@ def set_logger():
     logger.setLevel(logging.INFO)
 
 
-def set_seed(args):
-    if args.seed is not None:
-        # 향후 pytorch-lightning의 seed_everything까지 확장
+def set_seed(args: TrainerArguments):
+    if args.training.seed is not None:
         from transformers import set_seed
-        set_seed(args.seed)
-        print(f"set seed: {args.seed}")
+        set_seed(args.training.seed)
+        from pytorch_lightning import seed_everything
+        seed_everything(args.training.seed)
+        print(f"set seed: {args.training.seed}")
     else:
         print("not fixed seed")
 
