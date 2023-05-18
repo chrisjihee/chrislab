@@ -2,7 +2,7 @@ from pytorch_lightning import LightningModule
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import ExponentialLR
 
-from nlpbook.arguments import NLUTrainerArguments
+from nlpbook.arguments import TrainerArguments
 from nlpbook.metrics import accuracy
 from transformers import PreTrainedModel
 from transformers.modeling_outputs import SequenceClassifierOutput
@@ -12,7 +12,7 @@ class ClassificationTask(LightningModule):
 
     def __init__(self,
                  model: PreTrainedModel,
-                 args: NLUTrainerArguments,
+                 args: TrainerArguments,
                  ):
         super().__init__()
         self.model = model

@@ -5,8 +5,8 @@ import torch
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger
 
-from chrisbase.io import make_dir, merge_dicts
-from nlpbook.arguments import NLUTrainerArguments, NLUTesterArguments
+from chrisbase.io import merge_dicts
+from nlpbook.arguments import TrainerArguments, TesterArguments
 
 
 class LoggingCallback(pl.Callback):
@@ -24,38 +24,38 @@ class LoggingCallback(pl.Callback):
         pl_module.logger.log_metrics(metrics)
 
 
-def get_trainer(args: NLUTrainerArguments) -> pl.Trainer:
-    train_logger = CSVLogger(args.downstream_model_home, name=args.downstream_data_name)
+def get_trainer(args: TrainerArguments) -> pl.Trainer:
+    train_logger = CSVLogger(args.model.finetuned_home, name=args.model.data_name)
     logging_callback = LoggingCallback()
     checkpoint_callback = ModelCheckpoint(
         dirpath=Path(train_logger.log_dir),
-        filename=args.downstream_model_file,
-        save_top_k=args.save_top_k,
-        monitor=args.monitor.split()[1],
-        mode=args.monitor.split()[0],
+        filename=args.model.finetuned_name,
+        save_top_k=args.training.save_top_k,
+        monitor=args.training.monitor.split()[1],
+        mode=args.training.monitor.split()[0],
     )
     trainer = pl.Trainer(
-        log_every_n_steps=args.log_steps,
-        val_check_interval=args.log_steps,
+        log_every_n_steps=args.training.log_steps,
+        val_check_interval=args.training.log_steps,
         num_sanity_val_steps=0,
         logger=train_logger,
         callbacks=[logging_callback, checkpoint_callback],
-        max_epochs=args.epochs,
-        deterministic=torch.cuda.is_available() and args.seed is not None,
-        accelerator=args.accelerator if args.accelerator else None,
-        precision=args.precision if args.precision else 32,
-        strategy=args.strategy if not args.strategy else None,
-        devices=args.devices if not args.devices else None,
+        max_epochs=args.training.epochs,
+        deterministic=torch.cuda.is_available() and args.training.seed is not None,
+        accelerator=args.hardware.accelerator if args.hardware.accelerator else None,
+        precision=args.hardware.precision if args.hardware.precision else 32,
+        strategy=args.hardware.strategy if not args.hardware.strategy else None,
+        devices=args.hardware.devices if not args.hardware.devices else None,
     )
     return trainer
 
 
-def get_tester(args: NLUTesterArguments) -> pl.Trainer:
+def get_tester(args: TesterArguments) -> pl.Trainer:
     trainer = pl.Trainer(
         fast_dev_run=True,
-        accelerator=args.accelerator if args.accelerator else None,
-        precision=args.precision if args.precision else 32,
-        strategy=args.strategy if not args.strategy else None,
-        devices=args.devices if not args.devices else None,
+        accelerator=args.hardware.accelerator if args.hardware.accelerator else None,
+        precision=args.hardware.precision if args.hardware.precision else 32,
+        strategy=args.hardware.strategy if not args.hardware.strategy else None,
+        devices=args.hardware.devices if not args.hardware.devices else None,
     )
     return trainer

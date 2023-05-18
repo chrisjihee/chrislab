@@ -11,7 +11,7 @@ from filelock import FileLock
 from torch.utils.data.dataset import Dataset
 
 from chrisbase.io import make_parent_dir
-from nlpbook.arguments import NLUTrainerArguments, NLUTesterArguments
+from nlpbook.arguments import TrainerArguments, TesterArguments
 from transformers import BertTokenizer
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
 
@@ -45,7 +45,7 @@ class NERCorpus:
 
     def __init__(
             self,
-            args: NLUTrainerArguments | NLUTesterArguments,
+            args: TrainerArguments | TesterArguments,
     ):
         self.args = args
 
@@ -198,7 +198,7 @@ def _process_target_sentence(
 def _convert_examples_to_ner_features(
         examples: List[NERExample],
         tokenizer: BertTokenizer,
-        args: NLUTrainerArguments,
+        args: TrainerArguments,
         label_list: List[str],
         cls_token_at_end: Optional[bool] = False,
 ):
@@ -245,7 +245,7 @@ class NERDataset(Dataset):
     def __init__(
             self,
             split: str,
-            args: NLUTrainerArguments | NLUTesterArguments,
+            args: TrainerArguments | TesterArguments,
             tokenizer: BertTokenizer,
             corpus: NERCorpus,
             convert_examples_to_features_fn=_convert_examples_to_ner_features,
@@ -253,39 +253,39 @@ class NERDataset(Dataset):
         assert corpus, "corpus is not valid"
         self.corpus = corpus
 
-        assert args.downstream_data_home, \
-            f"No downstream_data_home: {args.downstream_data_home}"
-        assert args.downstream_data_name, \
-            f"No downstream_data_name: {args.downstream_data_name}"
-        downstream_data_file_dict: dict = args.downstream_data_file.to_dict()
-        assert split in downstream_data_file_dict, \
-            f"No '{split}' split in downstream_data_file: should be one of {list(downstream_data_file_dict.keys())}"
-        assert downstream_data_file_dict[split], \
-            f"No downstream_data_file for '{split}' split: {args.downstream_data_file}"
-        downstream_data_text_path: Path = Path(args.downstream_data_home) / args.downstream_data_name / downstream_data_file_dict[split]
-        assert downstream_data_text_path.exists() and downstream_data_text_path.is_file(), \
-            f"No downstream_data_text_path: {downstream_data_text_path}"
-        downstream_data_cache_path = downstream_data_text_path \
-            .with_stem(downstream_data_text_path.stem + f"-by-{tokenizer.__class__.__name__}-with-{args.max_seq_length}") \
+        assert args.model.data_home, \
+            f"No data_home: {args.model.data_home}"
+        assert args.model.data_name, \
+            f"No data_name: {args.model.data_name}"
+        data_file_dict: dict = args.model.data_file.to_dict()
+        assert split in data_file_dict, \
+            f"No '{split}' split in data_file: should be one of {list(data_file_dict.keys())}"
+        assert data_file_dict[split], \
+            f"No data_file for '{split}' split: {args.model.data_file}"
+        text_data_path: Path = Path(args.model.data_home) / args.model.data_name / data_file_dict[split]
+        assert text_data_path.exists() and text_data_path.is_file(), \
+            f"No data_text_path: {text_data_path}"
+        cache_data_path = text_data_path \
+            .with_stem(text_data_path.stem + f"-by-{tokenizer.__class__.__name__}-with-{args.model.max_seq_length}") \
             .with_suffix(".cache")
-        downstream_data_cache_lock = downstream_data_cache_path.with_suffix(".lock")
+        data_cache_lock = cache_data_path.with_suffix(".lock")
 
         # Make sure only the first process in distributed training processes the dataset, and the others will use the cache.
-        with FileLock(downstream_data_cache_lock):
-            if os.path.exists(downstream_data_cache_path) and not args.downstream_data_caching:
+        with FileLock(data_cache_lock):
+            if os.path.exists(cache_data_path) and not args.model.data_caching:
                 # Load data features from cached file
                 start = time.time()
-                self.features = torch.load(downstream_data_cache_path)
-                logger.info(f"Loading features from cached file at {downstream_data_cache_path} [took {time.time() - start:.3f} s]")
+                self.features = torch.load(cache_data_path)
+                logger.info(f"Loading features from cached file at {cache_data_path} [took {time.time() - start:.3f} s]")
             else:
                 # Load data features from dataset file
-                logger.info(f"Creating features from dataset file at {downstream_data_text_path}")
-                examples = self.corpus.get_examples(downstream_data_text_path)
+                logger.info(f"Creating features from dataset file at {text_data_path}")
+                examples = self.corpus.get_examples(text_data_path)
                 self.features = convert_examples_to_features_fn(examples, tokenizer, args, label_list=self.corpus.get_labels())
                 start = time.time()
                 logger.info("Saving features into cached file, it could take a lot of time...")
-                torch.save(self.features, downstream_data_cache_path)
-                logger.info(f"Saving features into cached file at {downstream_data_cache_path} [took {time.time() - start:.3f} s]")
+                torch.save(self.features, cache_data_path)
+                logger.info(f"Saving features into cached file at {cache_data_path} [took {time.time() - start:.3f} s]")
 
     def __len__(self):
         return len(self.features)

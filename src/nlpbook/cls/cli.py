@@ -8,7 +8,7 @@ from typer import Typer
 
 import nlpbook
 from chrisbase.io import JobTimer, out_hr
-from nlpbook.arguments import NLUTrainerArguments, NLUServerArguments
+from nlpbook.arguments import TrainerArguments, ServerArguments
 from nlpbook.cls.corpus import NsmcCorpus, ClassificationDataset
 from nlpbook.cls.task import ClassificationTask
 from nlpbook.deploy import get_web_service_app
@@ -21,7 +21,7 @@ app = Typer()
 def train(config: Path | str):
     config = Path(config)
     assert config.exists(), f"No config file: {config}"
-    args = NLUTrainerArguments.from_json(config.read_text())
+    args = TrainerArguments.from_json(config.read_text())
     args.print_dataframe()
 
     with JobTimer(f"chrialab.ratsnlp train_cls {config}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
@@ -87,7 +87,7 @@ def train(config: Path | str):
 def serve(config: Path | str):
     config = Path(config)
     assert config.exists(), f"No config file: {config}"
-    args = NLUServerArguments.from_json(config.read_text())
+    args = ServerArguments.from_json(config.read_text())
     args.print_dataframe()
 
     with JobTimer(f"chrialab.ratsnlp serve_cls {config}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):

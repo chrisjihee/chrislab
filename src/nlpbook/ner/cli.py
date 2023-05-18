@@ -8,7 +8,7 @@ from typer import Typer
 
 import nlpbook
 from chrisbase.io import JobTimer, out_hr, make_dir
-from nlpbook.arguments import NLUTrainerArguments, NLUServerArguments, NLUTesterArguments, RuntimeCheckingOnArgs
+from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, CheckingRuntime
 from nlpbook.deploy import get_web_service_app
 from nlpbook.ner.corpus import NERCorpus, NERDataset
 from nlpbook.ner.task import NERTask
@@ -21,7 +21,7 @@ app = Typer()
 def train(config: Path | str):
     config = Path(config)
     assert config.exists(), f"No config file: {config}"
-    args = NLUTrainerArguments.from_json(config.read_text())
+    args = TrainerArguments.from_json(config.read_text())
     print(f"args.env.working_path={args.env.working_path}")
     args.print_dataframe()
 
@@ -66,7 +66,7 @@ def train(config: Path | str):
         torch.set_float32_matmul_precision('high')
         trainer: pl.Trainer = nlpbook.get_trainer(args)
         pl_module: pl.LightningModule = NERTask(model, args, trainer)
-        with RuntimeCheckingOnArgs(args, trainer.logger.log_dir):
+        with CheckingRuntime(args, trainer.logger.log_dir):
             trainer.fit(pl_module,
                         train_dataloaders=train_dataloader,
                         val_dataloaders=val_dataloader)
@@ -76,7 +76,7 @@ def train(config: Path | str):
 def test(config: Path | str):
     config = Path(config)
     assert config.exists(), f"No config file: {config}"
-    args = NLUTesterArguments.from_json(config.read_text())
+    args = TesterArguments.from_json(config.read_text())
     args.print_dataframe()
 
     with JobTimer(f"chrialab.ratsnlp test_ner {config}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
@@ -119,7 +119,7 @@ def test(config: Path | str):
 def serve(config: Path | str):
     config = Path(config)
     assert config.exists(), f"No config file: {config}"
-    args = NLUServerArguments.from_json(config.read_text())
+    args = ServerArguments.from_json(config.read_text())
     args.print_dataframe()
 
     with JobTimer(f"chrialab.ratsnlp serve_ner {config}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):

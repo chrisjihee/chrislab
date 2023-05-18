@@ -6,7 +6,7 @@ from pytorch_lightning import LightningModule
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import ExponentialLR
 
-from nlpbook.arguments import NLUTrainerArguments, NLUTesterArguments
+from nlpbook.arguments import TrainerArguments, TesterArguments
 from nlpbook.metrics import accuracy
 from nlpbook.ner import NER_PAD_ID
 from transformers import BertPreTrainedModel
@@ -15,7 +15,7 @@ from transformers.modeling_outputs import TokenClassifierOutput
 
 class NERTask(LightningModule):
     def __init__(self, model: BertPreTrainedModel,
-                 args: NLUTrainerArguments | NLUTesterArguments,
+                 args: TrainerArguments | TesterArguments,
                  trainer: pl.Trainer):
         super().__init__()
         self.model = model
