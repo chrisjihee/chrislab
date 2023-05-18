@@ -242,7 +242,6 @@ class RuntimeChecking:
         self.args: CommonArguments = args
 
     def __enter__(self):
-        self.args.save(self.args.output.dir_path / self.args.env.argument_file)
         self.args.timer.set_started()
 
     def __exit__(self, *exc_info):
