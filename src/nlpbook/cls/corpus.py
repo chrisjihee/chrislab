@@ -10,7 +10,7 @@ import torch
 from filelock import FileLock
 from torch.utils.data.dataset import Dataset
 
-from nlpbook.arguments import TrainerArguments
+from nlpbook.arguments import TrainerArguments, TesterArguments
 from transformers import PreTrainedTokenizer
 
 logger = logging.getLogger("nlpbook")
@@ -99,7 +99,7 @@ class ClassificationDataset(Dataset):
     def __init__(
             self,
             split: str,
-            args: TrainerArguments,
+            args: TrainerArguments | TesterArguments,
             tokenizer: PreTrainedTokenizer,
             corpus: NsmcCorpus,
             convert_examples_to_features_fn=_convert_examples_to_cls_features,

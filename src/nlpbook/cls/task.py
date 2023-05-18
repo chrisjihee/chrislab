@@ -3,7 +3,7 @@ from pytorch_lightning import LightningModule
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import ExponentialLR
 
-from nlpbook.arguments import TrainerArguments
+from nlpbook.arguments import TrainerArguments, TesterArguments
 from nlpbook.metrics import accuracy
 from transformers import PreTrainedModel
 from transformers.modeling_outputs import SequenceClassifierOutput
@@ -13,12 +13,14 @@ class ClassificationTask(LightningModule):
 
     def __init__(self,
                  model: PreTrainedModel,
-                 args: TrainerArguments,
+                 args: TrainerArguments | TesterArguments,
                  trainer: pl.Trainer):
         super().__init__()
         self.model = model
         self.args = args
         self.trainer = trainer
+        self.train_acc = -1.0
+        self.train_loss = -1.0
 
     def configure_optimizers(self):
         optimizer = AdamW(self.parameters(), lr=self.args.training.learning_rate)
@@ -33,15 +35,28 @@ class ClassificationTask(LightningModule):
         preds = outputs.logits.argmax(dim=-1)
         labels = inputs["labels"]
         acc = accuracy(preds, labels)
-        self.log("loss", outputs.loss, prog_bar=False, logger=True, on_step=True, on_epoch=False)
-        self.log("acc", acc, prog_bar=True, logger=True, on_step=True, on_epoch=False)
-        return outputs.loss
+        self.train_acc = acc
+        self.train_loss = outputs.loss
+        return {"loss": outputs.loss, "acc": acc}
 
     def validation_step(self, inputs, batch_idx):
         outputs: SequenceClassifierOutput = self.model(**inputs)
         preds = outputs.logits.argmax(dim=-1)
         labels = inputs["labels"]
         acc = accuracy(preds, labels)
-        self.log("val_loss", outputs.loss, prog_bar=True, logger=True, on_step=False, on_epoch=True)
-        self.log("val_acc", acc, prog_bar=True, logger=True, on_step=False, on_epoch=True)
-        return outputs.loss
+        self.log("train_loss", self.train_loss, prog_bar=True, logger=False, on_step=False, on_epoch=True)
+        self.log("train_acc", self.train_acc, prog_bar=True, logger=False, on_step=False, on_epoch=True)
+        self.log("val_loss", outputs.loss, prog_bar=True, logger=False, on_step=False, on_epoch=True)
+        self.log("val_acc", acc, prog_bar=True, logger=False, on_step=False, on_epoch=True)
+        self.log("global_step", self.trainer.lightning_module.global_step * 1.0, prog_bar=True, logger=False, on_step=True, on_epoch=False)
+        return {"val_loss": outputs.loss, "val_acc": acc}
+
+    def test_step(self, inputs, batch_idx):
+        outputs: SequenceClassifierOutput = self.model(**inputs)
+        preds = outputs.logits.argmax(dim=-1)
+        labels = inputs["labels"]
+        acc = accuracy(preds, labels)
+        self.log("test_loss", outputs.loss, prog_bar=True, logger=True, on_step=False, on_epoch=True)
+        self.log("test_acc", acc, prog_bar=True, logger=True, on_step=False, on_epoch=True)
+        self.log("global_step", self.trainer.lightning_module.global_step * 1.0, prog_bar=True, logger=False, on_step=True, on_epoch=False)
+        return {"test_loss": outputs.loss, "test_acc": acc}

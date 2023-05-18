@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import pytorch_lightning as pl
@@ -9,13 +10,15 @@ from typer import Typer
 
 import nlpbook
 from chrisbase.io import JobTimer, out_hr
-from nlpbook.arguments import TrainerArguments, ServerArguments, CheckingRuntime
+from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, CheckingRuntime
 from nlpbook.cls.corpus import NsmcCorpus, ClassificationDataset
 from nlpbook.cls.task import ClassificationTask
 from nlpbook.deploy import get_web_service_app
 from transformers import BertConfig, BertForSequenceClassification, BertTokenizer
 
 app = Typer()
+
+logger = logging.getLogger("nlpbook")
 
 
 @app.command()
@@ -24,17 +27,15 @@ def train(args_file: Path | str):
     assert args_file.exists(), f"No args_file file: {args_file}"
     args = TrainerArguments.from_json(args_file.read_text()).print_dataframe()
 
-    with JobTimer(f"chrialab.nlpbook train_cls {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
+    with JobTimer(f"chrialab.nlpbook.cls train {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
         nlpbook.set_seed(args)
         nlpbook.set_logger()
-        out_hr(c='-')
-
         if not (args.model.data_home / args.model.data_name).exists() or not (args.model.data_home / args.model.data_name).is_dir():
             Korpora.fetch(
                 corpus_name=args.model.data_name,
                 root_dir=args.model.data_home,
             )
-            out_hr(c='-')
+        out_hr(c='-')
 
         corpus = NsmcCorpus()
         # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained_name, do_lower_case=False, use_fast=True)
@@ -75,6 +76,57 @@ def train(args_file: Path | str):
             trainer.fit(pl_module,
                         train_dataloaders=train_dataloader,
                         val_dataloaders=val_dataloader)
+
+
+@app.command()
+def test(args_file: Path | str):
+    args_file = Path(args_file)
+    assert args_file.exists(), f"No args_file file: {args_file}"
+    args = TesterArguments.from_json(args_file.read_text())
+    args.print_dataframe()
+
+    with JobTimer(f"chrialab.nlpbook.cls test {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
+        nlpbook.set_logger()
+        downstream_model_path = args.model.finetuned_home / args.model.data_name / args.model.finetuned_name
+        assert downstream_model_path.exists(), f"No downstream model file: {downstream_model_path}"
+        logger.info(f"Using finetuned model file at {downstream_model_path}")
+        if not (args.model.data_home / args.model.data_name).exists() or not (args.model.data_home / args.model.data_name).is_dir():
+            Korpora.fetch(
+                corpus_name=args.model.data_name,
+                root_dir=args.model.data_home,
+            )
+        out_hr(c='-')
+
+        corpus = NsmcCorpus()
+        # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained_name, do_lower_case=False, use_fast=True)
+        # assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
+        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.model.pretrained_name, do_lower_case=False)
+        test_dataset = ClassificationDataset("test", args=args, corpus=corpus, tokenizer=tokenizer)
+        test_dataloader = DataLoader(test_dataset,
+                                     batch_size=args.hardware.batch_size,
+                                     num_workers=args.hardware.cpu_workers,
+                                     sampler=SequentialSampler(test_dataset),
+                                     collate_fn=nlpbook.data_collator,
+                                     drop_last=False)
+        out_hr(c='-')
+
+        pretrained_model_config = BertConfig.from_pretrained(
+            args.model.pretrained_name,
+            num_labels=corpus.num_labels,
+        )
+        model = BertForSequenceClassification.from_pretrained(
+            args.model.pretrained_name,
+            config=pretrained_model_config,
+        )
+        out_hr(c='-')
+
+        torch.set_float32_matmul_precision('high')
+        trainer: pl.Trainer = nlpbook.get_tester(args)
+        pl_module: pl.LightningModule = ClassificationTask(model, args, trainer)
+        with CheckingRuntime(args, downstream_model_path.parent):
+            trainer.test(pl_module,
+                         ckpt_path=downstream_model_path,
+                         dataloaders=test_dataloader)
 
 
 @app.command()

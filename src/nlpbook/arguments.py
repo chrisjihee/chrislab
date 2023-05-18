@@ -116,12 +116,12 @@ class ServerArguments(CommonArguments):
             assert self.model.finetuned_home.exists() and self.model.finetuned_home.is_dir(), \
                 f"No model directory: {self.model.finetuned_home}"
             if not self.model.finetuned_name:
-                ckpt_files = files(self.model.finetuned_home / self.model.data_name / "*" / "*.ckpt")  # TODO: NEED TO CHECK
-                ckpt_files = sorted([x for x in ckpt_files if "temp" not in str(x) and "tmp" not in str(x)], key=str)
+                ckpt_files: List[Path] = files(self.model.finetuned_home / self.model.data_name / "**/*.ckpt")
                 assert len(ckpt_files) > 0, f"No checkpoint file in {self.model.finetuned_home}"
-                self.model.finetuned_name = ckpt_files[-1].name
-            assert (self.model.finetuned_home / self.model.finetuned_name).exists(), \
-                f"No checkpoint file: {self.model.finetuned_home / self.model.finetuned_name}"
+                ckpt_files = sorted([x for x in ckpt_files if "temp" not in str(x) and "tmp" not in str(x)], key=str)
+                self.model.finetuned_name = ckpt_files[-1].relative_to(self.model.finetuned_home / self.model.data_name)
+            assert (self.model.finetuned_home / self.model.data_name / self.model.finetuned_name).exists(), \
+                f"No checkpoint file: {self.model.finetuned_home / self.model.data_name / self.model.finetuned_name}"
 
 
 @dataclass

@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import pytorch_lightning as pl
@@ -16,6 +17,8 @@ from transformers import BertConfig, BertForTokenClassification, PreTrainedToken
 
 app = Typer()
 
+logger = logging.getLogger("nlpbook")
+
 
 @app.command()
 def train(args_file: Path | str):
@@ -23,7 +26,7 @@ def train(args_file: Path | str):
     assert args_file.exists(), f"No args_file file: {args_file}"
     args = TrainerArguments.from_json(args_file.read_text()).print_dataframe()
 
-    with JobTimer(f"chrialab.nlpbook train_ner {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
+    with JobTimer(f"chrialab.nlpbook.ner train {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
         nlpbook.set_seed(args)
         nlpbook.set_logger()
         nlpbook.download_downstream_dataset(args)
@@ -77,24 +80,25 @@ def test(args_file: Path | str):
     args = TesterArguments.from_json(args_file.read_text())
     args.print_dataframe()
 
-    with JobTimer(f"chrialab.nlpbook test_ner {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
-        downstream_model_path = args.model.finetuned_home / args.model.finetuned_name
-        assert downstream_model_path.exists(), f"No downstream model file: {downstream_model_path}"
+    with JobTimer(f"chrialab.nlpbook.ner test {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
         nlpbook.set_logger()
+        downstream_model_path = args.model.finetuned_home / args.model.data_name / args.model.finetuned_name
+        assert downstream_model_path.exists(), f"No downstream model file: {downstream_model_path}"
+        logger.info(f"Using finetuned model file at {downstream_model_path}")
         nlpbook.download_downstream_dataset(args)
         out_hr(c='-')
 
         corpus = NERCorpus(args)
-        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.model.pretrained_name, do_lower_case=False)
         # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained_name, do_lower_case=False, use_fast=True)
         # assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
+        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.model.pretrained_name, do_lower_case=False)
         test_dataset = NERDataset("test", args=args, corpus=corpus, tokenizer=tokenizer)
         test_dataloader = DataLoader(test_dataset,
-                                     batch_size=args.batch_size,
+                                     batch_size=args.hardware.batch_size,
+                                     num_workers=args.hardware.cpu_workers,
                                      sampler=SequentialSampler(test_dataset),
                                      collate_fn=nlpbook.data_collator,
-                                     drop_last=False,
-                                     num_workers=args.cpu_workers)
+                                     drop_last=False)
         out_hr(c='-')
 
         pretrained_model_config = BertConfig.from_pretrained(
@@ -108,9 +112,12 @@ def test(args_file: Path | str):
         out_hr(c='-')
 
         torch.set_float32_matmul_precision('high')
-        nlpbook.get_tester(args).test(NERTask(model, args),
-                                      dataloaders=test_dataloader,
-                                      ckpt_path=downstream_model_path)
+        trainer: pl.Trainer = nlpbook.get_tester(args)
+        pl_module: pl.LightningModule = NERTask(model, args, trainer)
+        with CheckingRuntime(args, downstream_model_path.parent):
+            trainer.test(pl_module,
+                         ckpt_path=downstream_model_path,
+                         dataloaders=test_dataloader)
 
 
 @app.command()
