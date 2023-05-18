@@ -72,7 +72,7 @@ REMOTE_MODEL_MAP = {
     },
 }
 GOOGLE_DRIVE_URL = "https://docs.google.com/uc?export=download"
-logger = logging.getLogger("ratsnlp")  # pylint: disable=invalid-name
+logger = logging.getLogger("nlpbook")
 
 
 def save_response_content(response, save_path):
@@ -211,18 +211,6 @@ def download_pretrained_model(args, config_only=False):
         raise ValueError(f"not valid model name({pretrained_model_name}), cannot download resources")
 
 
-def set_logger():
-    import torch
-    if torch.cuda.is_available():
-        stream_handler = logging.StreamHandler()
-        formatter = logging.Formatter(
-            fmt="%(levelname)s:%(name)s:%(message)s",
-        )
-        stream_handler.setFormatter(formatter)
-        logger.addHandler(stream_handler)
-    logger.setLevel(logging.INFO)
-
-
 def set_seed(args: TrainerArguments):
     if args.training.seed is not None:
         from transformers import set_seed
@@ -232,6 +220,16 @@ def set_seed(args: TrainerArguments):
         print(f"set seed: {args.training.seed}")
     else:
         print("not fixed seed")
+
+
+def set_logger(level=logging.INFO):
+    import torch
+    if torch.cuda.is_available():
+        stream_handler = logging.StreamHandler()
+        formatter = logging.Formatter(fmt="%(levelname)s:%(name)s:%(message)s")
+        stream_handler.setFormatter(formatter)
+        logger.addHandler(stream_handler)
+    logger.setLevel(level)
 
 
 def load_arguments(argument_class, json_file_path=None):

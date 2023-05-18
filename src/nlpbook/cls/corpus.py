@@ -13,7 +13,7 @@ from torch.utils.data.dataset import Dataset
 from nlpbook.arguments import TrainerArguments
 from transformers import PreTrainedTokenizer
 
-logger = logging.getLogger("ratsnlp")
+logger = logging.getLogger("nlpbook")
 
 
 @dataclass
@@ -55,7 +55,7 @@ class NsmcCorpus:
         return len(self.get_labels())
 
 
-def _convert_examples_to_classification_features(
+def _convert_examples_to_cls_features(
         examples: List[ClassificationExample],
         tokenizer: PreTrainedTokenizer,
         args: TrainerArguments,
@@ -64,9 +64,7 @@ def _convert_examples_to_classification_features(
     label_map = {label: i for i, label in enumerate(label_list)}
     labels = [label_map[example.label] for example in examples]
 
-    logger.info(
-        "tokenize sentences, it could take a lot of time..."
-    )
+    logger.info("tokenize sentences, it could take a lot of time...")
     start = time.time()
     batch_encoding = tokenizer(
         [(example.text_a, example.text_b) for example in examples],
@@ -74,9 +72,7 @@ def _convert_examples_to_classification_features(
         padding="max_length",
         truncation=True,
     )
-    logger.info(
-        "tokenize sentences [took %.3f s]", time.time() - start
-    )
+    logger.info("tokenize sentences [took %.3f s]", time.time() - start)
 
     features = []
     for i in range(len(examples)):
@@ -84,7 +80,7 @@ def _convert_examples_to_classification_features(
         feature = ClassificationFeatures(**inputs, label=labels[i])
         features.append(feature)
 
-    for i, example in enumerate(examples[:5]):
+    for i, example in enumerate(examples[:3]):
         logger.info("*** Example ***")
         if example.text_b is None:
             logger.info("sentence: %s" % (example.text_a))
@@ -105,62 +101,37 @@ class ClassificationDataset(Dataset):
             split: str,
             args: TrainerArguments,
             tokenizer: PreTrainedTokenizer,
-            corpus,
-            mode: Optional[str] = "train",
-            convert_examples_to_features_fn=_convert_examples_to_classification_features,
+            corpus: NsmcCorpus,
+            convert_examples_to_features_fn=_convert_examples_to_cls_features,
     ):
-        if corpus is not None:
-            self.corpus = corpus
-        else:
-            raise KeyError("corpus is not valid")
-        if not mode in ["train", "val", "test"]:
-            raise KeyError(f"mode({mode}) is not a valid split name")
-        # Load data features from cache or dataset file
-        cached_features_file = os.path.join(
-            args.model.data_home,
-            args.model.data_name,
-            "cached_{}_{}_{}_{}_{}".format(
-                Path(args.model.data_file).stem,
-                tokenizer.__class__.__name__,
-                str(args.model.max_seq_length),
-                args.model.data_name,
-                args.model.task_name,
-            ),
-        )
+        assert corpus, "corpus is not valid"
+        self.corpus = corpus
 
-        # Make sure only the first process in distributed training processes the dataset,
-        # and the others will use the cache.
-        lock_path = cached_features_file + ".lock"
-        with FileLock(lock_path):
+        assert args.model.data_home, f"No data_home: {args.model.data_home}"
+        assert args.model.data_name, f"No data_name: {args.model.data_name}"
+        data_file_dict: dict = args.model.data_file.to_dict()
+        assert split in data_file_dict, f"No '{split}' split in data_file: should be one of {list(data_file_dict.keys())}"
+        assert data_file_dict[split], f"No data_file for '{split}' split: {args.model.data_file}"
+        text_data_path: Path = Path(args.model.data_home) / args.model.data_name / data_file_dict[split]
+        cache_data_path = text_data_path \
+            .with_stem(text_data_path.stem + f"-by-{tokenizer.__class__.__name__}-with-{args.model.max_seq_length}") \
+            .with_suffix(".cache")
+        cache_lock_path = cache_data_path.with_suffix(".lock")
 
-            if os.path.exists(cached_features_file) and args.model.data_caching:
+        with FileLock(cache_lock_path):
+            if os.path.exists(cache_data_path) and args.model.data_caching:
                 start = time.time()
-                self.features = torch.load(cached_features_file)
-                logger.info(
-                    f"Loading features from cached file {cached_features_file} [took %.3f s]", time.time() - start
-                )
+                self.features = torch.load(cache_data_path)
+                logger.info(f"Loading features from cached file at {cache_data_path} [took {time.time() - start:.3f} s]")
             else:
-                corpus_path = os.path.join(
-                    args.model.data_home,
-                    args.model.data_name,
-                    args.model.data_file,
-                )
-                logger.info(f"Creating features from dataset file at {corpus_path}")
-                examples = self.corpus.get_examples(corpus_path)
-                self.features = convert_examples_to_features_fn(
-                    examples,
-                    tokenizer,
-                    args,
-                    label_list=self.corpus.get_labels(),
-                )
+                assert text_data_path.exists() and text_data_path.is_file(), f"No data_text_path: {text_data_path}"
+                logger.info(f"Creating features from dataset file at {text_data_path}")
+                examples = self.corpus.get_examples(text_data_path)
+                self.features = convert_examples_to_features_fn(examples, tokenizer, args, label_list=self.corpus.get_labels())
                 start = time.time()
-                logger.info(
-                    "Saving features into cached file, it could take a lot of time..."
-                )
-                torch.save(self.features, cached_features_file)
-                logger.info(
-                    "Saving features into cached file %s [took %.3f s]", cached_features_file, time.time() - start
-                )
+                logger.info("Saving features into cached file, it could take a lot of time...")
+                torch.save(self.features, cache_data_path)
+                logger.info(f"Saving features into cached file at {cache_data_path} [took {time.time() - start:.3f} s]")
 
     def __len__(self):
         return len(self.features)

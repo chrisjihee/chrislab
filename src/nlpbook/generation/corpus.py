@@ -12,7 +12,7 @@ from torch.utils.data.dataset import Dataset
 from nlpbook.generation.arguments import GenerationTrainArguments
 from transformers import PreTrainedTokenizerFast
 
-logger = logging.getLogger("ratsnlp")
+logger = logging.getLogger("nlpbook")
 
 
 @dataclass

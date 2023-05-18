@@ -15,7 +15,7 @@ from nlpbook.arguments import TrainerArguments, TesterArguments
 from transformers import BertTokenizer
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
 
-logger = logging.getLogger("ratsnlp")
+logger = logging.getLogger("nlpbook")
 
 # 자체 제작 NER 코퍼스 기준의 레이블 시퀀스를 만들기 위한 ID 체계
 # 나 는 삼성 에 입사 했다
@@ -253,32 +253,24 @@ class NERDataset(Dataset):
         assert corpus, "corpus is not valid"
         self.corpus = corpus
 
-        assert args.model.data_home, \
-            f"No data_home: {args.model.data_home}"
-        assert args.model.data_name, \
-            f"No data_name: {args.model.data_name}"
+        assert args.model.data_home, f"No data_home: {args.model.data_home}"
+        assert args.model.data_name, f"No data_name: {args.model.data_name}"
         data_file_dict: dict = args.model.data_file.to_dict()
-        assert split in data_file_dict, \
-            f"No '{split}' split in data_file: should be one of {list(data_file_dict.keys())}"
-        assert data_file_dict[split], \
-            f"No data_file for '{split}' split: {args.model.data_file}"
+        assert split in data_file_dict, f"No '{split}' split in data_file: should be one of {list(data_file_dict.keys())}"
+        assert data_file_dict[split], f"No data_file for '{split}' split: {args.model.data_file}"
         text_data_path: Path = Path(args.model.data_home) / args.model.data_name / data_file_dict[split]
-        assert text_data_path.exists() and text_data_path.is_file(), \
-            f"No data_text_path: {text_data_path}"
         cache_data_path = text_data_path \
             .with_stem(text_data_path.stem + f"-by-{tokenizer.__class__.__name__}-with-{args.model.max_seq_length}") \
             .with_suffix(".cache")
-        data_cache_lock = cache_data_path.with_suffix(".lock")
+        cache_lock_path = cache_data_path.with_suffix(".lock")
 
-        # Make sure only the first process in distributed training processes the dataset, and the others will use the cache.
-        with FileLock(data_cache_lock):
+        with FileLock(cache_lock_path):
             if os.path.exists(cache_data_path) and args.model.data_caching:
-                # Load data features from cached file
                 start = time.time()
                 self.features = torch.load(cache_data_path)
                 logger.info(f"Loading features from cached file at {cache_data_path} [took {time.time() - start:.3f} s]")
             else:
-                # Load data features from dataset file
+                assert text_data_path.exists() and text_data_path.is_file(), f"No data_text_path: {text_data_path}"
                 logger.info(f"Creating features from dataset file at {text_data_path}")
                 examples = self.corpus.get_examples(text_data_path)
                 self.features = convert_examples_to_features_fn(examples, tokenizer, args, label_list=self.corpus.get_labels())

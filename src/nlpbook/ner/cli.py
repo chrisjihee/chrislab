@@ -1,13 +1,13 @@
-import pytorch_lightning as pl
 from pathlib import Path
 
+import pytorch_lightning as pl
 import torch
 from torch.utils.data import DataLoader, RandomSampler
 from torch.utils.data import SequentialSampler
 from typer import Typer
 
 import nlpbook
-from chrisbase.io import JobTimer, out_hr, make_dir
+from chrisbase.io import JobTimer, out_hr
 from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, CheckingRuntime
 from nlpbook.deploy import get_web_service_app
 from nlpbook.ner.corpus import NERCorpus, NERDataset
@@ -23,7 +23,7 @@ def train(args_file: Path | str):
     assert args_file.exists(), f"No args_file file: {args_file}"
     args = TrainerArguments.from_json(args_file.read_text()).print_dataframe()
 
-    with JobTimer(f"chrialab.ratsnlp train_ner {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
+    with JobTimer(f"chrialab.nlpbook train_ner {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
         nlpbook.set_seed(args)
         nlpbook.set_logger()
         nlpbook.download_downstream_dataset(args)
@@ -36,19 +36,19 @@ def train(args_file: Path | str):
         train_dataset = NERDataset("train", args=args, corpus=corpus, tokenizer=tokenizer)
         train_dataloader = DataLoader(train_dataset,
                                       batch_size=args.hardware.batch_size,
+                                      num_workers=args.hardware.cpu_workers,
                                       sampler=RandomSampler(train_dataset, replacement=False),
                                       collate_fn=nlpbook.data_collator,
-                                      drop_last=False,
-                                      num_workers=args.hardware.cpu_workers)
+                                      drop_last=False)
         out_hr(c='-')
 
         val_dataset = NERDataset("valid", args=args, corpus=corpus, tokenizer=tokenizer)
         val_dataloader = DataLoader(val_dataset,
                                     batch_size=args.hardware.batch_size,
+                                    num_workers=args.hardware.cpu_workers,
                                     sampler=SequentialSampler(val_dataset),
                                     collate_fn=nlpbook.data_collator,
-                                    drop_last=False,
-                                    num_workers=args.hardware.cpu_workers)
+                                    drop_last=False)
         out_hr(c='-')
 
         pretrained_model_config = BertConfig.from_pretrained(
@@ -77,7 +77,7 @@ def test(args_file: Path | str):
     args = TesterArguments.from_json(args_file.read_text())
     args.print_dataframe()
 
-    with JobTimer(f"chrialab.ratsnlp test_ner {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
+    with JobTimer(f"chrialab.nlpbook test_ner {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
         downstream_model_path = args.model.finetuned_home / args.model.finetuned_name
         assert downstream_model_path.exists(), f"No downstream model file: {downstream_model_path}"
         nlpbook.set_logger()
@@ -120,7 +120,7 @@ def serve(args_file: Path | str):
     args = ServerArguments.from_json(args_file.read_text())
     args.print_dataframe()
 
-    with JobTimer(f"chrialab.ratsnlp serve_ner {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
+    with JobTimer(f"chrialab.nlpbook serve_ner {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
         downstream_model_path = args.model.finetuned_home / args.model.finetuned_name
         assert downstream_model_path.exists(), f"No downstream model file: {downstream_model_path}"
         downstream_model_ckpt = torch.load(downstream_model_path, map_location=torch.device("cpu"))

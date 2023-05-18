@@ -4,7 +4,7 @@ import logging
 from nlpbook.cls.corpus import ClassificationExample
 
 
-logger = logging.getLogger("ratsnlp")
+logger = logging.getLogger("nlpbook")
 
 
 class KlueNLICorpus:

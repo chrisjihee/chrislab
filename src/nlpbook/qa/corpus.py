@@ -15,7 +15,7 @@ from tqdm import tqdm
 from nlpbook.qa import QATrainArguments
 from transformers import PreTrainedTokenizer
 
-logger = logging.getLogger("ratsnlp")
+logger = logging.getLogger("nlpbook")
 
 
 @dataclass

@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytorch_lightning as pl
 import torch
 from Korpora import Korpora
 from torch.utils.data import DataLoader, RandomSampler
@@ -8,60 +9,53 @@ from typer import Typer
 
 import nlpbook
 from chrisbase.io import JobTimer, out_hr
-from nlpbook.arguments import TrainerArguments, ServerArguments
+from nlpbook.arguments import TrainerArguments, ServerArguments, CheckingRuntime
 from nlpbook.cls.corpus import NsmcCorpus, ClassificationDataset
 from nlpbook.cls.task import ClassificationTask
 from nlpbook.deploy import get_web_service_app
-from transformers import BertConfig, BertForSequenceClassification, PreTrainedTokenizerFast, AutoTokenizer, BertTokenizer
+from transformers import BertConfig, BertForSequenceClassification, BertTokenizer
 
 app = Typer()
 
 
 @app.command()
-def train(config: Path | str):
-    config = Path(config)
-    assert config.exists(), f"No config file: {config}"
-    args = TrainerArguments.from_json(config.read_text()).print_dataframe()
+def train(args_file: Path | str):
+    args_file = Path(args_file)
+    assert args_file.exists(), f"No args_file file: {args_file}"
+    args = TrainerArguments.from_json(args_file.read_text()).print_dataframe()
 
-    with JobTimer(f"chrialab.ratsnlp train_cls {config}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
+    with JobTimer(f"chrialab.nlpbook train_cls {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
         nlpbook.set_seed(args)
         nlpbook.set_logger()
         out_hr(c='-')
 
-        Korpora.fetch(
-            corpus_name=args.model.data_name,
-            root_dir=args.model.data_home,
-        )
-        out_hr(c='-')
-
-        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.model.pretrained_name, do_lower_case=False)
-        # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained_name, do_lower_case=False, use_fast=True)
-        # assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
-        print(f"tokenizer={tokenizer}")
-        print(f"tokenized={tokenizer.tokenize('안녕하세요. 반갑습니다.')}")
-        out_hr(c='-')
+        if not (args.model.data_home / args.model.data_name).exists() or not (args.model.data_home / args.model.data_name).is_dir():
+            Korpora.fetch(
+                corpus_name=args.model.data_name,
+                root_dir=args.model.data_home,
+            )
+            out_hr(c='-')
 
         corpus = NsmcCorpus()
-        train_dataset = ClassificationDataset(args=args, corpus=corpus, tokenizer=tokenizer)
-        train_dataloader = DataLoader(
-            train_dataset,
-            batch_size=args.batch_size,
-            sampler=RandomSampler(train_dataset, replacement=False),
-            collate_fn=nlpbook.data_collator,
-            drop_last=False,
-            num_workers=args.cpu_workers,
-        )
+        # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained_name, do_lower_case=False, use_fast=True)
+        # assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
+        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.model.pretrained_name, do_lower_case=False)
+        train_dataset = ClassificationDataset("train", args=args, corpus=corpus, tokenizer=tokenizer)
+        train_dataloader = DataLoader(train_dataset,
+                                      batch_size=args.hardware.batch_size,
+                                      num_workers=args.hardware.cpu_workers,
+                                      sampler=RandomSampler(train_dataset, replacement=False),
+                                      collate_fn=nlpbook.data_collator,
+                                      drop_last=False)
         out_hr(c='-')
 
-        val_dataset = ClassificationDataset(args=args, corpus=corpus, tokenizer=tokenizer)
-        val_dataloader = DataLoader(
-            val_dataset,
-            batch_size=args.batch_size,
-            sampler=SequentialSampler(val_dataset),
-            collate_fn=nlpbook.data_collator,
-            drop_last=False,
-            num_workers=args.cpu_workers,
-        )
+        val_dataset = ClassificationDataset("valid", args=args, corpus=corpus, tokenizer=tokenizer)
+        val_dataloader = DataLoader(val_dataset,
+                                    batch_size=args.hardware.batch_size,
+                                    num_workers=args.hardware.cpu_workers,
+                                    sampler=SequentialSampler(val_dataset),
+                                    collate_fn=nlpbook.data_collator,
+                                    drop_last=False)
         out_hr(c='-')
 
         pretrained_model_config = BertConfig.from_pretrained(
@@ -75,21 +69,22 @@ def train(config: Path | str):
         out_hr(c='-')
 
         torch.set_float32_matmul_precision('high')
-        nlpbook.get_trainer(args).fit(
-            ClassificationTask(model, args),
-            train_dataloaders=train_dataloader,
-            val_dataloaders=val_dataloader,
-        )
+        trainer: pl.Trainer = nlpbook.get_trainer(args)
+        pl_module: pl.LightningModule = ClassificationTask(model, args, trainer)
+        with CheckingRuntime(args, trainer.logger.log_dir):
+            trainer.fit(pl_module,
+                        train_dataloaders=train_dataloader,
+                        val_dataloaders=val_dataloader)
 
 
 @app.command()
-def serve(config: Path | str):
-    config = Path(config)
-    assert config.exists(), f"No config file: {config}"
-    args = ServerArguments.from_json(config.read_text())
+def serve(args_file: Path | str):
+    args_file = Path(args_file)
+    assert args_file.exists(), f"No args_file file: {args_file}"
+    args = ServerArguments.from_json(args_file.read_text())
     args.print_dataframe()
 
-    with JobTimer(f"chrialab.ratsnlp serve_cls {config}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
+    with JobTimer(f"chrialab.nlpbook serve_cls {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
         downstream_model_path = args.model.finetuned_home / args.model.finetuned_name
         assert downstream_model_path.exists(), f"No downstream model file: {downstream_model_path}"
         downstream_model_ckpt = torch.load(downstream_model_path, map_location=torch.device("cpu"))
@@ -101,10 +96,9 @@ def serve(config: Path | str):
         model.load_state_dict({k.replace("model.", ""): v for k, v in downstream_model_ckpt['state_dict'].items()})
         model.eval()
 
-        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.model.pretrained_name, do_lower_case=False)
-
         # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained_name, do_lower_case=False, use_fast=True)
         # assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
+        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.model.pretrained_name, do_lower_case=False)
 
         def inference_fn(sentence):
             inputs = tokenizer(
