@@ -18,14 +18,13 @@ app = Typer()
 
 
 @app.command()
-def train(config: Path | str):
-    config = Path(config)
-    assert config.exists(), f"No config file: {config}"
-    args = TrainerArguments.from_json(config.read_text())
-    print(f"args.env.working_path={args.env.working_path}")
-    args.print_dataframe()
+def train(args_file: Path | str):
+    args_file = Path(args_file)
+    assert args_file.exists(), f"No args_file file: {args_file}"
+    args = TrainerArguments.from_json(args_file.read_text()).print_dataframe()
+    exit(1)
 
-    with JobTimer(f"chrialab.ratsnlp train_ner {config}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
+    with JobTimer(f"chrialab.ratsnlp train_ner {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
         nlpbook.set_seed(args)
         nlpbook.set_logger()
         nlpbook.download_downstream_dataset(args)
@@ -73,13 +72,13 @@ def train(config: Path | str):
 
 
 @app.command()
-def test(config: Path | str):
-    config = Path(config)
-    assert config.exists(), f"No config file: {config}"
-    args = TesterArguments.from_json(config.read_text())
+def test(args_file: Path | str):
+    args_file = Path(args_file)
+    assert args_file.exists(), f"No args_file file: {args_file}"
+    args = TesterArguments.from_json(args_file.read_text())
     args.print_dataframe()
 
-    with JobTimer(f"chrialab.ratsnlp test_ner {config}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
+    with JobTimer(f"chrialab.ratsnlp test_ner {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
         downstream_model_path = args.downstream_model_home / args.downstream_model_file
         assert downstream_model_path.exists(), f"No downstream model file: {downstream_model_path}"
         nlpbook.set_logger()
@@ -116,13 +115,13 @@ def test(config: Path | str):
 
 
 @app.command()
-def serve(config: Path | str):
-    config = Path(config)
-    assert config.exists(), f"No config file: {config}"
-    args = ServerArguments.from_json(config.read_text())
+def serve(args_file: Path | str):
+    args_file = Path(args_file)
+    assert args_file.exists(), f"No args_file file: {args_file}"
+    args = ServerArguments.from_json(args_file.read_text())
     args.print_dataframe()
 
-    with JobTimer(f"chrialab.ratsnlp serve_ner {config}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
+    with JobTimer(f"chrialab.ratsnlp serve_ner {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
         downstream_model_path = args.downstream_model_home / args.downstream_model_file
         assert downstream_model_path.exists(), f"No downstream model file: {downstream_model_path}"
         downstream_model_ckpt = torch.load(downstream_model_path, map_location=torch.device("cpu"))

@@ -36,21 +36,10 @@ class ModelArgs(DataClassJsonMixin):
 
     def __post_init__(self):
         assert isinstance(self.finetuned_home, (str, Path)), "finetuned_home must be str or Path"
-        self.data_home = Path(self.data_home)
-        self.finetuned_home = make_dir(self.finetuned_home)
-
-    def as_dataframe(self):
-        columns = [self.__class__.__name__, "value"]
-        return pd.concat([
-            to_dataframe(data_prefix="data_file", raw=self.data_file, columns=columns),
-            to_dataframe(data_exclude="data_file", raw=self, columns=columns),
-        ]).reset_index(drop=True)
-
-    # def data_file_as_obj(self) -> DataFiles:
-    #     if isinstance(self.data_file, dict):
-    #         return DataFiles.from_dict(self.data_file)
-    #     if isinstance(self.data_file, DataFiles):
-    #         return self.data_file
+        if self.data_home:
+            self.data_home = Path(self.data_home)
+        if self.finetuned_home:
+            self.finetuned_home = make_dir(self.finetuned_home)
 
 
 @dataclass
@@ -95,13 +84,14 @@ class CommonArguments(DataClassJsonMixin):
         if not self.env.argument_file.stem.endswith(self.action):
             self.env.argument_file = self.env.argument_file.with_stem(f"{self.env.argument_file.stem}-{self.action}")
 
-    def as_dataframe(self):
-        columns = [self.__class__.__name__, "value"]
+    def as_dataframe(self, columns=None):
+        if not columns:
+            columns = [self.__class__.__name__, "value"]
         return pd.concat([
-            to_dataframe(data_prefix="env", raw=self.env, columns=columns),
-            to_dataframe(data_prefix="model", raw=self.model, columns=columns),
-            to_dataframe(data_prefix="timer", raw=self.timer, columns=columns),
-            to_dataframe(data_prefix="result", raw=self.result, columns=columns),
+            to_dataframe(columns=columns, raw=self.env, data_prefix="env"),
+            to_dataframe(columns=columns, raw=self.model, data_prefix="model"),
+            to_dataframe(columns=columns, raw=self.timer, data_prefix="timer"),
+            to_dataframe(columns=columns, raw=self.result, data_prefix="result"),
         ]).reset_index(drop=True)
 
     def print_dataframe(self):
@@ -156,8 +146,13 @@ class TesterArguments(ServerArguments):
     action = "test"
     hardware: HardwareArgs = field(default=HardwareArgs(), metadata={"help": "device information"})
 
-    # def __post_init__(self):
-    #     super().__post_init__()
+    def as_dataframe(self, columns=None):
+        if not columns:
+            columns = [self.__class__.__name__, "value"]
+        return pd.concat([
+            super().as_dataframe(columns=columns),
+            to_dataframe(columns=columns, raw=self.hardware, data_prefix="hardware"),
+        ]).reset_index(drop=True)
 
 
 @dataclass
@@ -175,8 +170,13 @@ class TrainerArguments(TesterArguments):
     action = "train"
     training: TrainingArgs = field(default=TrainingArgs())
 
-    # def __post_init__(self):
-    #     super().__post_init__()
+    def as_dataframe(self, columns=None):
+        if not columns:
+            columns = [self.__class__.__name__, "value"]
+        return pd.concat([
+            super().as_dataframe(columns=columns),
+            to_dataframe(columns=columns, raw=self.training, data_prefix="training"),
+        ]).reset_index(drop=True)
 
 
 class UsingArguments:
