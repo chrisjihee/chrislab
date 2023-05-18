@@ -168,23 +168,23 @@ def web_download(url,
 
 
 def download_downstream_dataset(args: TesterArguments):
-    data_name = args.model.data_name.lower()
+    data_name = args.data.name.lower()
     if data_name in REMOTE_DATA_MAP.keys():
-        cache_dir = os.path.join(args.model.data_home, data_name)
+        cache_dir = os.path.join(args.data.home, data_name)
         for value in REMOTE_DATA_MAP[data_name].values():
             if "web_url" in value.keys():
                 web_download(
                     url=value["web_url"],
                     save_fname=value["fname"],
                     cache_dir=cache_dir,
-                    force_download=args.model.data_download,
+                    force_download=args.data.redownload,
                 )
             else:
                 google_download(
                     file_id=value["googledrive_file_id"],
                     save_fname=value["fname"],
                     cache_dir=cache_dir,
-                    force_download=args.model.data_download
+                    force_download=args.data.redownload
                 )
     else:
         raise ValueError(f"not valid data name({data_name}), cannot download resources")
@@ -212,14 +212,13 @@ def download_pretrained_model(args, config_only=False):
 
 
 def set_seed(args: TrainerArguments):
-    if args.training.seed is not None:
+    if args.learning.seed is not None:
         from transformers import set_seed
-        set_seed(args.training.seed)
+        set_seed(args.learning.seed)
         from pytorch_lightning import seed_everything
-        seed_everything(args.training.seed)
-        print(f"set seed: {args.training.seed}")
+        seed_everything(args.learning.seed)
     else:
-        print("not fixed seed")
+        print("not fixed seed", file=sys.stderr)
 
 
 def set_logger(level=logging.INFO):

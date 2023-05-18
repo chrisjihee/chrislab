@@ -9,12 +9,12 @@ from torch.optim.lr_scheduler import ExponentialLR
 from nlpbook.arguments import TrainerArguments, TesterArguments
 from nlpbook.metrics import accuracy
 from nlpbook.ner import NER_PAD_ID
-from transformers import BertPreTrainedModel
+from transformers import PreTrainedModel
 from transformers.modeling_outputs import TokenClassifierOutput
 
 
 class NERTask(LightningModule):
-    def __init__(self, model: BertPreTrainedModel,
+    def __init__(self, model: PreTrainedModel,
                  args: TrainerArguments | TesterArguments,
                  trainer: pl.Trainer):
         super().__init__()
@@ -25,7 +25,7 @@ class NERTask(LightningModule):
         self.train_loss = -1.0
 
     def configure_optimizers(self):
-        optimizer = AdamW(self.parameters(), lr=self.args.training.learning_rate)
+        optimizer = AdamW(self.parameters(), lr=self.args.learning.speed)
         scheduler = ExponentialLR(optimizer, gamma=0.9)
         return {
             'optimizer': optimizer,
@@ -58,9 +58,8 @@ class NERTask(LightningModule):
         preds = outputs.logits.argmax(dim=-1)
         labels = inputs["labels"]
         acc = accuracy(preds, labels, ignore_index=NER_PAD_ID)
-        self.log("test_loss", outputs.loss, prog_bar=True, logger=False, on_step=False, on_epoch=True)
-        self.log("test_acc", acc, prog_bar=True, logger=False, on_step=False, on_epoch=True)
-        self.log("global_step", self.trainer.lightning_module.global_step * 1.0, prog_bar=True, logger=False, on_step=True, on_epoch=False)
+        self.log("test_loss", outputs.loss, prog_bar=False, logger=True, on_step=False, on_epoch=True)
+        self.log("test_acc", acc, prog_bar=False, logger=True, on_step=False, on_epoch=True)
         return {"test_loss": outputs.loss, "test_acc": acc}
 
     def x_validation_epoch_end(

@@ -58,13 +58,13 @@ class NERCorpus:
         return examples
 
     def get_labels(self):
-        label_map_path = make_parent_dir(self.args.model.finetuned_home / self.args.model.data_name / "label_map.txt")
+        label_map_path = make_parent_dir(self.args.output.dir_path / "label_map.txt")
         if not label_map_path.exists():
             logger.info("processing NER tag dictionary...")
-            os.makedirs(self.args.model.finetuned_home, exist_ok=True)
+            os.makedirs(self.args.model.finetuning_home, exist_ok=True)
             ner_tags = []
             regex_ner = re.compile('<(.+?):[A-Z]{3}>')
-            train_corpus_path = self.args.model.data_home / self.args.model.data_name / "train.txt"
+            train_corpus_path = self.args.data.home / self.args.data.name / "train.txt"
             target_sentences = [line.split("\u241E")[1].strip()
                                 for line in train_corpus_path.open("r", encoding="utf-8").readlines()]
             for target_sentence in target_sentences:
@@ -253,19 +253,19 @@ class NERDataset(Dataset):
         assert corpus, "corpus is not valid"
         self.corpus = corpus
 
-        assert args.model.data_home, f"No data_home: {args.model.data_home}"
-        assert args.model.data_name, f"No data_name: {args.model.data_name}"
-        data_file_dict: dict = args.model.data_file.to_dict()
+        assert args.data.home, f"No data_home: {args.data.home}"
+        assert args.data.name, f"No data_name: {args.data.name}"
+        data_file_dict: dict = args.data.files.to_dict()
         assert split in data_file_dict, f"No '{split}' split in data_file: should be one of {list(data_file_dict.keys())}"
-        assert data_file_dict[split], f"No data_file for '{split}' split: {args.model.data_file}"
-        text_data_path: Path = Path(args.model.data_home) / args.model.data_name / data_file_dict[split]
+        assert data_file_dict[split], f"No data_file for '{split}' split: {args.data.files}"
+        text_data_path: Path = Path(args.data.home) / args.data.name / data_file_dict[split]
         cache_data_path = text_data_path \
             .with_stem(text_data_path.stem + f"-by-{tokenizer.__class__.__name__}-with-{args.model.max_seq_length}") \
             .with_suffix(".cache")
         cache_lock_path = cache_data_path.with_suffix(".lock")
 
         with FileLock(cache_lock_path):
-            if os.path.exists(cache_data_path) and args.model.data_caching:
+            if os.path.exists(cache_data_path) and args.data.caching:
                 start = time.time()
                 self.features = torch.load(cache_data_path)
                 logger.info(f"Loading features from cached file at {cache_data_path} [took {time.time() - start:.3f} s]")
