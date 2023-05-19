@@ -70,6 +70,8 @@ class NERTask(LightningModule):
         labels are aligned with the original character-level labels and then
         evaluated.
         """
+        print(f"Validation epoch end: outputs={outputs}")
+        exit(1)
         list_of_subword_preds = self._convert_outputs_to_preds(outputs)
         if self.tokenizer_type == "xlm-sp":
             strip_char = "▁"

@@ -27,12 +27,6 @@ NER_PAD_ID = 2
 
 
 @dataclass
-class NERExample:
-    text: str
-    label: Optional[str] = None
-
-
-@dataclass
 class EntityInText(DataClassJsonMixin):
     pattern: ClassVar[re.Pattern] = re.compile('<([^<>]+?):([A-Z]{2,3})>')
     text: str
@@ -74,43 +68,34 @@ class NERCorpus:
     def __init__(self, args: TesterArguments):
         self.args = args
 
-    def get_examples(self, data_path: Path) -> List[NERExampleForKLUE] | List[NERExample]:
+    def get_examples(self, data_path: Path) -> List[NERExampleForKLUE]:
         examples = []
-        if data_path.suffix.lower() == ".jsonl":
-            with data_path.open(encoding="utf-8") as inp:
-                for line in inp.readlines():
-                    examples.append(NERExampleForKLUE.from_json(line))
-        else:
-            for line in open(data_path, "r", encoding="utf-8").readlines():
-                text, label = line.split("\u241E")
-                examples.append(NERExample(text=text, label=label))
-        logger.info(f"Loaded {len(examples)} {examples[0].__class__.__name__} from {data_path}")
+        with data_path.open(encoding="utf-8") as inp:
+            for line in inp.readlines():
+                examples.append(NERExampleForKLUE.from_json(line))
+        logger.info(f"Loaded {len(examples)} examples from {data_path}")
         return examples
 
     def get_labels(self):
         label_map_path = make_parent_dir(self.args.output.dir_path / "label_map.txt")
         if not label_map_path.exists():
-            logger.info("processing NER tag dictionary...")
-            os.makedirs(self.args.model.finetuning_home, exist_ok=True)
             ner_tags = []
-            regex_ner = re.compile('<(.+?):[A-Z]{3}>')
-            train_corpus_path = self.args.data.home / self.args.data.name / "train.txt"
-            target_sentences = [line.split("\u241E")[1].strip()
-                                for line in train_corpus_path.open("r", encoding="utf-8").readlines()]
-            for target_sentence in target_sentences:
-                regex_filter_res = regex_ner.finditer(target_sentence)
-                for match_item in regex_filter_res:
-                    ner_tag = match_item[0][-4:-1]
-                    if ner_tag not in ner_tags:
-                        ner_tags.append(ner_tag)
+            train_data_path = self.args.data.home / self.args.data.name / self.args.data.files.train
+            logger.info(f"Extracting labels from {train_data_path}")
+            with train_data_path.open(encoding="utf-8") as inp:
+                for line in inp.readlines():
+                    for x in NERExampleForKLUE.from_json(line).entity_list:
+                        if x.label not in ner_tags:
+                            ner_tags.append(x.label)
             b_tags = [f"B-{ner_tag}" for ner_tag in ner_tags]
             i_tags = [f"I-{ner_tag}" for ner_tag in ner_tags]
             labels = [NER_CLS_TOKEN, NER_SEP_TOKEN, NER_PAD_TOKEN, NER_MASK_TOKEN, "O"] + b_tags + i_tags
+            logger.info(f"Saved {len(labels)} labels to {label_map_path}")
             with label_map_path.open("w", encoding="utf-8") as f:
-                for tag in labels:
-                    f.writelines(tag + "\n")
+                f.writelines([x+"\n" for x in labels])
         else:
-            labels = [tag.strip() for tag in open(label_map_path, "r", encoding="utf-8").readlines()]
+            labels = label_map_path.read_text(encoding="utf-8").splitlines()
+            logger.info(f"Loaded {len(labels)} labels from {label_map_path}")
         return labels
 
     @property
@@ -202,7 +187,7 @@ class NERDataset(Dataset):
         assert data_file_dict[split], f"No data_file for '{split}' split: {args.data.files}"
         text_data_path: Path = Path(args.data.home) / args.data.name / data_file_dict[split]
         cache_data_path = text_data_path \
-            .with_stem(text_data_path.stem + f"-by-{tokenizer.__class__.__name__}-with-{args.model.max_seq_length}") \
+            .with_stem(text_data_path.stem + f"-by-{tokenizer.__class__.__name__}-as-{args.model.max_seq_length}toks") \
             .with_suffix(".cache")
         cache_lock_path = cache_data_path.with_suffix(".lock")
 
