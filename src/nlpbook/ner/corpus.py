@@ -12,7 +12,7 @@ from filelock import FileLock
 from torch.utils.data.dataset import Dataset
 
 from chrisbase.io import make_parent_dir, files, merge_dicts
-from nlpbook.arguments import TrainerArguments, TesterArguments
+from nlpbook.arguments import TesterArguments
 from transformers import PreTrainedTokenizerFast
 from transformers.tokenization_utils_base import CharSpan
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy, BatchEncoding
@@ -24,12 +24,6 @@ NER_SEP_TOKEN = "[SEP]"
 NER_PAD_TOKEN = "[PAD]"
 NER_MASK_TOKEN = "[MASK]"
 NER_PAD_ID = 2
-
-
-@dataclass
-class NERExample:
-    text: str
-    label: Optional[str] = None
 
 
 @dataclass
@@ -74,16 +68,11 @@ class NERCorpus:
     def __init__(self, args: TesterArguments):
         self.args = args
 
-    def get_examples(self, data_path: Path) -> List[NERExampleForKLUE] | List[NERExample]:
+    def get_examples(self, data_path: Path) -> List[NERExampleForKLUE]:
         examples = []
-        if data_path.suffix.lower() == ".jsonl":
-            with data_path.open(encoding="utf-8") as inp:
-                for line in inp.readlines():
-                    examples.append(NERExampleForKLUE.from_json(line))
-        else:
-            for line in open(data_path, "r", encoding="utf-8").readlines():
-                text, label = line.split("\u241E")
-                examples.append(NERExample(text=text, label=label))
+        with data_path.open(encoding="utf-8") as inp:
+            for line in inp.readlines():
+                examples.append(NERExampleForKLUE.from_json(line))
         logger.info(f"Loaded {len(examples)} {examples[0].__class__.__name__} from {data_path}")
         return examples
 
@@ -128,7 +117,7 @@ def _decide_span_label(span: CharSpan, offset_to_label: dict[int, str]):
 def _convert_examples_to_ner_features(
         examples: List[NERExampleForKLUE],
         tokenizer: PreTrainedTokenizerFast,
-        args: TrainerArguments,
+        args: TesterArguments,
         label_list: List[str],
         cls_token_at_end: Optional[bool] = False,
         num_show_example: int = 3,
@@ -230,7 +219,7 @@ class NERDataset(Dataset):
         return self.corpus.get_labels()
 
 
-def parse_tagged(origin: str, tagged: str, debug: bool = False) -> Optional[NERExampleForKLUE]:
+def _parse_tagged(origin: str, tagged: str, debug: bool = False) -> Optional[NERExampleForKLUE]:
     entity_list: list[EntityInText] = []
     if debug:
         print(f"* origin: {origin}")
@@ -264,7 +253,7 @@ def convert_kmou_format(infile: str | Path, outfile: str | Path, debug: bool = F
     with Path(infile).open(encoding="utf-8") as inp, Path(outfile).open("w", encoding="utf-8") as out:
         for line in inp.readlines():
             origin, tagged = line.strip().split("\u241E")
-            parsed: Optional[NERExampleForKLUE] = parse_tagged(origin, tagged, debug=debug)
+            parsed: Optional[NERExampleForKLUE] = _parse_tagged(origin, tagged, debug=debug)
             if parsed:
                 out.write(parsed.to_json(ensure_ascii=False) + "\n")
 
@@ -285,7 +274,7 @@ def convert_klue_format(infile: str | Path, outfile: str | Path, debug: bool = F
 
             origin = ''.join(x.split("\t")[0] for x in body_lines)
             tagged = head_lines[-1].split("\t")[1].strip()
-            parsed: Optional[NERExampleForKLUE] = parse_tagged(origin, tagged, debug=debug)
+            parsed: Optional[NERExampleForKLUE] = _parse_tagged(origin, tagged, debug=debug)
             if parsed:
                 character_list_from_head = parsed.character_list
                 character_list_from_body = [tuple(x.split("\t")) for x in body_lines]
