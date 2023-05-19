@@ -79,7 +79,6 @@ class NERCorpus:
     def get_labels(self):
         label_map_path = make_parent_dir(self.args.output.dir_path / "label_map.txt")
         if not label_map_path.exists():
-            logger.info("Processing NER tag dictionary...")
             ner_tags = []
             train_data_path: Path = self.args.data.home / self.args.data.name / self.args.data.files.train
             with train_data_path.open(encoding="utf-8") as inp:
