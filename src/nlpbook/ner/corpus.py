@@ -79,27 +79,22 @@ class NERCorpus:
     def get_labels(self):
         label_map_path = make_parent_dir(self.args.output.dir_path / "label_map.txt")
         if not label_map_path.exists():
-            logger.info("processing NER tag dictionary...")
-            os.makedirs(self.args.model.finetuning_home, exist_ok=True)
+            logger.info("Processing NER tag dictionary...")
             ner_tags = []
-            regex_ner = re.compile('<(.+?):[A-Z]{3}>')
-            train_corpus_path = self.args.data.home / self.args.data.name / "train.txt"
-            target_sentences = [line.split("\u241E")[1].strip()
-                                for line in train_corpus_path.open("r", encoding="utf-8").readlines()]
-            for target_sentence in target_sentences:
-                regex_filter_res = regex_ner.finditer(target_sentence)
-                for match_item in regex_filter_res:
-                    ner_tag = match_item[0][-4:-1]
-                    if ner_tag not in ner_tags:
-                        ner_tags.append(ner_tag)
+            train_data_path: Path = self.args.data.home / self.args.data.name / self.args.data.files.train
+            with train_data_path.open(encoding="utf-8") as inp:
+                for line in inp.readlines():
+                    for x in NERExampleForKLUE.from_json(line).entity_list:
+                        if x.label not in ner_tags:
+                            ner_tags.append(x.label)
             b_tags = [f"B-{ner_tag}" for ner_tag in ner_tags]
             i_tags = [f"I-{ner_tag}" for ner_tag in ner_tags]
             labels = [NER_CLS_TOKEN, NER_SEP_TOKEN, NER_PAD_TOKEN, NER_MASK_TOKEN, "O"] + b_tags + i_tags
             with label_map_path.open("w", encoding="utf-8") as f:
-                for tag in labels:
-                    f.writelines(tag + "\n")
+                f.writelines([x + "\n" for x in labels])
         else:
-            labels = [tag.strip() for tag in open(label_map_path, "r", encoding="utf-8").readlines()]
+            labels = [label.strip() for label in label_map_path.open(encoding="utf-8").readlines()]
+        logger.info(f"Loaded {len(labels)} labels from {label_map_path}")
         return labels
 
     @property
