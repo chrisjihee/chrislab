@@ -4,7 +4,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Iterable, Optional, ClassVar
+from typing import List, Optional, ClassVar
 
 import torch
 from dataclasses_json import DataClassJsonMixin
@@ -13,14 +13,12 @@ from torch.utils.data.dataset import Dataset
 
 from chrisbase.io import make_parent_dir, files, merge_dicts
 from nlpbook.arguments import TrainerArguments, TesterArguments
-from transformers import BertTokenizer, PreTrainedTokenizerFast
+from transformers import PreTrainedTokenizerFast
+from transformers.tokenization_utils_base import CharSpan
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy, BatchEncoding
 
 logger = logging.getLogger("nlpbook")
 
-# 자체 제작 NER 코퍼스 기준의 레이블 시퀀스를 만들기 위한 ID 체계
-# 나 는 삼성 에 입사 했다
-# O O 기관 O O O > [CLS] O O 기관 O O O [SEP] [PAD] [PAD] ...
 NER_CLS_TOKEN = "[CLS]"
 NER_SEP_TOKEN = "[SEP]"
 NER_PAD_TOKEN = "[PAD]"
@@ -73,10 +71,7 @@ class NERFeatures:
 
 
 class NERCorpus:
-    def __init__(
-            self,
-            args: TrainerArguments | TesterArguments,
-    ):
+    def __init__(self, args: TesterArguments):
         self.args = args
 
     def get_examples(self, data_path: Path) -> List[NERExampleForKLUE] | List[NERExample]:
@@ -123,228 +118,80 @@ class NERCorpus:
         return len(self.get_labels())
 
 
-def _process_target_sentence(
-        tokens: List[str],
-        origin_sentence: str,
-        target_sentence: str,
-        max_length: int,
-        label_map: dict,
-        tokenizer: BertTokenizer,
-        cls_token_at_end: Optional[bool] = False,
-):
-    """
-    target_sentence = "―<효진:PER> 역의 <김환희:PER>(<14:NOH>)가 특히 인상적이었다."
-    tokens = ["―", "효", "##진", "역", "##의", "김", "##환", "##희",
-              "(", "14", ")", "가", "특히", "인상", "##적이", "##었다", "."]
-    label_sequence = ['O', 'B-PER', 'I-PER', 'O', 'O', 'B-PER', 'I-PER', 'I-PER', 'O',
-                      'B-NOH', 'O', 'O', 'O', 'O', 'O', 'O', 'O']
-    """
-    if "[UNK]" in tokens:
-        processed_tokens = []
-        basic_tokens = tokenizer.basic_tokenizer.tokenize(origin_sentence)
-        for basic_token in basic_tokens:
-            current_tokens = tokenizer.tokenize(basic_token)
-            if "[UNK]" in current_tokens:
-                # [UNK] 복원
-                processed_tokens.append(basic_token)
-            else:
-                processed_tokens.extend(current_tokens)
-    else:
-        processed_tokens = tokens
-
-    prefix_sum_of_token_start_index, sum = [0], 0
-    for i, token in enumerate(processed_tokens):
-        if token.startswith("##"):
-            sum += len(token) - 2
-        else:
-            sum += len(token)
-        prefix_sum_of_token_start_index.append(sum)
-
-    regex_ner = re.compile('<(.+?):[A-Z]{3}>')  # NER Tag가 2자리 문자면 {3} -> {2}로 변경 (e.g. LOC -> LC) 인경우
-    regex_filter_res = regex_ner.finditer(target_sentence.replace(" ", ""))
-
-    list_of_ner_tag = []
-    list_of_ner_text = []
-    list_of_tuple_ner_start_end = []
-
-    count_of_match = 0
-    for match_item in regex_filter_res:
-        ner_tag = match_item[0][-4:-1]  # <4일간:DUR> -> DUR
-        ner_text = match_item[1]  # <4일간:DUR> -> 4일간
-        start_index = match_item.start() - 6 * count_of_match  # delete previous '<, :, 3 words tag name, >'
-        end_index = match_item.end() - 6 - 6 * count_of_match
-
-        list_of_ner_tag.append(ner_tag)
-        list_of_ner_text.append(ner_text)
-        list_of_tuple_ner_start_end.append((start_index, end_index))
-        count_of_match += 1
-
-    label_sequence = []
-    entity_index = 0
-    is_entity_still_B = True
-
-    for tup in zip(processed_tokens, prefix_sum_of_token_start_index):
-        token, index = tup
-
-        if entity_index < len(list_of_tuple_ner_start_end):
-            start, end = list_of_tuple_ner_start_end[entity_index]
-
-            if end < index:  # 엔티티 범위보다 현재 seq pos가 더 크면 다음 엔티티를 꺼내서 체크
-                is_entity_still_B = True
-                entity_index = entity_index + 1 if entity_index + 1 < len(list_of_tuple_ner_start_end) else entity_index
-                start, end = list_of_tuple_ner_start_end[entity_index]
-
-            if start <= index and index < end:  # <13일:DAT>까지 -> ('▁13', 10, 'B-DAT') ('일까지', 12, 'I-DAT') 이런 경우가 포함됨, 포함 안시키려면 토큰의 length도 계산해서 제어해야함
-                entity_tag = list_of_ner_tag[entity_index]
-                if is_entity_still_B is True:
-                    entity_tag = 'B-' + entity_tag
-                    label_sequence.append(entity_tag)
-                    is_entity_still_B = False
-                else:
-                    entity_tag = 'I-' + entity_tag
-                    label_sequence.append(entity_tag)
-            else:
-                is_entity_still_B = True
-                entity_tag = 'O'
-                label_sequence.append(entity_tag)
-        else:
-            entity_tag = 'O'
-            label_sequence.append(entity_tag)
-
-    # truncation
-    label_sequence = label_sequence[:max_length - 2]
-
-    # add special tokens
-    if cls_token_at_end:
-        label_sequence = label_sequence + [NER_CLS_TOKEN, NER_SEP_TOKEN]
-    else:
-        label_sequence = [NER_CLS_TOKEN] + label_sequence + [NER_SEP_TOKEN]
-
-    # padding
-    pad_length = max(max_length - len(label_sequence), 0)
-    pad_sequence = [NER_PAD_TOKEN] * pad_length
-    label_sequence += pad_sequence
-
-    # encoding
-    label_ids = [label_map[label] for label in label_sequence]
-    return label_ids
-
-
-def _decide_span_label(labels: Iterable[str]):
-    for label in labels:
-        if label.startswith("B-") or label.startswith("I-"):
-            return label
+def _decide_span_label(span: CharSpan, offset_to_label: dict[int, str]):
+    for x in [offset_to_label[i] for i in range(span.start, span.end)]:
+        if x.startswith("B-") or x.startswith("I-"):
+            return x
     return "O"
 
 
 def _convert_examples_to_ner_features(
-        examples: List[NERExampleForKLUE],  # |List[NERExample]
+        examples: List[NERExampleForKLUE],
         tokenizer: PreTrainedTokenizerFast,
         args: TrainerArguments,
         label_list: List[str],
         cls_token_at_end: Optional[bool] = False,
+        num_show_example: int = 3,
 ):
     """
     `cls_token_at_end` define the location of the CLS token:
             - False (Default, BERT/XLM pattern): [CLS] + A + [SEP] + B + [SEP]
             - True (XLNet/GPT pattern): A + [SEP] + B + [SEP] + [CLS]
     """
-    label_map = {label: i for i, label in enumerate(label_list)}
+    label_to_id = {label: i for i, label in enumerate(label_list)}
     id_to_label = {i: label for i, label in enumerate(label_list)}
-    logger.info(f"label_map: {label_map}")
-    logger.info(f"id_to_label: {id_to_label}")
-    logger.info(f"examples[0]: {examples[0]}")
 
-    features = []
+    features: list[NERFeatures] = []
     for example in examples:
-        # tokens = tokenizer.tokenize(example.text)
-        # inputs = tokenizer._encode_plus(
-        #     tokens,
-        #     max_length=args.model.max_seq_length,
-        #     truncation_strategy=TruncationStrategy.LONGEST_FIRST,
-        #     padding_strategy=PaddingStrategy.MAX_LENGTH,
-        # )
-
         example: NERExampleForKLUE = example
-        logger.info(f"example.origin: {example.origin}")
-        # inputs: BatchEncoding = tokenizer.__call__(example.origin,
-        #                                               return_offsets_mapping=True,
-        #                                               return_length=True, verbose=False,
-        #                                               truncation=TruncationStrategy.DO_NOT_TRUNCATE,
-        #                                               padding=PaddingStrategy.DO_NOT_PAD)
-        # logger.info(f"batch_seq(1): {inputs}")
-        inputs: BatchEncoding = tokenizer.__call__(example.origin,
-                                                   return_offsets_mapping=True,
-                                                   return_length=True, verbose=True,
-                                                   max_length=args.model.max_seq_length,
-                                                   truncation=TruncationStrategy.LONGEST_FIRST,
-                                                   padding=PaddingStrategy.MAX_LENGTH)
-        inputs2: List[str] = tokenizer.tokenize(example.origin, return_offsets_mapping=True, return_length=True, verbose=True)
-        inputs3: BatchEncoding = tokenizer.encode_plus(example.origin, return_offsets_mapping=True, return_length=True, verbose=True)
+        offset_to_label: dict[int, str] = {i: y for i, (_, y) in enumerate(example.character_list)}
+        inputs: BatchEncoding = tokenizer.encode_plus(example.origin,
+                                                      max_length=args.model.max_seq_length,
+                                                      truncation=TruncationStrategy.LONGEST_FIRST,
+                                                      padding=PaddingStrategy.MAX_LENGTH)
+        input_tokens: List[str] = inputs.tokens()
+        # out_hr()
+        # print(f"offset_to_label        = {offset_to_label}")
+        # out_hr()
+        # print(f"input_tokens           = {inputs.tokens()}")
+        # out_hr()
+        # for key in inputs.keys():
+        #     print(f"inputs[{key:14s}] = {inputs[key]}")
+        # out_hr()
 
-        character_labels = {i: y for i, (_, y) in enumerate(example.character_list)}
-        print(f"tokens: {inputs.tokens()}")
-        print(f"character_labels: {character_labels}")
-
-        for i in list(range(inputs['length'][0]))[:15]:
-            span = inputs.token_to_chars(i)
-            if span:
-                sstr = example.origin[span.start:span.end]
-                lable = _decide_span_label(character_labels[j] for j in range(span.start, span.end))
-                print(i, sstr, span, lable)
-        exit(1)
-
-        logger.info(f"inputs(1): {type(inputs)} {inputs}")
-        logger.info(f"inputs(2): {type(inputs2)} {inputs2}")
-        logger.info(f"inputs(3): {type(inputs3)} {inputs3}")
-        # inputs.char_to_token()
-        print(len(inputs['input_ids']), inputs['input_ids'])
-        print(len(inputs['token_type_ids']), inputs['token_type_ids'])
-        print(len(inputs['attention_mask']), inputs['attention_mask'])
-        print(len(inputs['offset_mapping']), inputs['offset_mapping'])
-
-        print(inputs['length'])
-        print([example.origin[a:b] for (a, b) in inputs['offset_mapping']])
-
-        """
-        target_sentence = "―<효진:PER> 역의 <김환희:PER>(<14:NOH>)가 특히 인상적이었다."
-        tokens = ["―", "효", "##진", "역", "##의", "김", "##환", "##희",
-                  "(", "14", ")", "가", "특히", "인상", "##적이", "##었다", "."]
-        label_sequence = ['O', 'B-PER', 'I-PER', 'O', 'O', 'B-PER', 'I-PER', 'I-PER', 'O',
-                          'B-NOH', 'O', 'O', 'O', 'O', 'O', 'O', 'O']
-        """
-
-        exit(1)
-        label_ids = _process_target_sentence(
-            tokens=tokens,
-            origin_sentence=example.text,
-            target_sentence=example.label,
-            max_length=args.model.max_seq_length,
-            label_map=label_map,
-            tokenizer=tokenizer,
-            cls_token_at_end=cls_token_at_end,
-        )
+        label_list: list[str] = []
+        for i in range(args.model.max_seq_length):
+            token = input_tokens[i]
+            token_span: CharSpan = inputs.token_to_chars(i)
+            if token_span:
+                token_label = _decide_span_label(token_span, offset_to_label)
+                label_list.append(token_label)
+                # token_str = example.origin[token_span.start:token_span.end]
+                # print('\t'.join(map(str, [i, token, token_span, token_str, token_label])))
+            else:
+                label_list.append(token)
+                # print('\t'.join(map(str, [i, token, token_span])))
+        label_ids: list[int] = [label_to_id[label] for label in label_list]
         features.append(NERFeatures(**inputs, label_ids=label_ids))
+        # print(f"label_list             = {label_list}")
+        # out_hr()
+        # print(f"label_ids              = {label_ids}")
+        # print(f"features               = {features[-1]}")
 
-    for i, example in enumerate(examples[:3]):
-        logger.info("*** Example ***")
-        logger.info("sentence: %s" % (example.text))
-        logger.info("target: %s" % (example.label))
-        logger.info("tokens: %s" % (" ".join(tokenizer.convert_ids_to_tokens(features[i].input_ids))))
-        logger.info("label: %s" % (" ".join([id_to_label[label_id] for label_id in features[i].label_ids])))
-        logger.info("features: %s" % features[i])
+    for i, example in enumerate(examples[:num_show_example]):
+        logger.info("  === [Example %d] ===" % (i + 1))
+        logger.info("  = sentence : %s" % example.origin)
+        logger.info("  = entities : %s" % example.entity_list)
+        logger.info("  = tokens   : %s" % (" ".join(tokenizer.convert_ids_to_tokens(features[i].input_ids))))
+        logger.info("  = labels   : %s" % (" ".join([id_to_label[label_id] for label_id in features[i].label_ids])))
+        logger.info("  = features : %s" % features[i])
+        logger.info("  === ")
 
     return features
 
 
 class NERDataset(Dataset):
-    def __init__(
-            self,
-            split: str,
-            args: TrainerArguments | TesterArguments,
-            tokenizer: PreTrainedTokenizerFast,
-            corpus: NERCorpus,
-    ):
+    def __init__(self, split: str, args: TesterArguments, tokenizer: PreTrainedTokenizerFast, corpus: NERCorpus):
         assert corpus, "corpus is not valid"
         self.corpus = corpus
 
@@ -370,9 +217,9 @@ class NERDataset(Dataset):
                 examples = self.corpus.get_examples(text_data_path)
                 self.features = _convert_examples_to_ner_features(examples, tokenizer, args, label_list=self.corpus.get_labels())
                 start = time.time()
-                logger.info("Saving features into cached file, it could take a lot of time...")
                 torch.save(self.features, cache_data_path)
                 logger.info(f"Saving features into cached file at {cache_data_path} [took {time.time() - start:.3f} s]")
+                exit(1)
 
     def __len__(self):
         return len(self.features)
