@@ -14,7 +14,7 @@ from chrisbase.io import JobTimer, err_hr
 from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
 from nlpbook.ner.corpus import NERCorpus, NERDataset
 from nlpbook.ner.task import NERTask
-from transformers import BertConfig, BertForTokenClassification, PreTrainedTokenizerFast, AutoTokenizer
+from transformers import BertConfig, BertForTokenClassification, BertTokenizer, PreTrainedTokenizerFast, AutoTokenizer
 from transformers.modeling_outputs import TokenClassifierOutput
 
 app = Typer()
