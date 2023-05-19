@@ -34,9 +34,9 @@ def train(args_file: Path | str):
         err_hr(c='-')
 
         corpus = NERCorpus(args)
-        # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained, do_lower_case=False, use_fast=True)
-        # assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
-        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.model.pretrained, do_lower_case=False)
+        tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained, do_lower_case=False, use_fast=True)
+        assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
+        # tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.model.pretrained, do_lower_case=False)
         train_dataset = NERDataset("train", args=args, corpus=corpus, tokenizer=tokenizer)
         train_dataloader = DataLoader(train_dataset,
                                       batch_size=args.hardware.batch_size,
@@ -134,9 +134,9 @@ def serve(args_file: Path | str):
         logger.info(f"Using finetuned checkpoint file at {checkpoint_path}")
         err_hr(c='-')
 
-        # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained, do_lower_case=False, use_fast=True)
-        # assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
-        tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.model.pretrained, do_lower_case=False)
+        tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained, do_lower_case=False, use_fast=True)
+        assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
+        # tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.model.pretrained, do_lower_case=False)
         label_map_path: Path = args.output.dir_path / "label_map.txt"
         assert label_map_path.exists(), f"No downstream label file: {label_map_path}"
         labels = label_map_path.read_text().splitlines(keepends=False)
