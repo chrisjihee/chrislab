@@ -219,7 +219,6 @@ class NERDataset(Dataset):
                 start = time.time()
                 torch.save(self.features, cache_data_path)
                 logger.info(f"Saving features into cached file at {cache_data_path} [took {time.time() - start:.3f} s]")
-                exit(1)
 
     def __len__(self):
         return len(self.features)

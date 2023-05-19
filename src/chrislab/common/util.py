@@ -29,6 +29,10 @@ def cuda_visible_devices(gpus=None):
     return os.environ.get("CUDA_VISIBLE_DEVICES")
 
 
+def set_tokenizers_parallelism(value=False):
+    os.environ["TOKENIZERS_PARALLELISM"] = f"{value}".lower()
+
+
 def num_cuda_devices():
     from torch.cuda import _device_count_nvml
     nvml_count = _device_count_nvml()
