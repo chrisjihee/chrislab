@@ -1,9 +1,8 @@
-import json
 import logging
 import os
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, ClassVar
 
@@ -14,8 +13,8 @@ from torch.utils.data.dataset import Dataset
 
 from chrisbase.io import make_parent_dir, files, merge_dicts
 from nlpbook.arguments import TrainerArguments, TesterArguments
-from transformers import BertTokenizer
-from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
+from transformers import BertTokenizer, PreTrainedTokenizerFast
+from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy, BatchEncoding
 
 logger = logging.getLogger("nlpbook")
 
@@ -36,6 +35,36 @@ class NERExample:
 
 
 @dataclass
+class EntityInText(DataClassJsonMixin):
+    pattern: ClassVar[re.Pattern] = re.compile('<([^<>]+?):([A-Z]{2,3})>')
+    text: str
+    label: str
+    offset: tuple[int, int]
+
+    @staticmethod
+    def from_match(m: re.Match, s: str) -> tuple["EntityInText", str]:
+        x = m.group(1)
+        y = m.group(2)
+        z = (m.start(), m.start() + len(x))
+        e = EntityInText(text=x, label=y, offset=z)
+        s = s[:m.start()] + m.group(1) + s[m.end():]
+        return e, s
+
+    def to_offset_lable_dict(self) -> dict[int, str]:
+        offset_list = [(self.offset[0], f"B-{self.label}")]
+        for i in range(self.offset[0] + 1, self.offset[1]):
+            offset_list.append((i, f"I-{self.label}"))
+        return dict(offset_list)
+
+
+@dataclass
+class NERExampleForKLUE(DataClassJsonMixin):
+    origin: str = field(default_factory=str)
+    entity_list: list[EntityInText] = field(default_factory=list)
+    character_list: list[tuple[str, str]] = field(default_factory=list)
+
+
+@dataclass
 class NERFeatures:
     input_ids: List[int]
     attention_mask: Optional[List[int]] = None
@@ -50,12 +79,17 @@ class NERCorpus:
     ):
         self.args = args
 
-    def get_examples(self, data_path):
-        logger.info(f"loading data from {data_path}...")
+    def get_examples(self, data_path: Path) -> List[NERExampleForKLUE] | List[NERExample]:
         examples = []
-        for line in open(data_path, "r", encoding="utf-8").readlines():
-            text, label = line.split("\u241E")
-            examples.append(NERExample(text=text, label=label))
+        if data_path.suffix.lower() == ".jsonl":
+            with data_path.open(encoding="utf-8") as inp:
+                for line in inp.readlines():
+                    examples.append(NERExampleForKLUE.from_json(line))
+        else:
+            for line in open(data_path, "r", encoding="utf-8").readlines():
+                text, label = line.split("\u241E")
+                examples.append(NERExample(text=text, label=label))
+        logger.info(f"Loaded {len(examples)} {examples[0].__class__.__name__} from {data_path}")
         return examples
 
     def get_labels(self):
@@ -197,8 +231,8 @@ def _process_target_sentence(
 
 
 def _convert_examples_to_ner_features(
-        examples: List[NERExample],
-        tokenizer: BertTokenizer,
+        examples: List[NERExampleForKLUE],  # |List[NERExample]
+        tokenizer: PreTrainedTokenizerFast,
         args: TrainerArguments,
         label_list: List[str],
         cls_token_at_end: Optional[bool] = False,
@@ -210,9 +244,27 @@ def _convert_examples_to_ner_features(
     """
     label_map = {label: i for i, label in enumerate(label_list)}
     id_to_label = {i: label for i, label in enumerate(label_list)}
+    logger.info(f"LABEL_LIST: {label_list}")
+    logger.info(f"FIRST EXAMPLE: {examples[0]}")
+    logger.info(f"TOKENIZER: {tokenizer}")
 
     features = []
     for example in examples:
+        example: NERExampleForKLUE = example
+        logger.info(f"example.origin: {example.origin}")
+        batch_seq: BatchEncoding = tokenizer.__call__(example.origin,
+                                                      return_length=True, verbose=False,
+                                                      truncation=TruncationStrategy.DO_NOT_TRUNCATE,
+                                                      padding=PaddingStrategy.DO_NOT_PAD)
+        logger.info(f"batch_seq(1): {batch_seq}")
+        batch_seq: BatchEncoding = tokenizer.__call__(example.origin,
+                                                      return_length=True, verbose=True,
+                                                      max_length=args.model.max_seq_length,
+                                                      truncation=TruncationStrategy.LONGEST_FIRST,
+                                                      padding=PaddingStrategy.MAX_LENGTH)
+        logger.info(f"batch_seq(2): {batch_seq}")
+        exit(1)
+
         tokens = tokenizer.tokenize(example.text)
         inputs = tokenizer._encode_plus(
             tokens,
@@ -247,9 +299,8 @@ class NERDataset(Dataset):
             self,
             split: str,
             args: TrainerArguments | TesterArguments,
-            tokenizer: BertTokenizer,
+            tokenizer: PreTrainedTokenizerFast,
             corpus: NERCorpus,
-            convert_examples_to_features_fn=_convert_examples_to_ner_features,
     ):
         assert corpus, "corpus is not valid"
         self.corpus = corpus
@@ -274,7 +325,7 @@ class NERDataset(Dataset):
                 assert text_data_path.exists() and text_data_path.is_file(), f"No data_text_path: {text_data_path}"
                 logger.info(f"Creating features from dataset file at {text_data_path}")
                 examples = self.corpus.get_examples(text_data_path)
-                self.features = convert_examples_to_features_fn(examples, tokenizer, args, label_list=self.corpus.get_labels())
+                self.features = _convert_examples_to_ner_features(examples, tokenizer, args, label_list=self.corpus.get_labels())
                 start = time.time()
                 logger.info("Saving features into cached file, it could take a lot of time...")
                 torch.save(self.features, cache_data_path)
@@ -290,31 +341,8 @@ class NERDataset(Dataset):
         return self.corpus.get_labels()
 
 
-@dataclass
-class EntityInText(DataClassJsonMixin):
-    pattern: ClassVar[re.Pattern] = re.compile('<([^<>]+?):([A-Z]{2,3})>')
-    text: str
-    label: str
-    offset: tuple[int, int]
-
-    @staticmethod
-    def from_match(m: re.Match, s: str) -> tuple["EntityInText", str]:
-        x = m.group(1)
-        y = m.group(2)
-        z = (m.start(), m.start() + len(x))
-        e = EntityInText(text=x, label=y, offset=z)
-        s = s[:m.start()] + m.group(1) + s[m.end():]
-        return e, s
-
-    def to_offset_lable_dict(self) -> dict[int, str]:
-        offset_list = [(self.offset[0], f"B-{self.label}")]
-        for i in range(self.offset[0] + 1, self.offset[1]):
-            offset_list.append((i, f"I-{self.label}"))
-        return dict(offset_list)
-
-
-def parse_tagged(origin: str, tagged: str, debug: bool = False):
-    entity_list = []
+def parse_tagged(origin: str, tagged: str, debug: bool = False) -> Optional[NERExampleForKLUE]:
+    entity_list: list[EntityInText] = []
     if debug:
         print(f"* origin: {origin}")
         print(f"  tagged: {tagged}")
@@ -328,7 +356,7 @@ def parse_tagged(origin: str, tagged: str, debug: bool = False):
         entity, restored = EntityInText.from_match(match, restored)
         extracted = origin[entity.offset[0]:entity.offset[1]]
         if entity.text == extracted:
-            entity_list.append(entity.to_dict())
+            entity_list.append(entity)
             offset_labels = merge_dicts(offset_labels, entity.to_offset_lable_dict())
         else:
             no_problem = False
@@ -340,20 +368,16 @@ def parse_tagged(origin: str, tagged: str, debug: bool = False):
     character_list = [(origin[i], offset_labels[i]) for i in range(len(origin))]
     if restored != origin:
         no_problem = False
-    return {
-        "origin": origin,
-        "entity_list": entity_list,
-        "character_list": character_list,
-    } if no_problem else None
+    return NERExampleForKLUE(origin, entity_list, character_list) if no_problem else None
 
 
 def convert_kmou_format(infile: str | Path, outfile: str | Path, debug: bool = False):
     with Path(infile).open(encoding="utf-8") as inp, Path(outfile).open("w", encoding="utf-8") as out:
         for line in inp.readlines():
             origin, tagged = line.strip().split("\u241E")
-            parsed = parse_tagged(origin, tagged, debug=debug)
+            parsed: Optional[NERExampleForKLUE] = parse_tagged(origin, tagged, debug=debug)
             if parsed:
-                out.write(json.dumps(parsed, ensure_ascii=False) + "\n")
+                out.write(parsed.to_json(ensure_ascii=False) + "\n")
 
 
 def convert_klue_format(infile: str | Path, outfile: str | Path, debug: bool = False):
@@ -372,12 +396,12 @@ def convert_klue_format(infile: str | Path, outfile: str | Path, debug: bool = F
 
             origin = ''.join(x.split("\t")[0] for x in body_lines)
             tagged = head_lines[-1].split("\t")[1].strip()
-            parsed = parse_tagged(origin, tagged, debug=debug)
+            parsed: Optional[NERExampleForKLUE] = parse_tagged(origin, tagged, debug=debug)
             if parsed:
-                character_list_from_head = parsed["character_list"]
+                character_list_from_head = parsed.character_list
                 character_list_from_body = [tuple(x.split("\t")) for x in body_lines]
                 if character_list_from_head == character_list_from_body:
-                    out.write(json.dumps(parsed, ensure_ascii=False) + "\n")
+                    out.write(parsed.to_json(ensure_ascii=False) + "\n")
                 elif debug:
                     print(f"* origin: {origin}")
                     print(f"  tagged: {tagged}")
@@ -388,10 +412,10 @@ def convert_klue_format(infile: str | Path, outfile: str | Path, debug: bool = F
 
 
 if __name__ == "__main__":
-    # for path in files("data/kmou-ner-full/*.txt"):
-    #     print(f"[FILE]: {path}")
-    #     convert_kmou_format(path, path.with_suffix(".jsonl"), debug=True)
-
-    for path in files("data/klue-ner/*.tsv"):
+    for path in files("data/kmou-ner-full/*.txt"):
         print(f"[FILE]: {path}")
-        convert_klue_format(path, path.with_suffix(".jsonl"), debug=True)
+        convert_kmou_format(path, path.with_suffix(".jsonl"), debug=True)
+
+    # for path in files("data/klue-ner/*.tsv"):
+    #     print(f"[FILE]: {path}")
+    #     convert_klue_format(path, path.with_suffix(".jsonl"), debug=True)
