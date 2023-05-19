@@ -4,7 +4,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, ClassVar
+from typing import List, Iterable, Optional, ClassVar
 
 import torch
 from dataclasses_json import DataClassJsonMixin
@@ -230,6 +230,13 @@ def _process_target_sentence(
     return label_ids
 
 
+def _decide_span_label(labels: Iterable[str]):
+    for label in labels:
+        if label.startswith("B-") or label.startswith("I-"):
+            return label
+    return "O"
+
+
 def _convert_examples_to_ner_features(
         examples: List[NERExampleForKLUE],  # |List[NERExample]
         tokenizer: PreTrainedTokenizerFast,
@@ -244,34 +251,70 @@ def _convert_examples_to_ner_features(
     """
     label_map = {label: i for i, label in enumerate(label_list)}
     id_to_label = {i: label for i, label in enumerate(label_list)}
-    logger.info(f"LABEL_LIST: {label_list}")
-    logger.info(f"FIRST EXAMPLE: {examples[0]}")
-    logger.info(f"TOKENIZER: {tokenizer}")
+    logger.info(f"label_map: {label_map}")
+    logger.info(f"id_to_label: {id_to_label}")
+    logger.info(f"examples[0]: {examples[0]}")
 
     features = []
     for example in examples:
+        # tokens = tokenizer.tokenize(example.text)
+        # inputs = tokenizer._encode_plus(
+        #     tokens,
+        #     max_length=args.model.max_seq_length,
+        #     truncation_strategy=TruncationStrategy.LONGEST_FIRST,
+        #     padding_strategy=PaddingStrategy.MAX_LENGTH,
+        # )
+
         example: NERExampleForKLUE = example
         logger.info(f"example.origin: {example.origin}")
-        batch_seq: BatchEncoding = tokenizer.__call__(example.origin,
-                                                      return_length=True, verbose=False,
-                                                      truncation=TruncationStrategy.DO_NOT_TRUNCATE,
-                                                      padding=PaddingStrategy.DO_NOT_PAD)
-        logger.info(f"batch_seq(1): {batch_seq}")
-        batch_seq: BatchEncoding = tokenizer.__call__(example.origin,
-                                                      return_length=True, verbose=True,
-                                                      max_length=args.model.max_seq_length,
-                                                      truncation=TruncationStrategy.LONGEST_FIRST,
-                                                      padding=PaddingStrategy.MAX_LENGTH)
-        logger.info(f"batch_seq(2): {batch_seq}")
+        # inputs: BatchEncoding = tokenizer.__call__(example.origin,
+        #                                               return_offsets_mapping=True,
+        #                                               return_length=True, verbose=False,
+        #                                               truncation=TruncationStrategy.DO_NOT_TRUNCATE,
+        #                                               padding=PaddingStrategy.DO_NOT_PAD)
+        # logger.info(f"batch_seq(1): {inputs}")
+        inputs: BatchEncoding = tokenizer.__call__(example.origin,
+                                                   return_offsets_mapping=True,
+                                                   return_length=True, verbose=True,
+                                                   max_length=args.model.max_seq_length,
+                                                   truncation=TruncationStrategy.LONGEST_FIRST,
+                                                   padding=PaddingStrategy.MAX_LENGTH)
+        inputs2: List[str] = tokenizer.tokenize(example.origin, return_offsets_mapping=True, return_length=True, verbose=True)
+        inputs3: BatchEncoding = tokenizer.encode_plus(example.origin, return_offsets_mapping=True, return_length=True, verbose=True)
+
+        character_labels = {i: y for i, (_, y) in enumerate(example.character_list)}
+        print(f"tokens: {inputs.tokens()}")
+        print(f"character_labels: {character_labels}")
+
+        for i in list(range(inputs['length'][0]))[:15]:
+            span = inputs.token_to_chars(i)
+            if span:
+                sstr = example.origin[span.start:span.end]
+                lable = _decide_span_label(character_labels[j] for j in range(span.start, span.end))
+                print(i, sstr, span, lable)
         exit(1)
 
-        tokens = tokenizer.tokenize(example.text)
-        inputs = tokenizer._encode_plus(
-            tokens,
-            max_length=args.model.max_seq_length,
-            truncation_strategy=TruncationStrategy.LONGEST_FIRST,
-            padding_strategy=PaddingStrategy.MAX_LENGTH,
-        )
+        logger.info(f"inputs(1): {type(inputs)} {inputs}")
+        logger.info(f"inputs(2): {type(inputs2)} {inputs2}")
+        logger.info(f"inputs(3): {type(inputs3)} {inputs3}")
+        # inputs.char_to_token()
+        print(len(inputs['input_ids']), inputs['input_ids'])
+        print(len(inputs['token_type_ids']), inputs['token_type_ids'])
+        print(len(inputs['attention_mask']), inputs['attention_mask'])
+        print(len(inputs['offset_mapping']), inputs['offset_mapping'])
+
+        print(inputs['length'])
+        print([example.origin[a:b] for (a, b) in inputs['offset_mapping']])
+
+        """
+        target_sentence = "―<효진:PER> 역의 <김환희:PER>(<14:NOH>)가 특히 인상적이었다."
+        tokens = ["―", "효", "##진", "역", "##의", "김", "##환", "##희",
+                  "(", "14", ")", "가", "특히", "인상", "##적이", "##었다", "."]
+        label_sequence = ['O', 'B-PER', 'I-PER', 'O', 'O', 'B-PER', 'I-PER', 'I-PER', 'O',
+                          'B-NOH', 'O', 'O', 'O', 'O', 'O', 'O', 'O']
+        """
+
+        exit(1)
         label_ids = _process_target_sentence(
             tokens=tokens,
             origin_sentence=example.text,
