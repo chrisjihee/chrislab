@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import List, Optional
 
 import torch
+from dataclasses_json import DataClassJsonMixin
 from filelock import FileLock
 from torch.utils.data.dataset import Dataset
 
@@ -26,6 +27,31 @@ NER_PAD_TOKEN = "[PAD]"
 NER_MASK_TOKEN = "[MASK]"
 NER_PAD_ID = 2
 
+from typing import ClassVar
+
+
+@dataclass
+class EntityInText(DataClassJsonMixin):
+    pattern: ClassVar[re.Pattern] = re.compile('<([^<>]+?):([A-Z]{2,3})>')
+    text: str
+    label: str
+    offset: tuple[int, int]
+
+    @staticmethod
+    def from_match(m: re.Match, s: str) -> tuple["EntityInText", str]:
+        x = m.group(1)
+        y = m.group(2)
+        z = (m.start(), m.start() + len(x))
+        e = EntityInText(text=x, label=y, offset=z)
+        s = s[:m.start()] + m.group(1) + s[m.end():]
+        return e, s
+
+    def to_offset_lable_dict(self) -> dict[int, str]:
+        offset_list = [(self.offset[0], f"B-{self.label}")]
+        for i in range(self.offset[0] + 1, self.offset[1]):
+            offset_list.append((i, f"I-{self.label}"))
+        return dict(offset_list)
+
 
 @dataclass
 class NERExample:
@@ -42,7 +68,6 @@ class NERFeatures:
 
 
 class NERCorpus:
-
     def __init__(
             self,
             args: TrainerArguments | TesterArguments,
@@ -287,3 +312,54 @@ class NERDataset(Dataset):
 
     def get_labels(self):
         return self.corpus.get_labels()
+
+
+def convert_from_kmou_format(infile: str | Path, outfile: str | Path, debug: bool = False):
+    with Path(infile).open(encoding="utf-8") as inp, Path(outfile).open("w", encoding="utf-8") as out:
+        for line in inp.readlines():
+            origin, tagged = line.strip().split("\u241E")
+            entity_list = []
+            if debug:
+                print(f"* origin: {origin}")
+                print(f"  tagged: {tagged}")
+            restored = tagged[:]
+            no_problem = True
+            offset_labels = {i: "O" for i in range(len(origin))}
+            while True:
+                match: re.Match = EntityInText.pattern.search(restored)
+                if not match:
+                    break
+                entity, restored = EntityInText.from_match(match, restored)
+                extracted = origin[entity.offset[0]:entity.offset[1]]
+                if entity.text == extracted:
+                    entity_list.append(entity.to_dict())
+                    offset_labels = merge_dicts(offset_labels, entity.to_offset_lable_dict())
+                else:
+                    no_problem = False
+                if debug:
+                    print(f"  = {entity} -> {extracted}")
+                    # print(f"    {offset_labels}")
+            if debug:
+                print(f"  --------------------")
+            character_list = [(origin[i], offset_labels[i]) for i in range(len(origin))]
+            if restored != origin:
+                no_problem = False
+            if no_problem:
+                out.write(json.dumps({"origin": origin,
+                                      "entity_list": entity_list, "character_list": character_list}, ensure_ascii=False) + "\n")
+
+
+if __name__ == "__main__":
+    from chrisbase.io import *
+
+    format_files = {
+        "kmou": files("data/kmou-ner-full/*.txt"),
+        "klue": files("data/klue-ner/*.tsv"),
+    }
+    assert format_files["kmou"]
+    assert format_files["klue"]
+
+    for infile in format_files["kmou"]:
+        print(f"[FILE]: {infile}")
+        outfile = Path(infile).with_suffix(".jsonl")
+        convert_from_kmou_format(infile, outfile, debug=False)
