@@ -1,17 +1,18 @@
+import json
 import logging
 import os
 import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, ClassVar
 
 import torch
 from dataclasses_json import DataClassJsonMixin
 from filelock import FileLock
 from torch.utils.data.dataset import Dataset
 
-from chrisbase.io import make_parent_dir
+from chrisbase.io import make_parent_dir, files, merge_dicts
 from nlpbook.arguments import TrainerArguments, TesterArguments
 from transformers import BertTokenizer
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
@@ -26,31 +27,6 @@ NER_SEP_TOKEN = "[SEP]"
 NER_PAD_TOKEN = "[PAD]"
 NER_MASK_TOKEN = "[MASK]"
 NER_PAD_ID = 2
-
-from typing import ClassVar
-
-
-@dataclass
-class EntityInText(DataClassJsonMixin):
-    pattern: ClassVar[re.Pattern] = re.compile('<([^<>]+?):([A-Z]{2,3})>')
-    text: str
-    label: str
-    offset: tuple[int, int]
-
-    @staticmethod
-    def from_match(m: re.Match, s: str) -> tuple["EntityInText", str]:
-        x = m.group(1)
-        y = m.group(2)
-        z = (m.start(), m.start() + len(x))
-        e = EntityInText(text=x, label=y, offset=z)
-        s = s[:m.start()] + m.group(1) + s[m.end():]
-        return e, s
-
-    def to_offset_lable_dict(self) -> dict[int, str]:
-        offset_list = [(self.offset[0], f"B-{self.label}")]
-        for i in range(self.offset[0] + 1, self.offset[1]):
-            offset_list.append((i, f"I-{self.label}"))
-        return dict(offset_list)
 
 
 @dataclass
@@ -314,52 +290,108 @@ class NERDataset(Dataset):
         return self.corpus.get_labels()
 
 
-def convert_from_kmou_format(infile: str | Path, outfile: str | Path, debug: bool = False):
+@dataclass
+class EntityInText(DataClassJsonMixin):
+    pattern: ClassVar[re.Pattern] = re.compile('<([^<>]+?):([A-Z]{2,3})>')
+    text: str
+    label: str
+    offset: tuple[int, int]
+
+    @staticmethod
+    def from_match(m: re.Match, s: str) -> tuple["EntityInText", str]:
+        x = m.group(1)
+        y = m.group(2)
+        z = (m.start(), m.start() + len(x))
+        e = EntityInText(text=x, label=y, offset=z)
+        s = s[:m.start()] + m.group(1) + s[m.end():]
+        return e, s
+
+    def to_offset_lable_dict(self) -> dict[int, str]:
+        offset_list = [(self.offset[0], f"B-{self.label}")]
+        for i in range(self.offset[0] + 1, self.offset[1]):
+            offset_list.append((i, f"I-{self.label}"))
+        return dict(offset_list)
+
+
+def parse_tagged(origin: str, tagged: str, debug: bool = False):
+    entity_list = []
+    if debug:
+        print(f"* origin: {origin}")
+        print(f"  tagged: {tagged}")
+    restored = tagged[:]
+    no_problem = True
+    offset_labels = {i: "O" for i in range(len(origin))}
+    while True:
+        match: re.Match = EntityInText.pattern.search(restored)
+        if not match:
+            break
+        entity, restored = EntityInText.from_match(match, restored)
+        extracted = origin[entity.offset[0]:entity.offset[1]]
+        if entity.text == extracted:
+            entity_list.append(entity.to_dict())
+            offset_labels = merge_dicts(offset_labels, entity.to_offset_lable_dict())
+        else:
+            no_problem = False
+        if debug:
+            print(f"  = {entity} -> {extracted}")
+            # print(f"    {offset_labels}")
+    if debug:
+        print(f"  --------------------")
+    character_list = [(origin[i], offset_labels[i]) for i in range(len(origin))]
+    if restored != origin:
+        no_problem = False
+    return {
+        "origin": origin,
+        "entity_list": entity_list,
+        "character_list": character_list,
+    } if no_problem else None
+
+
+def convert_kmou_format(infile: str | Path, outfile: str | Path, debug: bool = False):
     with Path(infile).open(encoding="utf-8") as inp, Path(outfile).open("w", encoding="utf-8") as out:
         for line in inp.readlines():
             origin, tagged = line.strip().split("\u241E")
-            entity_list = []
-            if debug:
-                print(f"* origin: {origin}")
-                print(f"  tagged: {tagged}")
-            restored = tagged[:]
-            no_problem = True
-            offset_labels = {i: "O" for i in range(len(origin))}
-            while True:
-                match: re.Match = EntityInText.pattern.search(restored)
-                if not match:
+            parsed = parse_tagged(origin, tagged, debug=debug)
+            if parsed:
+                out.write(json.dumps(parsed, ensure_ascii=False) + "\n")
+
+
+def convert_klue_format(infile: str | Path, outfile: str | Path, debug: bool = False):
+    with Path(infile) as inp, Path(outfile).open("w", encoding="utf-8") as out:
+        raw_text = inp.read_text(encoding="utf-8").strip()
+        raw_docs = re.split(r"\n\t?\n", raw_text)
+        for raw_doc in raw_docs:
+            raw_lines = raw_doc.splitlines()
+            num_header = 0
+            for line in raw_lines:
+                if not line.startswith("##"):
                     break
-                entity, restored = EntityInText.from_match(match, restored)
-                extracted = origin[entity.offset[0]:entity.offset[1]]
-                if entity.text == extracted:
-                    entity_list.append(entity.to_dict())
-                    offset_labels = merge_dicts(offset_labels, entity.to_offset_lable_dict())
-                else:
-                    no_problem = False
-                if debug:
-                    print(f"  = {entity} -> {extracted}")
-                    # print(f"    {offset_labels}")
-            if debug:
-                print(f"  --------------------")
-            character_list = [(origin[i], offset_labels[i]) for i in range(len(origin))]
-            if restored != origin:
-                no_problem = False
-            if no_problem:
-                out.write(json.dumps({"origin": origin,
-                                      "entity_list": entity_list, "character_list": character_list}, ensure_ascii=False) + "\n")
+                num_header += 1
+            head_lines = raw_lines[:num_header]
+            body_lines = raw_lines[num_header:]
+
+            origin = ''.join(x.split("\t")[0] for x in body_lines)
+            tagged = head_lines[-1].split("\t")[1].strip()
+            parsed = parse_tagged(origin, tagged, debug=debug)
+            if parsed:
+                character_list_from_head = parsed["character_list"]
+                character_list_from_body = [tuple(x.split("\t")) for x in body_lines]
+                if character_list_from_head == character_list_from_body:
+                    out.write(json.dumps(parsed, ensure_ascii=False) + "\n")
+                elif debug:
+                    print(f"* origin: {origin}")
+                    print(f"  tagged: {tagged}")
+                    for a, b in zip(character_list_from_head, character_list_from_body):
+                        if a != b:
+                            print(f"  = {a[0]}:{a[1]} <=> {b[0]}:{b[1]}")
+                    print(f"  ====================")
 
 
 if __name__ == "__main__":
-    from chrisbase.io import *
+    # for path in files("data/kmou-ner-full/*.txt"):
+    #     print(f"[FILE]: {path}")
+    #     convert_kmou_format(path, path.with_suffix(".jsonl"), debug=True)
 
-    format_files = {
-        "kmou": files("data/kmou-ner-full/*.txt"),
-        "klue": files("data/klue-ner/*.tsv"),
-    }
-    assert format_files["kmou"]
-    assert format_files["klue"]
-
-    for infile in format_files["kmou"]:
-        print(f"[FILE]: {infile}")
-        outfile = Path(infile).with_suffix(".jsonl")
-        convert_from_kmou_format(infile, outfile, debug=False)
+    for path in files("data/klue-ner/*.tsv"):
+        print(f"[FILE]: {path}")
+        convert_klue_format(path, path.with_suffix(".jsonl"), debug=True)
