@@ -12,7 +12,7 @@ from typer import Typer
 import nlpbook
 from chrisbase.io import JobTimer, err_hr
 from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
-from nlpbook.ner.corpus import NERCorpus, NERDataset
+from nlpbook.ner.corpus import NERCorpus, NERDataset, features_to_batch
 from nlpbook.ner.task import NERTask
 from transformers import BertConfig, BertForTokenClassification, PreTrainedTokenizerFast, AutoTokenizer
 from transformers.modeling_outputs import TokenClassifierOutput
@@ -41,8 +41,10 @@ def train(args_file: Path | str):
         train_dataloader = DataLoader(train_dataset,
                                       batch_size=args.hardware.batch_size,
                                       num_workers=args.hardware.cpu_workers,
-                                      sampler=RandomSampler(train_dataset, replacement=False),
-                                      collate_fn=nlpbook.data_collator,
+                                      shuffle=False,
+                                      # sampler=SequentialSampler(train_dataset),
+                                      # sampler=RandomSampler(train_dataset, replacement=False),
+                                      collate_fn=features_to_batch,
                                       drop_last=False)
         err_hr(c='-')
 
@@ -50,8 +52,9 @@ def train(args_file: Path | str):
         val_dataloader = DataLoader(val_dataset,
                                     batch_size=args.hardware.batch_size,
                                     num_workers=args.hardware.cpu_workers,
-                                    sampler=SequentialSampler(val_dataset),
-                                    collate_fn=nlpbook.data_collator,
+                                    shuffle=False,
+                                    # sampler=SequentialSampler(val_dataset),
+                                    collate_fn=features_to_batch,
                                     drop_last=False)
         err_hr(c='-')
 
@@ -68,7 +71,7 @@ def train(args_file: Path | str):
         with RuntimeChecking(nlpbook.setup_csv_out(args)):
             torch.set_float32_matmul_precision('high')
             trainer: pl.Trainer = nlpbook.make_trainer(args)
-            trainer.fit(NERTask(model, args, trainer),
+            trainer.fit(NERTask(model, args, trainer, val_dataset),
                         train_dataloaders=train_dataloader,
                         val_dataloaders=val_dataloader)
 

@@ -4,7 +4,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, ClassVar
+from typing import List, Optional, ClassVar, Dict
 
 import torch
 from dataclasses_json import DataClassJsonMixin
@@ -13,9 +13,8 @@ from torch.utils.data.dataset import Dataset
 
 from chrisbase.io import make_parent_dir, files, merge_dicts
 from nlpbook.arguments import TrainerArguments, TesterArguments
-from transformers import PreTrainedTokenizerFast
-from transformers.tokenization_utils_base import CharSpan
-from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy, BatchEncoding
+from transformers import PreTrainedTokenizerFast, BatchEncoding, CharSpan
+from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
 
 logger = logging.getLogger("nlpbook")
 
@@ -58,10 +57,25 @@ class NERExampleForKLUE(DataClassJsonMixin):
 
 @dataclass
 class NERFeatures:
-    input_ids: List[int]
-    attention_mask: Optional[List[int]] = None
-    token_type_ids: Optional[List[int]] = None
+    inputs: BatchEncoding
+    # input_ids: List[int]
+    # attention_mask: Optional[List[int]] = None
+    # token_type_ids: Optional[List[int]] = None
     label_ids: Optional[List[int]] = None
+
+
+def features_to_batch(features: List[NERFeatures]) -> Dict[str, torch.Tensor]:
+    first = features[0]
+    batch = {}
+    for k, v in first.inputs.items():
+        if k not in ("label", "label_ids") and v is not None and not isinstance(v, str):
+            if isinstance(v, torch.Tensor):
+                batch[k] = torch.stack([feature.inputs[k] for feature in features])
+            else:
+                batch[k] = torch.tensor([feature.inputs[k] for feature in features], dtype=torch.long)
+    batch["labels"] = torch.tensor([feature.label_ids for feature in features],
+                                   dtype=torch.long if type(first.label_ids[0]) is int else torch.float)
+    return batch
 
 
 class NERCorpus:
@@ -92,7 +106,7 @@ class NERCorpus:
             labels = [NER_CLS_TOKEN, NER_SEP_TOKEN, NER_PAD_TOKEN, NER_MASK_TOKEN, "O"] + b_tags + i_tags
             logger.info(f"Saved {len(labels)} labels to {label_map_path}")
             with label_map_path.open("w", encoding="utf-8") as f:
-                f.writelines([x+"\n" for x in labels])
+                f.writelines([x + "\n" for x in labels])
         else:
             labels = label_map_path.read_text(encoding="utf-8").splitlines()
             logger.info(f"Loaded {len(labels)} labels from {label_map_path}")
@@ -113,11 +127,11 @@ def _decide_span_label(span: CharSpan, offset_to_label: dict[int, str]):
 def _convert_examples_to_ner_features(
         examples: List[NERExampleForKLUE],
         tokenizer: PreTrainedTokenizerFast,
-        args: TrainerArguments,
+        args: TesterArguments,
         label_list: List[str],
         cls_token_at_end: Optional[bool] = False,
         num_show_example: int = 3,
-):
+) -> List[NERFeatures]:
     """
     `cls_token_at_end` define the location of the CLS token:
             - False (Default, BERT/XLM pattern): [CLS] + A + [SEP] + B + [SEP]
@@ -125,8 +139,10 @@ def _convert_examples_to_ner_features(
     """
     label_to_id = {label: i for i, label in enumerate(label_list)}
     id_to_label = {i: label for i, label in enumerate(label_list)}
+    logger.info(f"label_to_id = {label_to_id}")
+    logger.info(f"id_to_label = {id_to_label}")
 
-    features: list[NERFeatures] = []
+    features: List[NERFeatures] = []
     for example in examples:
         example: NERExampleForKLUE = example
         offset_to_label: dict[int, str] = {i: y for i, (_, y) in enumerate(example.character_list)}
@@ -157,7 +173,7 @@ def _convert_examples_to_ner_features(
                 label_list.append(token)
                 # print('\t'.join(map(str, [i, token, token_span])))
         label_ids: list[int] = [label_to_id[label] for label in label_list]
-        features.append(NERFeatures(**inputs, label_ids=label_ids))
+        features.append(NERFeatures(inputs=inputs, label_ids=label_ids))
         # print(f"label_list             = {label_list}")
         # out_hr()
         # print(f"label_ids              = {label_ids}")
@@ -167,8 +183,8 @@ def _convert_examples_to_ner_features(
         logger.info("  === [Example %d] ===" % (i + 1))
         logger.info("  = sentence : %s" % example.origin)
         logger.info("  = entities : %s" % example.entity_list)
-        logger.info("  = tokens   : %s" % (" ".join(tokenizer.convert_ids_to_tokens(features[i].input_ids))))
-        logger.info("  = labels   : %s" % (" ".join([id_to_label[label_id] for label_id in features[i].label_ids])))
+        logger.info("  = tokens   : %s" % (" ".join(features[i].inputs.tokens())))
+        logger.info("  = labels   : %s" % (" ".join([id_to_label[x] for x in features[i].label_ids])))
         logger.info("  = features : %s" % features[i])
         logger.info("  === ")
 
@@ -194,13 +210,13 @@ class NERDataset(Dataset):
         with FileLock(cache_lock_path):
             if os.path.exists(cache_data_path) and args.data.caching:
                 start = time.time()
-                self.features = torch.load(cache_data_path)
+                self.features: List[NERFeatures] = torch.load(cache_data_path)
                 logger.info(f"Loading features from cached file at {cache_data_path} [took {time.time() - start:.3f} s]")
             else:
                 assert text_data_path.exists() and text_data_path.is_file(), f"No data_text_path: {text_data_path}"
                 logger.info(f"Creating features from dataset file at {text_data_path}")
-                examples = self.corpus.get_examples(text_data_path)
-                self.features = _convert_examples_to_ner_features(examples, tokenizer, args, label_list=self.corpus.get_labels())
+                examples: List[NERExampleForKLUE] = self.corpus.get_examples(text_data_path)
+                self.features: List[NERFeatures] = _convert_examples_to_ner_features(examples, tokenizer, args, label_list=self.corpus.get_labels())
                 start = time.time()
                 torch.save(self.features, cache_data_path)
                 logger.info(f"Saving features into cached file at {cache_data_path} [took {time.time() - start:.3f} s]")
