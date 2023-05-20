@@ -12,7 +12,7 @@ from typer import Typer
 import nlpbook
 from chrisbase.io import JobTimer, err_hr
 from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
-from nlpbook.ner.corpus import NERCorpus, NERDataset, features_to_batch
+from nlpbook.ner.corpus import NERCorpus, NERDataset, encoded_examples_to_batch
 from nlpbook.ner.task import NERTask
 from transformers import BertConfig, BertForTokenClassification, PreTrainedTokenizerFast, AutoTokenizer
 from transformers.modeling_outputs import TokenClassifierOutput
@@ -41,7 +41,7 @@ def train(args_file: Path | str):
         train_dataloader = DataLoader(train_dataset, sampler=RandomSampler(train_dataset, replacement=False),
                                       num_workers=args.hardware.cpu_workers,
                                       batch_size=args.hardware.batch_size,
-                                      collate_fn=features_to_batch,
+                                      collate_fn=encoded_examples_to_batch,
                                       drop_last=False)
         err_hr(c='-')
 
@@ -49,7 +49,7 @@ def train(args_file: Path | str):
         val_dataloader = DataLoader(val_dataset, sampler=SequentialSampler(val_dataset),
                                     num_workers=args.hardware.cpu_workers,
                                     batch_size=args.hardware.batch_size,
-                                    collate_fn=features_to_batch,
+                                    collate_fn=encoded_examples_to_batch,
                                     drop_last=False)
         err_hr(c='-')
 

@@ -8,8 +8,8 @@ from torch.optim.lr_scheduler import ExponentialLR
 
 from nlpbook.arguments import TrainerArguments, TesterArguments
 from nlpbook.metrics import accuracy
-from nlpbook.ner import NER_PAD_ID, NERDataset, NERFeatures
-from transformers import PreTrainedModel, BatchEncoding
+from nlpbook.ner import NER_PAD_ID, NERDataset
+from transformers import PreTrainedModel
 from transformers.modeling_outputs import TokenClassifierOutput
 
 
@@ -45,8 +45,7 @@ class NERTask(LightningModule):
 
     def training_step(self, batch: Dict[str, torch.Tensor | List[int]], batch_idx: int) -> Dict[str, torch.Tensor]:
         print()
-        print()
-        print(f"[training_step] batch_idx: {batch_idx}")
+        print(f"[training_step] batch_idx: {batch_idx}, global_step: {self._global_step()}")
         _: List[int] = batch.pop("example_ids")
         outputs: TokenClassifierOutput = self.model(**batch)
         labels: torch.Tensor = batch["labels"]
@@ -58,18 +57,23 @@ class NERTask(LightningModule):
 
     def validation_step(self, batch: Dict[str, torch.Tensor | List[int]], batch_idx: int) -> Dict[str, torch.Tensor]:
         print()
-        print()
         print(f"[validation_step] batch_idx: {batch_idx}, global_step: {self._global_step()}")
         example_ids: List[int] = batch.pop("example_ids")
         outputs: TokenClassifierOutput = self.model(**batch)
         labels: torch.Tensor = batch["labels"]
         preds: torch.Tensor = outputs.logits.argmax(dim=-1)
         acc: torch.Tensor = accuracy(preds, labels, ignore_index=NER_PAD_ID)
+        self.log(prog_bar=True, logger=False, on_epoch=True, name="global_step", value=self._global_step() * 1.0)
+        self.log(prog_bar=True, logger=False, on_epoch=True, name="trained_rate", value=self._trained_rate())
+        self.log(prog_bar=True, logger=False, on_epoch=True, name="train_loss", value=self.train_loss)
+        self.log(prog_bar=True, logger=False, on_epoch=True, name="train_acc", value=self.train_acc)
+        self.log(prog_bar=True, logger=False, on_epoch=True, name="val_loss", value=outputs.loss)
+        self.log(prog_bar=True, logger=False, on_epoch=True, name="val_acc", value=acc)
+
         # for key in batch.keys():
         #     print(f"- batch[{key:14s}]: {batch[key].shape} | {batch[key].tolist()}")
         # print(f"-                 preds: {preds.shape} | {preds.tolist()}")
         # print(f"-                   acc: {acc.shape} | {acc}")
-
         # for i in example_ids:
         #     features: NERFeatures = self.val_dataset[i]
         #     example_id = features.example_id
@@ -81,19 +85,11 @@ class NERTask(LightningModule):
         #     print(f"  inputs2: {inputs2}")
         #     print(f"  labels2: {labels2}")
         #     print()
-        examples = [self.val_dataset[i].example for i in example_ids]
-
-        self.log(prog_bar=True, logger=False, on_epoch=True, name="global_step", value=self._global_step() * 1.0)
-        self.log(prog_bar=True, logger=False, on_epoch=True, name="trained_rate", value=self._trained_rate())
-        self.log(prog_bar=True, logger=False, on_epoch=True, name="train_loss", value=self.train_loss)
-        self.log(prog_bar=True, logger=False, on_epoch=True, name="train_acc", value=self.train_acc)
-        self.log(prog_bar=True, logger=False, on_epoch=True, name="val_loss", value=outputs.loss)
-        self.log(prog_bar=True, logger=False, on_epoch=True, name="val_acc", value=acc)
         return {
             "loss": outputs.loss, "logits": outputs.logits,
-            "preds": preds, "labels": labels,
-            "example_ids": example_ids,
-            "examples": examples,
+            "preds": preds, "labels": labels, "example_ids": example_ids,
+            "inputs": [self.val_dataset[i].encoded for i in example_ids],
+            "examples": [self.val_dataset[i].raw for i in example_ids],
         }
 
     def test_step(self, batch, batch_idx):
@@ -105,7 +101,7 @@ class NERTask(LightningModule):
         self.log(prog_bar=False, logger=True, on_epoch=True, name="test_acc", value=acc)
         return {"test_loss": outputs.loss, "test_acc": acc}
 
-    def x_validation_epoch_end(
+    def validation_epoch_end(
             self, outputs: List[Dict[str, torch.Tensor]], data_type: str = "valid", write_predictions: bool = False
     ) -> None:
         """When validation step ends, either token- or character-level predicted
@@ -113,21 +109,20 @@ class NERTask(LightningModule):
         evaluated.
         """
         print()
-        print()
-        print()
         print(f"[validation_epoch_end]")
-        print(f"outputs: {len(outputs)} * {outputs[0].keys()}")
-        logits = torch.cat([output["logits"] for output in outputs], dim=0)
-        preds = logits.argmax(dim=-1)
-        print(f"preds({preds.shape}): {preds}")
+        print(f"= outputs: {len(outputs)} * {outputs[0].keys()}")
+        preds = torch.cat([output["preds"] for output in outputs], dim=0)
+        labels = torch.cat([output["labels"] for output in outputs], dim=0)
+        examples = [x for output in outputs for x in output["examples"]]
+        example_ids = [x for output in outputs for x in output["example_ids"]]
+        print(f"  - preds({preds.shape}): {preds.tolist()}")
+        print(f"  - labels({labels.shape}): {labels.tolist()}")
+        print(f"  - examples({len(examples)}):")
+        for example_id, example in zip(example_ids, examples):
+            print(f"    - example({example_id}): {example}")
+
         print("-" * 80)
         exit(1)
-        # if self.tokenizer_type == "xlm-sp":
-        #     strip_char = "▁"
-        # elif self.tokenizer_type == "bert-wp":
-        #     strip_char = "##"
-        # else:
-        #     raise ValueError("This code only supports XLMRobertaTokenizer & BertWordpieceTokenizer")
 
         original_examples = self.hparams.data[data_type]["original_examples"]
         list_of_character_preds = []

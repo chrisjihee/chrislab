@@ -51,6 +51,7 @@ def make_trainer(args: TrainerArguments) -> pl.Trainer:
         precision=args.hardware.precision if args.hardware.precision else 32,
         accelerator=args.hardware.accelerator if args.hardware.accelerator else None,
         deterministic=torch.cuda.is_available() and args.learning.seed is not None,
+        # enable_progress_bar=False,
         num_sanity_val_steps=0,
         val_check_interval=args.learning.log_steps,
         log_every_n_steps=args.learning.log_steps,
@@ -67,6 +68,7 @@ def make_tester(args: TesterArguments) -> pl.Trainer:
         strategy=args.hardware.strategy if not args.hardware.strategy else None,
         precision=args.hardware.precision if args.hardware.precision else 32,
         accelerator=args.hardware.accelerator if args.hardware.accelerator else None,
+        # enable_progress_bar=False,
     )
     return tester
 

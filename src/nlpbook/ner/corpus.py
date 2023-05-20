@@ -12,7 +12,7 @@ from filelock import FileLock
 from torch.utils.data.dataset import Dataset
 
 from chrisbase.io import make_parent_dir, files, merge_dicts
-from nlpbook.arguments import TrainerArguments, TesterArguments
+from nlpbook.arguments import TesterArguments
 from transformers import PreTrainedTokenizerFast, BatchEncoding, CharSpan
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
 
@@ -49,35 +49,32 @@ class EntityInText(DataClassJsonMixin):
 
 
 @dataclass
-class NERExampleForKLUE(DataClassJsonMixin):
+class NERRawExample(DataClassJsonMixin):
     origin: str = field(default_factory=str)
     entity_list: list[EntityInText] = field(default_factory=list)
     character_list: list[tuple[str, str]] = field(default_factory=list)
 
 
 @dataclass
-class NERFeatures:
-    example_id: int
-    example: NERExampleForKLUE
-    inputs: BatchEncoding
-    # input_ids: List[int]
-    # attention_mask: Optional[List[int]] = None
-    # token_type_ids: Optional[List[int]] = None
+class NEREncodedExample:
+    idx: int
+    raw: NERRawExample
+    encoded: BatchEncoding
     label_ids: Optional[List[int]] = None
 
 
-def features_to_batch(features: List[NERFeatures]) -> Dict[str, torch.Tensor | List[int]]:
-    first = features[0]
+def encoded_examples_to_batch(examples: List[NEREncodedExample]) -> Dict[str, torch.Tensor | List[int]]:
+    first = examples[0]
     batch = {}
-    for k, v in first.inputs.items():
+    for k, v in first.encoded.items():
         if k not in ("label", "label_ids") and v is not None and not isinstance(v, str):
             if isinstance(v, torch.Tensor):
-                batch[k] = torch.stack([feature.inputs[k] for feature in features])
+                batch[k] = torch.stack([ex.encoded[k] for ex in examples])
             else:
-                batch[k] = torch.tensor([feature.inputs[k] for feature in features], dtype=torch.long)
-    batch["labels"] = torch.tensor([feature.label_ids for feature in features],
+                batch[k] = torch.tensor([ex.encoded[k] for ex in examples], dtype=torch.long)
+    batch["labels"] = torch.tensor([ex.label_ids for ex in examples],
                                    dtype=torch.long if type(first.label_ids[0]) is int else torch.float)
-    batch["example_ids"] = [feature.example_id for feature in features]
+    batch["example_ids"] = [ex.idx for ex in examples]
     return batch
 
 
@@ -85,11 +82,11 @@ class NERCorpus:
     def __init__(self, args: TesterArguments):
         self.args = args
 
-    def get_examples(self, data_path: Path) -> List[NERExampleForKLUE]:
+    def read_raw_examples(self, data_path: Path) -> List[NERRawExample]:
         examples = []
         with data_path.open(encoding="utf-8") as inp:
             for line in inp.readlines():
-                examples.append(NERExampleForKLUE.from_json(line))
+                examples.append(NERRawExample.from_json(line))
         logger.info(f"Loaded {len(examples)} examples from {data_path}")
         return examples
 
@@ -101,7 +98,7 @@ class NERCorpus:
             logger.info(f"Extracting labels from {train_data_path}")
             with train_data_path.open(encoding="utf-8") as inp:
                 for line in inp.readlines():
-                    for x in NERExampleForKLUE.from_json(line).entity_list:
+                    for x in NERRawExample.from_json(line).entity_list:
                         if x.label not in ner_tags:
                             ner_tags.append(x.label)
             b_tags = [f"B-{ner_tag}" for ner_tag in ner_tags]
@@ -127,14 +124,14 @@ def _decide_span_label(span: CharSpan, offset_to_label: dict[int, str]):
     return "O"
 
 
-def _convert_examples_to_ner_features(
-        examples: List[NERExampleForKLUE],
+def _convert_to_encoded_examples(
+        raw_examples: List[NERRawExample],
         tokenizer: PreTrainedTokenizerFast,
         args: TesterArguments,
         label_list: List[str],
         cls_token_at_end: Optional[bool] = False,
         num_show_example: int = 3,
-) -> List[NERFeatures]:
+) -> List[NEREncodedExample]:
     """
     `cls_token_at_end` define the location of the CLS token:
             - False (Default, BERT/XLM pattern): [CLS] + A + [SEP] + B + [SEP]
@@ -145,54 +142,53 @@ def _convert_examples_to_ner_features(
     logger.info(f"label_to_id = {label_to_id}")
     logger.info(f"id_to_label = {id_to_label}")
 
-    features: List[NERFeatures] = []
-    for example_id, example in enumerate(examples):
-        example: NERExampleForKLUE = example
-        offset_to_label: dict[int, str] = {i: y for i, (_, y) in enumerate(example.character_list)}
-        inputs: BatchEncoding = tokenizer.encode_plus(example.origin,
-                                                      max_length=args.model.max_seq_length,
-                                                      truncation=TruncationStrategy.LONGEST_FIRST,
-                                                      padding=PaddingStrategy.MAX_LENGTH)
-        input_tokens: List[str] = inputs.tokens()
+    encoded_examples: List[NEREncodedExample] = []
+    for idx, raw_example in enumerate(raw_examples):
+        raw_example: NERRawExample = raw_example
+        offset_to_label: dict[int, str] = {i: y for i, (_, y) in enumerate(raw_example.character_list)}
+        encoded: BatchEncoding = tokenizer.encode_plus(raw_example.origin,
+                                                       max_length=args.model.max_seq_length,
+                                                       truncation=TruncationStrategy.LONGEST_FIRST,
+                                                       padding=PaddingStrategy.MAX_LENGTH)
+        encoded_tokens: List[str] = encoded.tokens()
         # out_hr()
         # print(f"offset_to_label        = {offset_to_label}")
         # out_hr()
-        # print(f"input_tokens           = {inputs.tokens()}")
+        # print(f"encoded_tokens         = {encoded_tokens}")
         # out_hr()
-        # for key in inputs.keys():
-        #     print(f"inputs[{key:14s}] = {inputs[key]}")
+        # for key in encoded.keys():
+        #     print(f"inputs[{key:14s}] = {encoded[key]}")
         # out_hr()
 
         label_list: list[str] = []
         for token_id in range(args.model.max_seq_length):
-            token_repr: str = input_tokens[token_id]
-            token_span: CharSpan = inputs.token_to_chars(token_id)
+            token_repr: str = encoded_tokens[token_id]
+            token_span: CharSpan = encoded.token_to_chars(token_id)
             if token_span:
                 token_label = _decide_span_label(token_span, offset_to_label)
                 label_list.append(token_label)
-                # token_sstr = example.origin[token_span.start:token_span.end]
+                # token_sstr = raw_example.origin[token_span.start:token_span.end]
                 # print('\t'.join(map(str, [token_id, token_repr, token_span, token_sstr, token_label])))
             else:
                 label_list.append(token_repr)
                 # print('\t'.join(map(str, [token_id, token_repr, token_span])))
         label_ids: list[int] = [label_to_id[label] for label in label_list]
-        features.append(NERFeatures(inputs=inputs, label_ids=label_ids,
-                                    example=example, example_id=example_id))
+        encoded_examples.append(NEREncodedExample(encoded=encoded, label_ids=label_ids, raw=raw_example, idx=idx))
         # print(f"label_list             = {label_list}")
         # out_hr()
         # print(f"label_ids              = {label_ids}")
-        # print(f"features               = {features[-1]}")
+        # print(f"encoded_examples       = {encoded_examples[-1]}")
 
-    for example_id, example in enumerate(examples[:num_show_example]):
-        logger.info("  === [Example %d] ===" % (example_id + 1))
-        logger.info("  = sentence : %s" % features[example_id].example.origin)
-        logger.info("  = entities : %s" % features[example_id].example.entity_list)
-        logger.info("  = tokens   : %s" % (" ".join(features[example_id].inputs.tokens())))
-        logger.info("  = labels   : %s" % (" ".join([id_to_label[x] for x in features[example_id].label_ids])))
-        logger.info("  = features : %s" % features[example_id])
+    for idx, raw_example in enumerate(raw_examples[:num_show_example]):
+        logger.info("  === [Example %d] ===" % (idx + 1))
+        logger.info("  = sentence : %s" % encoded_examples[idx].raw.origin)
+        logger.info("  = entities : %s" % encoded_examples[idx].raw.entity_list)
+        logger.info("  = tokens   : %s" % (" ".join(encoded_examples[idx].encoded.tokens())))
+        logger.info("  = labels   : %s" % (" ".join([id_to_label[x] for x in encoded_examples[idx].label_ids])))
+        logger.info("  = encoded  : %s" % encoded_examples[idx])
         logger.info("  === ")
 
-    return features
+    return encoded_examples
 
 
 class NERDataset(Dataset):
@@ -214,13 +210,13 @@ class NERDataset(Dataset):
         with FileLock(cache_lock_path):
             if os.path.exists(cache_data_path) and args.data.caching:
                 start = time.time()
-                self.features: List[NERFeatures] = torch.load(cache_data_path)
+                self.features: List[NEREncodedExample] = torch.load(cache_data_path)
                 logger.info(f"Loading features from cached file at {cache_data_path} [took {time.time() - start:.3f} s]")
             else:
                 assert text_data_path.exists() and text_data_path.is_file(), f"No data_text_path: {text_data_path}"
                 logger.info(f"Creating features from dataset file at {text_data_path}")
-                examples: List[NERExampleForKLUE] = self.corpus.get_examples(text_data_path)
-                self.features: List[NERFeatures] = _convert_examples_to_ner_features(examples, tokenizer, args, label_list=self.corpus.get_labels())
+                examples: List[NERRawExample] = self.corpus.read_raw_examples(text_data_path)
+                self.features: List[NEREncodedExample] = _convert_to_encoded_examples(examples, tokenizer, args, label_list=self.corpus.get_labels())
                 start = time.time()
                 torch.save(self.features, cache_data_path)
                 logger.info(f"Saving features into cached file at {cache_data_path} [took {time.time() - start:.3f} s]")
@@ -228,14 +224,14 @@ class NERDataset(Dataset):
     def __len__(self):
         return len(self.features)
 
-    def __getitem__(self, i) -> NERFeatures:
+    def __getitem__(self, i) -> NEREncodedExample:
         return self.features[i]
 
     def get_labels(self):
         return self.corpus.get_labels()
 
 
-def parse_tagged(origin: str, tagged: str, debug: bool = False) -> Optional[NERExampleForKLUE]:
+def parse_tagged(origin: str, tagged: str, debug: bool = False) -> Optional[NERRawExample]:
     entity_list: list[EntityInText] = []
     if debug:
         print(f"* origin: {origin}")
@@ -262,14 +258,14 @@ def parse_tagged(origin: str, tagged: str, debug: bool = False) -> Optional[NERE
     character_list = [(origin[i], offset_labels[i]) for i in range(len(origin))]
     if restored != origin:
         no_problem = False
-    return NERExampleForKLUE(origin, entity_list, character_list) if no_problem else None
+    return NERRawExample(origin, entity_list, character_list) if no_problem else None
 
 
 def convert_kmou_format(infile: str | Path, outfile: str | Path, debug: bool = False):
     with Path(infile).open(encoding="utf-8") as inp, Path(outfile).open("w", encoding="utf-8") as out:
         for line in inp.readlines():
             origin, tagged = line.strip().split("\u241E")
-            parsed: Optional[NERExampleForKLUE] = parse_tagged(origin, tagged, debug=debug)
+            parsed: Optional[NERRawExample] = parse_tagged(origin, tagged, debug=debug)
             if parsed:
                 out.write(parsed.to_json(ensure_ascii=False) + "\n")
 
@@ -290,7 +286,7 @@ def convert_klue_format(infile: str | Path, outfile: str | Path, debug: bool = F
 
             origin = ''.join(x.split("\t")[0] for x in body_lines)
             tagged = head_lines[-1].split("\t")[1].strip()
-            parsed: Optional[NERExampleForKLUE] = parse_tagged(origin, tagged, debug=debug)
+            parsed: Optional[NERRawExample] = parse_tagged(origin, tagged, debug=debug)
             if parsed:
                 character_list_from_head = parsed.character_list
                 character_list_from_body = [tuple(x.split("\t")) for x in body_lines]
