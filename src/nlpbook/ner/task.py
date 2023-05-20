@@ -8,7 +8,7 @@ from torch.optim.lr_scheduler import ExponentialLR
 
 from nlpbook.arguments import TrainerArguments, TesterArguments
 from nlpbook.metrics import accuracy
-from nlpbook.ner import NER_PAD_ID, NERDataset
+from nlpbook.ner import NER_PAD_ID, NERDataset, NERFeatures
 from transformers import PreTrainedModel, BatchEncoding
 from transformers.modeling_outputs import TokenClassifierOutput
 
@@ -17,17 +17,23 @@ class NERTask(LightningModule):
     def __init__(self, model: PreTrainedModel,
                  args: TrainerArguments | TesterArguments,
                  trainer: pl.Trainer,
-                 val_dataset: NERDataset):
+                 val_dataset: NERDataset,
+                 total_steps: int,
+                 ):
         super().__init__()
         self.model = model
         self.args = args
         self.trainer = trainer
         self.val_dataset = val_dataset
+        self.total_steps = total_steps
         self.train_loss = -1.0
         self.train_acc = -1.0
 
-    def global_step(self):
-        return self.trainer.lightning_module.global_step * 1.0
+    def _global_step(self):
+        return self.trainer.lightning_module.global_step
+
+    def _trained_rate(self):
+        return self.trainer.lightning_module.global_step / self.total_steps
 
     def configure_optimizers(self):
         optimizer = AdamW(self.parameters(), lr=self.args.learning.speed)
@@ -37,58 +43,69 @@ class NERTask(LightningModule):
             'lr_scheduler': scheduler,
         }
 
-    def training_step(self, inputs: Dict[str, torch.Tensor], batch_idx: int) -> Dict[str, torch.Tensor]:
+    def training_step(self, batch: Dict[str, torch.Tensor | List[int]], batch_idx: int) -> Dict[str, torch.Tensor]:
         print()
         print()
         print(f"[training_step] batch_idx: {batch_idx}")
-        outputs: TokenClassifierOutput = self.model(**inputs)
-        labels: torch.Tensor = inputs["labels"]
+        _: List[int] = batch.pop("example_ids")
+        outputs: TokenClassifierOutput = self.model(**batch)
+        labels: torch.Tensor = batch["labels"]
         preds: torch.Tensor = outputs.logits.argmax(dim=-1)
-        acc = accuracy(preds, labels, ignore_index=NER_PAD_ID)
+        acc: torch.Tensor = accuracy(preds, labels, ignore_index=NER_PAD_ID)
         self.train_loss = outputs.loss
         self.train_acc = acc
         return {"loss": outputs.loss}
 
-    def validation_step(self, inputs: Dict[str, torch.Tensor], batch_idx: int) -> Dict[str, torch.Tensor]:
+    def validation_step(self, batch: Dict[str, torch.Tensor | List[int]], batch_idx: int) -> Dict[str, torch.Tensor]:
         print()
         print()
-        print(f"[validation_step] batch_idx: {batch_idx}")
-        outputs: TokenClassifierOutput = self.model(**inputs)
-        labels: torch.Tensor = inputs["labels"]
+        print(f"[validation_step] batch_idx: {batch_idx}, global_step: {self._global_step()}")
+        example_ids: List[int] = batch.pop("example_ids")
+        outputs: TokenClassifierOutput = self.model(**batch)
+        labels: torch.Tensor = batch["labels"]
         preds: torch.Tensor = outputs.logits.argmax(dim=-1)
-        acc = accuracy(preds, labels, ignore_index=NER_PAD_ID)
-        global_step = self.trainer.lightning_module.global_step * 1.0
-        #
-        # global_step = self.trainer.lightning_module.global_step() * 1.0
-        print(f"global_step: ({global_step})")
-        print(f"labels: ({labels.shape}) {labels}")
-        print(f"preds: ({preds.shape}) {preds}")
-        exit(1)
+        acc: torch.Tensor = accuracy(preds, labels, ignore_index=NER_PAD_ID)
+        # for key in batch.keys():
+        #     print(f"- batch[{key:14s}]: {batch[key].shape} | {batch[key].tolist()}")
+        # print(f"-                 preds: {preds.shape} | {preds.tolist()}")
+        # print(f"-                   acc: {acc.shape} | {acc}")
 
-        print()
-        exit(1)
-        print(f"[validation_step] batch_idx: {batch_idx}")
-        print(f"[validation_step] global_step: {global_step}")
-        for key in inputs.keys():
-            print(f"inputs[{key}]: ({inputs[key].shape}) {inputs[key]}")
-        exit(1)
-        self.log(prog_bar=True, logger=False, on_epoch=True, name="global_step", value=global_step)
+        # for i in example_ids:
+        #     features: NERFeatures = self.val_dataset[i]
+        #     example_id = features.example_id
+        #     example = features.example
+        #     print(f"  example_id: {example_id}")
+        #     print(f"  example: {example}")
+        #     inputs2 = features.inputs
+        #     labels2 = features.label_ids
+        #     print(f"  inputs2: {inputs2}")
+        #     print(f"  labels2: {labels2}")
+        #     print()
+        examples = [self.val_dataset[i].example for i in example_ids]
+
+        self.log(prog_bar=True, logger=False, on_epoch=True, name="global_step", value=self._global_step() * 1.0)
+        self.log(prog_bar=True, logger=False, on_epoch=True, name="trained_rate", value=self._trained_rate())
         self.log(prog_bar=True, logger=False, on_epoch=True, name="train_loss", value=self.train_loss)
         self.log(prog_bar=True, logger=False, on_epoch=True, name="train_acc", value=self.train_acc)
         self.log(prog_bar=True, logger=False, on_epoch=True, name="val_loss", value=outputs.loss)
         self.log(prog_bar=True, logger=False, on_epoch=True, name="val_acc", value=acc)
-        return {"loss": outputs.loss, "logits": outputs.logits, "labels": labels}
+        return {
+            "loss": outputs.loss, "logits": outputs.logits,
+            "preds": preds, "labels": labels,
+            "example_ids": example_ids,
+            "examples": examples,
+        }
 
-    def test_step(self, inputs, batch_idx) -> Dict[str, torch.Tensor]:
-        outputs: TokenClassifierOutput = self.model(**inputs)
-        labels = inputs["labels"]
+    def test_step(self, batch, batch_idx):
+        outputs: TokenClassifierOutput = self.model(**batch)
         preds = outputs.logits.argmax(dim=-1)
+        labels = batch["labels"]
         acc = accuracy(preds, labels, ignore_index=NER_PAD_ID)
         self.log(prog_bar=False, logger=True, on_epoch=True, name="test_loss", value=outputs.loss)
         self.log(prog_bar=False, logger=True, on_epoch=True, name="test_acc", value=acc)
         return {"test_loss": outputs.loss, "test_acc": acc}
 
-    def validation_epoch_end(
+    def x_validation_epoch_end(
             self, outputs: List[Dict[str, torch.Tensor]], data_type: str = "valid", write_predictions: bool = False
     ) -> None:
         """When validation step ends, either token- or character-level predicted
@@ -193,3 +210,7 @@ class NERTask(LightningModule):
         for k, metric in self.metrics.items():
             metric(list_of_character_preds, list_of_originals, label_list)
             self.log(f"{data_type}/{k}", metric, on_step=False, on_epoch=True, logger=True)
+
+    def _convert_outputs_to_preds(self, outputs: List[Dict[str, torch.Tensor]]) -> torch.Tensor:
+        logits = torch.cat([output["logits"] for output in outputs], dim=0)
+        return torch.argmax(logits, axis=2)

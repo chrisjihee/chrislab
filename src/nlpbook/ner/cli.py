@@ -38,22 +38,17 @@ def train(args_file: Path | str):
         tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained, do_lower_case=False, use_fast=True)
         assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
         train_dataset = NERDataset("train", args=args, corpus=corpus, tokenizer=tokenizer)
-        train_dataloader = DataLoader(train_dataset,
-                                      batch_size=args.hardware.batch_size,
+        train_dataloader = DataLoader(train_dataset, sampler=RandomSampler(train_dataset, replacement=False),
                                       num_workers=args.hardware.cpu_workers,
-                                      shuffle=False,
-                                      # sampler=SequentialSampler(train_dataset),
-                                      # sampler=RandomSampler(train_dataset, replacement=False),
+                                      batch_size=args.hardware.batch_size,
                                       collate_fn=features_to_batch,
                                       drop_last=False)
         err_hr(c='-')
 
         val_dataset = NERDataset("valid", args=args, corpus=corpus, tokenizer=tokenizer)
-        val_dataloader = DataLoader(val_dataset,
-                                    batch_size=args.hardware.batch_size,
+        val_dataloader = DataLoader(val_dataset, sampler=SequentialSampler(val_dataset),
                                     num_workers=args.hardware.cpu_workers,
-                                    shuffle=False,
-                                    # sampler=SequentialSampler(val_dataset),
+                                    batch_size=args.hardware.batch_size,
                                     collate_fn=features_to_batch,
                                     drop_last=False)
         err_hr(c='-')
@@ -71,7 +66,8 @@ def train(args_file: Path | str):
         with RuntimeChecking(nlpbook.setup_csv_out(args)):
             torch.set_float32_matmul_precision('high')
             trainer: pl.Trainer = nlpbook.make_trainer(args)
-            trainer.fit(NERTask(model, args, trainer, val_dataset),
+            trainer.fit(NERTask(model=model, args=args, trainer=trainer, val_dataset=val_dataset,
+                                total_steps=len(train_dataloader) * args.learning.epochs),
                         train_dataloaders=train_dataloader,
                         val_dataloaders=val_dataloader)
 

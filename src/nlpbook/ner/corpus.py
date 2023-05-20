@@ -57,6 +57,8 @@ class NERExampleForKLUE(DataClassJsonMixin):
 
 @dataclass
 class NERFeatures:
+    example_id: int
+    example: NERExampleForKLUE
     inputs: BatchEncoding
     # input_ids: List[int]
     # attention_mask: Optional[List[int]] = None
@@ -64,7 +66,7 @@ class NERFeatures:
     label_ids: Optional[List[int]] = None
 
 
-def features_to_batch(features: List[NERFeatures]) -> Dict[str, torch.Tensor]:
+def features_to_batch(features: List[NERFeatures]) -> Dict[str, torch.Tensor | List[int]]:
     first = features[0]
     batch = {}
     for k, v in first.inputs.items():
@@ -75,6 +77,7 @@ def features_to_batch(features: List[NERFeatures]) -> Dict[str, torch.Tensor]:
                 batch[k] = torch.tensor([feature.inputs[k] for feature in features], dtype=torch.long)
     batch["labels"] = torch.tensor([feature.label_ids for feature in features],
                                    dtype=torch.long if type(first.label_ids[0]) is int else torch.float)
+    batch["example_ids"] = [feature.example_id for feature in features]
     return batch
 
 
@@ -143,7 +146,7 @@ def _convert_examples_to_ner_features(
     logger.info(f"id_to_label = {id_to_label}")
 
     features: List[NERFeatures] = []
-    for example in examples:
+    for example_id, example in enumerate(examples):
         example: NERExampleForKLUE = example
         offset_to_label: dict[int, str] = {i: y for i, (_, y) in enumerate(example.character_list)}
         inputs: BatchEncoding = tokenizer.encode_plus(example.origin,
@@ -161,31 +164,32 @@ def _convert_examples_to_ner_features(
         # out_hr()
 
         label_list: list[str] = []
-        for i in range(args.model.max_seq_length):
-            token = input_tokens[i]
-            token_span: CharSpan = inputs.token_to_chars(i)
+        for token_id in range(args.model.max_seq_length):
+            token_repr: str = input_tokens[token_id]
+            token_span: CharSpan = inputs.token_to_chars(token_id)
             if token_span:
                 token_label = _decide_span_label(token_span, offset_to_label)
                 label_list.append(token_label)
-                # token_str = example.origin[token_span.start:token_span.end]
-                # print('\t'.join(map(str, [i, token, token_span, token_str, token_label])))
+                # token_sstr = example.origin[token_span.start:token_span.end]
+                # print('\t'.join(map(str, [token_id, token_repr, token_span, token_sstr, token_label])))
             else:
-                label_list.append(token)
-                # print('\t'.join(map(str, [i, token, token_span])))
+                label_list.append(token_repr)
+                # print('\t'.join(map(str, [token_id, token_repr, token_span])))
         label_ids: list[int] = [label_to_id[label] for label in label_list]
-        features.append(NERFeatures(inputs=inputs, label_ids=label_ids))
+        features.append(NERFeatures(inputs=inputs, label_ids=label_ids,
+                                    example=example, example_id=example_id))
         # print(f"label_list             = {label_list}")
         # out_hr()
         # print(f"label_ids              = {label_ids}")
         # print(f"features               = {features[-1]}")
 
-    for i, example in enumerate(examples[:num_show_example]):
-        logger.info("  === [Example %d] ===" % (i + 1))
-        logger.info("  = sentence : %s" % example.origin)
-        logger.info("  = entities : %s" % example.entity_list)
-        logger.info("  = tokens   : %s" % (" ".join(features[i].inputs.tokens())))
-        logger.info("  = labels   : %s" % (" ".join([id_to_label[x] for x in features[i].label_ids])))
-        logger.info("  = features : %s" % features[i])
+    for example_id, example in enumerate(examples[:num_show_example]):
+        logger.info("  === [Example %d] ===" % (example_id + 1))
+        logger.info("  = sentence : %s" % features[example_id].example.origin)
+        logger.info("  = entities : %s" % features[example_id].example.entity_list)
+        logger.info("  = tokens   : %s" % (" ".join(features[example_id].inputs.tokens())))
+        logger.info("  = labels   : %s" % (" ".join([id_to_label[x] for x in features[example_id].label_ids])))
+        logger.info("  = features : %s" % features[example_id])
         logger.info("  === ")
 
     return features
@@ -224,7 +228,7 @@ class NERDataset(Dataset):
     def __len__(self):
         return len(self.features)
 
-    def __getitem__(self, i):
+    def __getitem__(self, i) -> NERFeatures:
         return self.features[i]
 
     def get_labels(self):
