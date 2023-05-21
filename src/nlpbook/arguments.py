@@ -56,7 +56,7 @@ class DataOption(OptionData):
     name: str | Path = field()
     home: str | Path | None = field(default=None)
     files: DataFiles | None = field(default=None)
-    caching: bool = field(default=True)
+    caching: bool = field(default=False)
     redownload: bool = field(default=False)
 
     def __post_init__(self):
