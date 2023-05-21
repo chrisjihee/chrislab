@@ -8,7 +8,7 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import ExponentialLR
 
 from chrisbase.io import out_hr
-from nlpbook.arguments import TesterArguments
+from nlpbook.arguments import TesterArguments, TrainerArguments
 from nlpbook.metrics import accuracy
 from nlpbook.ner import NER_PAD_ID, NERDataset, NEREncodedExample
 from transformers import PreTrainedModel, CharSpan
@@ -25,14 +25,14 @@ def label_to_char_labels(label, num_char):
 
 class NERTask(LightningModule):
     def __init__(self, model: PreTrainedModel,
-                 args: TesterArguments,
+                 args: TesterArguments | TrainerArguments,
                  trainer: pl.Trainer,
                  val_dataset: NERDataset,
                  total_steps: int,
                  ):
         super().__init__()
         self.model: PreTrainedModel = model
-        self.args: TesterArguments = args
+        self.args: TesterArguments | TrainerArguments = args
         self.trainer: pl.Trainer = trainer
 
         self.val_dataset: NERDataset = val_dataset
@@ -68,8 +68,6 @@ class NERTask(LightningModule):
         }
 
     def training_step(self, batch: Dict[str, torch.Tensor | List[int]], batch_idx: int) -> Dict[str, torch.Tensor]:
-        print()
-        print(f"[training_step] batch_idx: {batch_idx}, global_step: {self._global_step()}")
         _: List[int] = batch.pop("example_ids")
         outputs: TokenClassifierOutput = self.model(**batch)
         labels: torch.Tensor = batch["labels"]
@@ -80,9 +78,9 @@ class NERTask(LightningModule):
         return {"loss": outputs.loss}
 
     def validation_step(self, batch: Dict[str, torch.Tensor | List[int]], batch_idx: int) -> Dict[str, torch.Tensor]:
-        print()
-        print(f"[validation_step] batch_idx: {batch_idx}, global_step: {self._global_step()}")
         if self.args.env.on_debugging:
+            print()
+            print(f"[validation_step] batch_idx: {batch_idx}, global_step: {self._global_step()}")
             for key in batch.keys():
                 if isinstance(batch[key], torch.Tensor):
                     print(f"  - batch[{key:14s}]     = {batch[key].shape} | {batch[key].tolist()}")
@@ -92,8 +90,8 @@ class NERTask(LightningModule):
         outputs: TokenClassifierOutput = self.model(**batch)
         labels: torch.Tensor = batch["labels"]
         preds: torch.Tensor = outputs.logits.argmax(dim=-1)
-        acc: torch.Tensor = accuracy(preds, labels, ignore_index=NER_PAD_ID)  # TODO: Opt1: No special label
-        # acc: torch.Tensor = accuracy(preds, labels, ignore_index=0)  # TODO: Opt2: Use special labels
+        acc: torch.Tensor = accuracy(preds, labels, ignore_index=0)  # TODO: Opt1: No special label
+        # acc: torch.Tensor = accuracy(preds, labels, ignore_index=NER_PAD_ID)  # TODO: Opt2: Use special labels
 
         self.log(prog_bar=True, logger=False, on_epoch=True, name="global_step", value=self._global_step() * 1.0)
         self.log(prog_bar=True, logger=False, on_epoch=True, name="trained_rate", value=self._trained_rate())
@@ -130,14 +128,14 @@ class NERTask(LightningModule):
 
         if self.args.env.on_tracing:
             out_hr()
-        flatlist_of_char_label_ids: List[int] = []
         flatlist_of_char_pred_ids: List[int] = []
+        flatlist_of_char_label_ids: List[int] = []
         for encoded_example in [self.val_dataset[i] for i in example_ids]:
             token_pred_ids = dict_of_token_pred_ids[encoded_example.idx]
             char_label_ids = dict_of_char_label_ids[encoded_example.idx]
             char_pred_ids = dict_of_char_pred_ids[encoded_example.idx]
-            flatlist_of_char_label_ids.extend(char_label_ids)
             flatlist_of_char_pred_ids.extend(char_pred_ids)
+            flatlist_of_char_label_ids.extend(char_label_ids)
             if self.args.env.on_tracing:
                 print(f"  - encoded_example.idx                = {encoded_example.idx}")
                 print(f"  - encoded_example.raw.entity_list    = ({len(encoded_example.raw.entity_list)}) {encoded_example.raw.entity_list}")
@@ -153,14 +151,27 @@ class NERTask(LightningModule):
 
         if self.args.env.on_debugging:
             current_repr = lambda x: f"{x:02d}"
-            print(f"  - flatlist_of_char_label_ids         = ({len(flatlist_of_char_label_ids)}) {' '.join(map(str, map(current_repr, flatlist_of_char_label_ids)))}")
-            print(f"  - flatlist_of_char_pred_ids          = ({len(flatlist_of_char_pred_ids)}) {' '.join(map(str, map(current_repr, flatlist_of_char_pred_ids)))}")
+            print(f"  - flatlist_of_char_label_ids = ({len(flatlist_of_char_label_ids)}) {' '.join(map(str, map(current_repr, flatlist_of_char_label_ids)))}")
+            print(f"  - flatlist_of_char_pred_ids  = ({len(flatlist_of_char_pred_ids)}) {' '.join(map(str, map(current_repr, flatlist_of_char_pred_ids)))}")
         assert len(flatlist_of_char_label_ids) == len(flatlist_of_char_pred_ids)
+
+        val_chr_f1 = klue_ner_char_macro_f1(preds=flatlist_of_char_pred_ids, labels=flatlist_of_char_label_ids, label_list=self._labels)
+        val_ent_f1 = klue_ner_entity_macro_f1(preds=flatlist_of_char_pred_ids, labels=flatlist_of_char_label_ids, label_list=self._labels)
+        self.log(prog_bar=True, logger=True, on_epoch=True, name="val_chr_f1", value=val_chr_f1)
+        self.log(prog_bar=True, logger=True, on_epoch=True, name="val_ent_f1", value=val_ent_f1)
         return {
             "loss": outputs.loss,
-            "char_label_ids": flatlist_of_char_label_ids,
             "char_pred_ids": flatlist_of_char_pred_ids,
+            "char_label_ids": flatlist_of_char_label_ids,
         }
+
+    def validation_epoch_end(self, outputs: List[Dict[str, torch.Tensor | List[int]]]) -> None:
+        char_pred_ids: List[int] = [x for output in outputs for x in output["char_pred_ids"]]
+        char_label_ids: List[int] = [x for output in outputs for x in output["char_label_ids"]]
+        val_chr_f1_total = klue_ner_char_macro_f1(preds=char_pred_ids, labels=char_label_ids, label_list=self._labels)
+        val_ent_f1_total = klue_ner_entity_macro_f1(preds=char_pred_ids, labels=char_label_ids, label_list=self._labels)
+        self.log(prog_bar=True, logger=True, on_epoch=True, name="val_chr_f1_total", value=val_chr_f1_total)
+        self.log(prog_bar=True, logger=True, on_epoch=True, name="val_ent_f1_total", value=val_ent_f1_total)
 
     def test_step(self, batch, batch_idx):
         outputs: TokenClassifierOutput = self.model(**batch)
@@ -170,14 +181,3 @@ class NERTask(LightningModule):
         self.log(prog_bar=False, logger=True, on_epoch=True, name="test_loss", value=outputs.loss)
         self.log(prog_bar=False, logger=True, on_epoch=True, name="test_acc", value=acc)
         return {"test_loss": outputs.loss, "test_acc": acc}
-
-    def validation_epoch_end(self, outputs: List[Dict[str, torch.Tensor | List[int]]]) -> None:
-        print()
-        print(f"[validation_epoch_end]")
-        char_label_ids: List[int] = [x for output in outputs for x in output["char_label_ids"]]
-        char_pred_ids: List[int] = [x for output in outputs for x in output["char_pred_ids"]]
-
-        char_macro_f1 = klue_ner_char_macro_f1(char_label_ids, char_pred_ids, self._labels)
-        entity_macro_f1 = klue_ner_entity_macro_f1(char_label_ids, char_pred_ids, self._labels)
-        self.log(prog_bar=True, logger=True, on_epoch=True, name="val_char_f1", value=char_macro_f1)
-        self.log(prog_bar=True, logger=True, on_epoch=True, name="val_entity_f1", value=entity_macro_f1)

@@ -106,8 +106,8 @@ class NERCorpus:
                             ner_tags.append(x.label)
             b_tags = [f"B-{ner_tag}" for ner_tag in ner_tags]
             i_tags = [f"I-{ner_tag}" for ner_tag in ner_tags]
-            # labels = ["O"] + b_tags + i_tags  # TODO: Opt1: No special label
-            labels = [NER_CLS_TOKEN, NER_SEP_TOKEN, NER_PAD_TOKEN, NER_MASK_TOKEN, "O"] + b_tags + i_tags  # TODO: Opt2: Use special labels
+            labels = ["O"] + b_tags + i_tags  # TODO: Opt1: No special label
+            # labels = [NER_CLS_TOKEN, NER_SEP_TOKEN, NER_PAD_TOKEN, NER_MASK_TOKEN, "O"] + b_tags + i_tags  # TODO: Opt2: Use special labels
             logger.info(f"Saved {len(labels)} labels to {label_map_path}")
             with label_map_path.open("w", encoding="utf-8") as f:
                 f.writelines([x + "\n" for x in labels])
@@ -178,8 +178,8 @@ def _convert_to_encoded_examples(
                     token_sstr = raw_example.origin[token_span.start:token_span.end]
                     print('\t'.join(map(str, [token_id, token_repr, token_span, token_sstr, token_label])))
             else:
-                # label_list.append('O')  # TODO: Opt1: No special label
-                label_list.append(token_repr)  # TODO: Opt2: Use special labels
+                label_list.append('O')  # TODO: Opt1: No special label
+                # label_list.append(token_repr)  # TODO: Opt2: Use special labels
                 if args.env.off_tracing:
                     print('\t'.join(map(str, [token_id, token_repr, token_span])))
         label_ids: List[int] = [label_to_id[label] for label in label_list]
