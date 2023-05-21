@@ -101,11 +101,6 @@ class NERTask(LightningModule):
         self.log(prog_bar=True, logger=False, on_epoch=True, name="val_loss", value=outputs.loss)
         self.log(prog_bar=True, logger=False, on_epoch=True, name="val_acc", value=acc)
 
-        if self.args.env.on_debugging:
-            out_hr()
-            print(f"  -                     preds = {preds.shape} | {preds.tolist()}")
-            print(f"  -                       acc = {acc.shape} | {acc}")
-
         dict_of_token_pred_ids: Dict[int, List[int]] = {}
         dict_of_char_label_ids: Dict[int, List[int]] = {}
         dict_of_char_pred_ids: Dict[int, List[int]] = {}
@@ -155,11 +150,6 @@ class NERTask(LightningModule):
             print(f"  - flatlist_of_char_label_ids = ({len(flatlist_of_char_label_ids)}) {' '.join(map(str, map(current_repr, flatlist_of_char_label_ids)))}")
             print(f"  - flatlist_of_char_pred_ids  = ({len(flatlist_of_char_pred_ids)}) {' '.join(map(str, map(current_repr, flatlist_of_char_pred_ids)))}")
         assert len(flatlist_of_char_label_ids) == len(flatlist_of_char_pred_ids)
-
-        val_chr_f1 = klue_ner_char_macro_f1(preds=flatlist_of_char_pred_ids, labels=flatlist_of_char_label_ids, label_list=self._labels)
-        val_ent_f1 = klue_ner_entity_macro_f1(preds=flatlist_of_char_pred_ids, labels=flatlist_of_char_label_ids, label_list=self._labels)
-        self.log(prog_bar=True, logger=True, on_epoch=True, name="val_chr_f1", value=val_chr_f1)
-        self.log(prog_bar=True, logger=True, on_epoch=True, name="val_ent_f1", value=val_ent_f1)
         return {
             "loss": outputs.loss,
             "char_pred_ids": flatlist_of_char_pred_ids,
@@ -169,10 +159,10 @@ class NERTask(LightningModule):
     def validation_epoch_end(self, outputs: List[Dict[str, torch.Tensor | List[int]]]) -> None:
         char_pred_ids: List[int] = [x for output in outputs for x in output["char_pred_ids"]]
         char_label_ids: List[int] = [x for output in outputs for x in output["char_label_ids"]]
-        val_chr_f1_total = klue_ner_char_macro_f1(preds=char_pred_ids, labels=char_label_ids, label_list=self._labels)
-        val_ent_f1_total = klue_ner_entity_macro_f1(preds=char_pred_ids, labels=char_label_ids, label_list=self._labels)
-        self.log(prog_bar=True, logger=True, on_epoch=True, name="val_chr_f1_total", value=val_chr_f1_total)
-        self.log(prog_bar=True, logger=True, on_epoch=True, name="val_ent_f1_total", value=val_ent_f1_total)
+        val_chr_f1 = klue_ner_char_macro_f1(preds=char_pred_ids, labels=char_label_ids, label_list=self._labels)
+        val_ent_f1 = klue_ner_entity_macro_f1(preds=char_pred_ids, labels=char_label_ids, label_list=self._labels)
+        self.log(prog_bar=True, logger=True, on_epoch=True, name="val_chr_f1", value=val_chr_f1)
+        self.log(prog_bar=True, logger=True, on_epoch=True, name="val_ent_f1", value=val_ent_f1)
 
     def test_step(self, batch, batch_idx):
         outputs: TokenClassifierOutput = self.model(**batch)
