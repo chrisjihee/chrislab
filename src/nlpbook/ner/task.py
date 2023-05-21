@@ -72,7 +72,8 @@ class NERTask(LightningModule):
         outputs: TokenClassifierOutput = self.model(**batch)
         labels: torch.Tensor = batch["labels"]
         preds: torch.Tensor = outputs.logits.argmax(dim=-1)
-        acc: torch.Tensor = accuracy(preds, labels, ignore_index=NER_PAD_ID)
+        acc: torch.Tensor = accuracy(preds, labels, ignore_index=0)  # TODO: Opt1: No special label
+        # acc: torch.Tensor = accuracy(preds, labels, ignore_index=NER_PAD_ID)  # TODO: Opt2: Use special labels
         self.train_loss = outputs.loss
         self.train_acc = acc
         return {"loss": outputs.loss}
