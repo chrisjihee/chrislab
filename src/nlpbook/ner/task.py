@@ -1,3 +1,4 @@
+from klue_baseline.metrics.functional import klue_ner_entity_macro_f1, klue_ner_char_macro_f1
 from typing import List, Dict, Tuple
 
 import pytorch_lightning as pl
@@ -86,7 +87,7 @@ class NERTask(LightningModule):
                 if isinstance(batch[key], torch.Tensor):
                     print(f"  - batch[{key:14s}]     = {batch[key].shape} | {batch[key].tolist()}")
                 else:
-                    print(f"  - batch[{key:14s}]     = ({len(batch[key])}) {batch[key]}")
+                    print(f"  - batch[{key:14s}]     = ({len(batch[key])}) | {batch[key]}")
         example_ids: List[int] = batch.pop("example_ids")
         outputs: TokenClassifierOutput = self.model(**batch)
         labels: torch.Tensor = batch["labels"]
@@ -171,27 +172,12 @@ class NERTask(LightningModule):
         return {"test_loss": outputs.loss, "test_acc": acc}
 
     def validation_epoch_end(self, outputs: List[Dict[str, torch.Tensor | List[int]]]) -> None:
-        """When validation step ends, either token- or character-level predicted
-        labels are aligned with the original character-level labels and then
-        evaluated.
-        """
         print()
         print(f"[validation_epoch_end]")
         char_label_ids: List[int] = [x for output in outputs for x in output["char_label_ids"]]
         char_pred_ids: List[int] = [x for output in outputs for x in output["char_pred_ids"]]
-        if self.args.env.on_debugging:
-            print(f"  - outputs        = {len(outputs)} * {list(outputs[0].keys())}")
-            current_repr = lambda x: f"{x:02d}"
-            print(f"  - char_label_ids = ({len(char_label_ids)}) {' '.join(map(str, map(current_repr, char_label_ids)))}")
-            print(f"  - char_pred_ids  = ({len(char_pred_ids)}) {' '.join(map(str, map(current_repr, char_pred_ids)))}")
-        exit(1)
 
-        self._set_metrics_device()
-
-        for k, metric in self.metrics.items():
-            metric(list_of_character_preds, list_of_originals, label_list)
-            self.log(f"{data_type}/{k}", metric, on_step=False, on_epoch=True, logger=True)
-
-    def _convert_outputs_to_preds(self, outputs: List[Dict[str, torch.Tensor]]) -> torch.Tensor:
-        logits = torch.cat([output["logits"] for output in outputs], dim=0)
-        return torch.argmax(logits, axis=2)
+        char_macro_f1 = klue_ner_char_macro_f1(char_label_ids, char_pred_ids, self._labels)
+        entity_macro_f1 = klue_ner_entity_macro_f1(char_label_ids, char_pred_ids, self._labels)
+        self.log(prog_bar=True, logger=True, on_epoch=True, name="val_char_f1", value=char_macro_f1)
+        self.log(prog_bar=True, logger=True, on_epoch=True, name="val_entity_f1", value=entity_macro_f1)
