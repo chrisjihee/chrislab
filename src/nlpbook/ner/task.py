@@ -6,9 +6,10 @@ from pytorch_lightning import LightningModule
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import ExponentialLR
 
+from chrisbase.io import out_hr
 from nlpbook.arguments import TrainerArguments, TesterArguments
 from nlpbook.metrics import accuracy
-from nlpbook.ner import NER_PAD_ID, NERDataset
+from nlpbook.ner import NER_PAD_ID, NERDataset, NERRawExample, NEREncodedExample
 from transformers import PreTrainedModel
 from transformers.modeling_outputs import TokenClassifierOutput
 
@@ -58,6 +59,11 @@ class NERTask(LightningModule):
     def validation_step(self, batch: Dict[str, torch.Tensor | List[int]], batch_idx: int) -> Dict[str, torch.Tensor]:
         print()
         print(f"[validation_step] batch_idx: {batch_idx}, global_step: {self._global_step()}")
+        for key in batch.keys():
+            if isinstance(batch[key], torch.Tensor):
+                print(f"  - batch[{key:14s}]     = {batch[key].shape} | {batch[key].tolist()}")
+            else:
+                print(f"  - batch[{key:14s}]     = {batch[key]}")
         example_ids: List[int] = batch.pop("example_ids")
         outputs: TokenClassifierOutput = self.model(**batch)
         labels: torch.Tensor = batch["labels"]
@@ -70,26 +76,22 @@ class NERTask(LightningModule):
         self.log(prog_bar=True, logger=False, on_epoch=True, name="val_loss", value=outputs.loss)
         self.log(prog_bar=True, logger=False, on_epoch=True, name="val_acc", value=acc)
 
-        # for key in batch.keys():
-        #     print(f"- batch[{key:14s}]: {batch[key].shape} | {batch[key].tolist()}")
-        # print(f"-                 preds: {preds.shape} | {preds.tolist()}")
-        # print(f"-                   acc: {acc.shape} | {acc}")
-        # for i in example_ids:
-        #     features: NERFeatures = self.val_dataset[i]
-        #     example_id = features.example_id
-        #     example = features.example
-        #     print(f"  example_id: {example_id}")
-        #     print(f"  example: {example}")
-        #     inputs2 = features.inputs
-        #     labels2 = features.label_ids
-        #     print(f"  inputs2: {inputs2}")
-        #     print(f"  labels2: {labels2}")
-        #     print()
+        out_hr()
+        print(f"  -                     preds = {preds.shape} | {preds.tolist()}")
+        print(f"  -                       acc = {acc.shape} | {acc}")
+
+        out_hr()
+        encoded_examples: List[NEREncodedExample] = [self.val_dataset[i] for i in example_ids]
+        for encoded_example in encoded_examples:
+            print(f"  - encoded_example.idx       = {encoded_example.idx}")
+            print(f"  - encoded_example.raw       = {encoded_example.raw}")
+            print(f"  - encoded_example.encoded   = {encoded_example.encoded}")
+            print(f"  - encoded_example.label_ids = {encoded_example.label_ids}")
+            print()
+        out_hr()
         return {
             "loss": outputs.loss, "logits": outputs.logits,
-            "preds": preds, "labels": labels, "example_ids": example_ids,
-            "inputs": [self.val_dataset[i].encoded for i in example_ids],
-            "examples": [self.val_dataset[i].raw for i in example_ids],
+            "preds": preds, "labels": labels, "examples": encoded_examples,
         }
 
     def test_step(self, batch, batch_idx):
@@ -102,7 +104,7 @@ class NERTask(LightningModule):
         return {"test_loss": outputs.loss, "test_acc": acc}
 
     def validation_epoch_end(
-            self, outputs: List[Dict[str, torch.Tensor]], data_type: str = "valid", write_predictions: bool = False
+            self, outputs: List[Dict[str, torch.Tensor | List[NERRawExample]]], data_type: str = "valid", write_predictions: bool = False
     ) -> None:
         """When validation step ends, either token- or character-level predicted
         labels are aligned with the original character-level labels and then
@@ -110,18 +112,22 @@ class NERTask(LightningModule):
         """
         print()
         print(f"[validation_epoch_end]")
-        print(f"= outputs: {len(outputs)} * {outputs[0].keys()}")
-        preds = torch.cat([output["preds"] for output in outputs], dim=0)
-        labels = torch.cat([output["labels"] for output in outputs], dim=0)
-        examples = [x for output in outputs for x in output["examples"]]
-        example_ids = [x for output in outputs for x in output["example_ids"]]
-        print(f"  - preds({preds.shape}): {preds.tolist()}")
-        print(f"  - labels({labels.shape}): {labels.tolist()}")
-        print(f"  - examples({len(examples)}):")
-        for example_id, example in zip(example_ids, examples):
-            print(f"    - example({example_id}): {example}")
+        print(f"  = outputs: {len(outputs)} * {outputs[0].keys()}")
+        examples: List[NEREncodedExample] = [x for output in outputs for x in output["examples"]]
+        labels: torch.Tensor = torch.cat([output["labels"] for output in outputs], dim=0)
+        preds: torch.Tensor = torch.cat([output["preds"] for output in outputs], dim=0)
 
-        print("-" * 80)
+        print(f"  - labels({labels.shape}): {labels.tolist()}")
+        print(f"  - preds ({preds.shape}): {preds.tolist()}")
+        print(f"  - examples({len(examples)}):")
+        for example in examples:
+            example: NEREncodedExample = example
+            out_hr('-')
+            print(f"    - example[{example.idx}].raw.origin         = {example.raw.origin}")
+            print(f"    - example[{example.idx}].raw.character_list = {example.raw.character_list}")
+            print(f"    - example[{example.idx}].encoded.tokens()   = {example.encoded.tokens()}")
+            print(f"    - example[{example.idx}].label_ids          = {example.label_ids}")
+        out_hr('-')
         exit(1)
 
         original_examples = self.hparams.data[data_type]["original_examples"]

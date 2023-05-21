@@ -11,7 +11,7 @@ from dataclasses_json import DataClassJsonMixin
 from filelock import FileLock
 from torch.utils.data.dataset import Dataset
 
-from chrisbase.io import make_parent_dir, files, merge_dicts
+from chrisbase.io import make_parent_dir, files, merge_dicts, out_hr
 from nlpbook.arguments import TesterArguments
 from transformers import PreTrainedTokenizerFast, BatchEncoding, CharSpan
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
@@ -41,7 +41,7 @@ class EntityInText(DataClassJsonMixin):
         s = s[:m.start()] + m.group(1) + s[m.end():]
         return e, s
 
-    def to_offset_lable_dict(self) -> dict[int, str]:
+    def to_offset_lable_dict(self) -> Dict[int, str]:
         offset_list = [(self.offset[0], f"B-{self.label}")]
         for i in range(self.offset[0] + 1, self.offset[1]):
             offset_list.append((i, f"I-{self.label}"))
@@ -51,8 +51,11 @@ class EntityInText(DataClassJsonMixin):
 @dataclass
 class NERRawExample(DataClassJsonMixin):
     origin: str = field(default_factory=str)
-    entity_list: list[EntityInText] = field(default_factory=list)
-    character_list: list[tuple[str, str]] = field(default_factory=list)
+    entity_list: List[EntityInText] = field(default_factory=list)
+    character_list: List[tuple[str, str]] = field(default_factory=list)
+
+    def get_offset_label_dict(self):
+        return {i: y for i, (_, y) in enumerate(self.character_list)}
 
 
 @dataclass
@@ -117,7 +120,7 @@ class NERCorpus:
         return len(self.get_labels())
 
 
-def _decide_span_label(span: CharSpan, offset_to_label: dict[int, str]):
+def _decide_span_label(span: CharSpan, offset_to_label: Dict[int, str]):
     for x in [offset_to_label[i] for i in range(span.start, span.end)]:
         if x.startswith("B-") or x.startswith("I-"):
             return x
@@ -139,53 +142,65 @@ def _convert_to_encoded_examples(
     """
     label_to_id = {label: i for i, label in enumerate(label_list)}
     id_to_label = {i: label for i, label in enumerate(label_list)}
-    logger.info(f"label_to_id = {label_to_id}")
-    logger.info(f"id_to_label = {id_to_label}")
+    if args.env.debugging:
+        print(f"label_to_id = {label_to_id}")
+        print(f"id_to_label = {id_to_label}")
 
     encoded_examples: List[NEREncodedExample] = []
     for idx, raw_example in enumerate(raw_examples):
         raw_example: NERRawExample = raw_example
-        offset_to_label: dict[int, str] = {i: y for i, (_, y) in enumerate(raw_example.character_list)}
+        offset_to_label: Dict[int, str] = raw_example.get_offset_label_dict()
+        if args.env.tracing:
+            out_hr()
+            print(f"offset_to_label = {offset_to_label}")
         encoded: BatchEncoding = tokenizer.encode_plus(raw_example.origin,
                                                        max_length=args.model.max_seq_length,
                                                        truncation=TruncationStrategy.LONGEST_FIRST,
                                                        padding=PaddingStrategy.MAX_LENGTH)
         encoded_tokens: List[str] = encoded.tokens()
-        # out_hr()
-        # print(f"offset_to_label        = {offset_to_label}")
-        # out_hr()
-        # print(f"encoded_tokens         = {encoded_tokens}")
-        # out_hr()
-        # for key in encoded.keys():
-        #     print(f"inputs[{key:14s}] = {encoded[key]}")
-        # out_hr()
+        if args.env.debugging:
+            out_hr()
+            print(f"encoded.tokens()           = {encoded.tokens()}")
+            for key in encoded.keys():
+                print(f"encoded[{key:14s}]    = {encoded[key]}")
 
-        label_list: list[str] = []
+        if args.env.tracing:
+            out_hr()
+        label_list: List[str] = []
         for token_id in range(args.model.max_seq_length):
             token_repr: str = encoded_tokens[token_id]
             token_span: CharSpan = encoded.token_to_chars(token_id)
             if token_span:
                 token_label = _decide_span_label(token_span, offset_to_label)
                 label_list.append(token_label)
-                # token_sstr = raw_example.origin[token_span.start:token_span.end]
-                # print('\t'.join(map(str, [token_id, token_repr, token_span, token_sstr, token_label])))
+                if args.env.tracing:
+                    token_sstr = raw_example.origin[token_span.start:token_span.end]
+                    print('\t'.join(map(str, [token_id, token_repr, token_span, token_sstr, token_label])))
             else:
                 label_list.append(token_repr)
-                # print('\t'.join(map(str, [token_id, token_repr, token_span])))
-        label_ids: list[int] = [label_to_id[label] for label in label_list]
-        encoded_examples.append(NEREncodedExample(encoded=encoded, label_ids=label_ids, raw=raw_example, idx=idx))
-        # print(f"label_list             = {label_list}")
-        # out_hr()
-        # print(f"label_ids              = {label_ids}")
-        # print(f"encoded_examples       = {encoded_examples[-1]}")
+                if args.env.tracing:
+                    print('\t'.join(map(str, [token_id, token_repr, token_span])))
+        label_ids: List[int] = [label_to_id[label] for label in label_list]
+        encoded_example = NEREncodedExample(idx=idx, raw=raw_example, encoded=encoded, label_ids=label_ids)
+        encoded_examples.append(encoded_example)
+        if args.env.debugging:
+            out_hr()
+            print(f"label_list                = {label_list}")
+            print(f"label_ids                 = {label_ids}")
+            out_hr()
+            print(f"encoded_example.idx       = {encoded_example.idx}")
+            print(f"encoded_example.raw       = {encoded_example.raw}")
+            print(f"encoded_example.encoded   = {encoded_example.encoded}")
+            print(f"encoded_example.label_ids = {encoded_example.label_ids}")
 
-    for idx, raw_example in enumerate(raw_examples[:num_show_example]):
-        logger.info("  === [Example %d] ===" % (idx + 1))
-        logger.info("  = sentence : %s" % encoded_examples[idx].raw.origin)
-        logger.info("  = entities : %s" % encoded_examples[idx].raw.entity_list)
-        logger.info("  = tokens   : %s" % (" ".join(encoded_examples[idx].encoded.tokens())))
-        logger.info("  = labels   : %s" % (" ".join([id_to_label[x] for x in encoded_examples[idx].label_ids])))
-        logger.info("  = encoded  : %s" % encoded_examples[idx])
+    if args.env.debugging:
+        out_hr()
+    for encoded_example in encoded_examples[:num_show_example]:
+        logger.info("  === [Example %d] ===" % encoded_example.idx)
+        logger.info("  = sentence   : %s" % encoded_example.raw.origin)
+        logger.info("  = characters : %s" % " | ".join(f"{x}/{y}" for x, y in encoded_example.raw.character_list))
+        logger.info("  = tokens     : %s" % " ".join(encoded_example.encoded.tokens()))
+        logger.info("  = labels     : %s" % " ".join([id_to_label[x] for x in encoded_example.label_ids]))
         logger.info("  === ")
 
     return encoded_examples
@@ -216,7 +231,8 @@ class NERDataset(Dataset):
                 assert text_data_path.exists() and text_data_path.is_file(), f"No data_text_path: {text_data_path}"
                 logger.info(f"Creating features from dataset file at {text_data_path}")
                 examples: List[NERRawExample] = self.corpus.read_raw_examples(text_data_path)
-                self.features: List[NEREncodedExample] = _convert_to_encoded_examples(examples, tokenizer, args, label_list=self.corpus.get_labels())
+                self.features: List[NEREncodedExample] = _convert_to_encoded_examples(examples, tokenizer, args,
+                                                                                      label_list=self.corpus.get_labels())
                 start = time.time()
                 torch.save(self.features, cache_data_path)
                 logger.info(f"Saving features into cached file at {cache_data_path} [took {time.time() - start:.3f} s]")
@@ -232,7 +248,7 @@ class NERDataset(Dataset):
 
 
 def parse_tagged(origin: str, tagged: str, debug: bool = False) -> Optional[NERRawExample]:
-    entity_list: list[EntityInText] = []
+    entity_list: List[EntityInText] = []
     if debug:
         print(f"* origin: {origin}")
         print(f"  tagged: {tagged}")
