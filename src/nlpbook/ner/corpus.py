@@ -235,9 +235,10 @@ class NERDataset(Dataset):
                 examples: List[NERRawExample] = self.corpus.read_raw_examples(text_data_path)
                 self.features: List[NEREncodedExample] = _convert_to_encoded_examples(examples, tokenizer, args,
                                                                                       label_list=self.corpus.get_labels())
-                start = time.time()
-                torch.save(self.features, cache_data_path)
-                logger.info(f"Saving features into cached file at {cache_data_path} [took {time.time() - start:.3f} s]")
+                if args.data.caching:
+                    start = time.time()
+                    torch.save(self.features, cache_data_path)
+                    logger.info(f"Saving features into cached file at {cache_data_path} [took {time.time() - start:.3f} s]")
 
     def __len__(self) -> int:
         return len(self.features)
