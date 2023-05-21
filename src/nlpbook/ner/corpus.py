@@ -93,7 +93,7 @@ class NERCorpus:
         logger.info(f"Loaded {len(examples)} examples from {data_path}")
         return examples
 
-    def get_labels(self):
+    def get_labels(self) -> List[str]:
         label_map_path = make_parent_dir(self.args.output.dir_path / "label_map.txt")
         if not label_map_path.exists():
             ner_tags = []
@@ -106,7 +106,8 @@ class NERCorpus:
                             ner_tags.append(x.label)
             b_tags = [f"B-{ner_tag}" for ner_tag in ner_tags]
             i_tags = [f"I-{ner_tag}" for ner_tag in ner_tags]
-            labels = [NER_CLS_TOKEN, NER_SEP_TOKEN, NER_PAD_TOKEN, NER_MASK_TOKEN, "O"] + b_tags + i_tags
+            # labels = ["O"] + b_tags + i_tags  # TODO: Opt1: No special label
+            labels = [NER_CLS_TOKEN, NER_SEP_TOKEN, NER_PAD_TOKEN, NER_MASK_TOKEN, "O"] + b_tags + i_tags  # TODO: Opt2: Use special labels
             logger.info(f"Saved {len(labels)} labels to {label_map_path}")
             with label_map_path.open("w", encoding="utf-8") as f:
                 f.writelines([x + "\n" for x in labels])
@@ -140,9 +141,9 @@ def _convert_to_encoded_examples(
             - False (Default, BERT/XLM pattern): [CLS] + A + [SEP] + B + [SEP]
             - True (XLNet/GPT pattern): A + [SEP] + B + [SEP] + [CLS]
     """
-    label_to_id = {label: i for i, label in enumerate(label_list)}
-    id_to_label = {i: label for i, label in enumerate(label_list)}
-    if args.env.debugging:
+    label_to_id: Dict[str, int] = {label: i for i, label in enumerate(label_list)}
+    id_to_label: Dict[int, str] = {i: label for i, label in enumerate(label_list)}
+    if args.env.off_debugging:
         print(f"label_to_id = {label_to_id}")
         print(f"id_to_label = {id_to_label}")
 
@@ -150,7 +151,7 @@ def _convert_to_encoded_examples(
     for idx, raw_example in enumerate(raw_examples):
         raw_example: NERRawExample = raw_example
         offset_to_label: Dict[int, str] = raw_example.get_offset_label_dict()
-        if args.env.tracing:
+        if args.env.off_tracing:
             out_hr()
             print(f"offset_to_label = {offset_to_label}")
         encoded: BatchEncoding = tokenizer.encode_plus(raw_example.origin,
@@ -158,13 +159,13 @@ def _convert_to_encoded_examples(
                                                        truncation=TruncationStrategy.LONGEST_FIRST,
                                                        padding=PaddingStrategy.MAX_LENGTH)
         encoded_tokens: List[str] = encoded.tokens()
-        if args.env.debugging:
+        if args.env.off_debugging:
             out_hr()
             print(f"encoded.tokens()           = {encoded.tokens()}")
             for key in encoded.keys():
                 print(f"encoded[{key:14s}]    = {encoded[key]}")
 
-        if args.env.tracing:
+        if args.env.off_tracing:
             out_hr()
         label_list: List[str] = []
         for token_id in range(args.model.max_seq_length):
@@ -173,17 +174,18 @@ def _convert_to_encoded_examples(
             if token_span:
                 token_label = _decide_span_label(token_span, offset_to_label)
                 label_list.append(token_label)
-                if args.env.tracing:
+                if args.env.off_tracing:
                     token_sstr = raw_example.origin[token_span.start:token_span.end]
                     print('\t'.join(map(str, [token_id, token_repr, token_span, token_sstr, token_label])))
             else:
-                label_list.append(token_repr)
-                if args.env.tracing:
+                # label_list.append('O')  # TODO: Opt1: No special label
+                label_list.append(token_repr)  # TODO: Opt2: Use special labels
+                if args.env.off_tracing:
                     print('\t'.join(map(str, [token_id, token_repr, token_span])))
         label_ids: List[int] = [label_to_id[label] for label in label_list]
         encoded_example = NEREncodedExample(idx=idx, raw=raw_example, encoded=encoded, label_ids=label_ids)
         encoded_examples.append(encoded_example)
-        if args.env.debugging:
+        if args.env.off_debugging:
             out_hr()
             print(f"label_list                = {label_list}")
             print(f"label_ids                 = {label_ids}")
@@ -193,7 +195,7 @@ def _convert_to_encoded_examples(
             print(f"encoded_example.encoded   = {encoded_example.encoded}")
             print(f"encoded_example.label_ids = {encoded_example.label_ids}")
 
-    if args.env.debugging:
+    if args.env.off_debugging:
         out_hr()
     for encoded_example in encoded_examples[:num_show_example]:
         logger.info("  === [Example %d] ===" % encoded_example.idx)
@@ -237,13 +239,13 @@ class NERDataset(Dataset):
                 torch.save(self.features, cache_data_path)
                 logger.info(f"Saving features into cached file at {cache_data_path} [took {time.time() - start:.3f} s]")
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.features)
 
     def __getitem__(self, i) -> NEREncodedExample:
         return self.features[i]
 
-    def get_labels(self):
+    def get_labels(self) -> List[str]:
         return self.corpus.get_labels()
 
 

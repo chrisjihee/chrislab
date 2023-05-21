@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 import pytorch_lightning as pl
 import torch
@@ -7,28 +7,50 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import ExponentialLR
 
 from chrisbase.io import out_hr
-from nlpbook.arguments import TrainerArguments, TesterArguments
+from nlpbook.arguments import TesterArguments
 from nlpbook.metrics import accuracy
-from nlpbook.ner import NER_PAD_ID, NERDataset, NERRawExample, NEREncodedExample
-from transformers import PreTrainedModel
+from nlpbook.ner import NER_PAD_ID, NERDataset, NEREncodedExample
+from transformers import PreTrainedModel, CharSpan
 from transformers.modeling_outputs import TokenClassifierOutput
+
+
+def label_to_char_labels(label, num_char):
+    for i in range(num_char):
+        if i > 0 and ("-" in label):
+            yield "I-" + label.split("-", maxsplit=1)[-1]
+        else:
+            yield label
 
 
 class NERTask(LightningModule):
     def __init__(self, model: PreTrainedModel,
-                 args: TrainerArguments | TesterArguments,
+                 args: TesterArguments,
                  trainer: pl.Trainer,
                  val_dataset: NERDataset,
                  total_steps: int,
                  ):
         super().__init__()
-        self.model = model
-        self.args = args
-        self.trainer = trainer
-        self.val_dataset = val_dataset
-        self.total_steps = total_steps
-        self.train_loss = -1.0
-        self.train_acc = -1.0
+        self.model: PreTrainedModel = model
+        self.args: TesterArguments = args
+        self.trainer: pl.Trainer = trainer
+
+        self.val_dataset: NERDataset = val_dataset
+        self._labels: List[str] = self.val_dataset.get_labels()
+        self._label_to_id: Dict[str, int] = {label: i for i, label in enumerate(self._labels)}
+        self._id_to_label: Dict[int, str] = {i: label for i, label in enumerate(self._labels)}
+
+        self.total_steps: int = total_steps
+        self.train_loss: float = -1.0
+        self.train_acc: float = -1.0
+
+    def get_labels(self):
+        return self._labels
+
+    def label_to_id(self, x):
+        return self._label_to_id[x]
+
+    def id_to_label(self, x):
+        return self._id_to_label[x]
 
     def _global_step(self):
         return self.trainer.lightning_module.global_step
@@ -59,16 +81,19 @@ class NERTask(LightningModule):
     def validation_step(self, batch: Dict[str, torch.Tensor | List[int]], batch_idx: int) -> Dict[str, torch.Tensor]:
         print()
         print(f"[validation_step] batch_idx: {batch_idx}, global_step: {self._global_step()}")
-        for key in batch.keys():
-            if isinstance(batch[key], torch.Tensor):
-                print(f"  - batch[{key:14s}]     = {batch[key].shape} | {batch[key].tolist()}")
-            else:
-                print(f"  - batch[{key:14s}]     = {batch[key]}")
+        if self.args.env.on_debugging:
+            for key in batch.keys():
+                if isinstance(batch[key], torch.Tensor):
+                    print(f"  - batch[{key:14s}]     = {batch[key].shape} | {batch[key].tolist()}")
+                else:
+                    print(f"  - batch[{key:14s}]     = ({len(batch[key])}) {batch[key]}")
         example_ids: List[int] = batch.pop("example_ids")
         outputs: TokenClassifierOutput = self.model(**batch)
         labels: torch.Tensor = batch["labels"]
         preds: torch.Tensor = outputs.logits.argmax(dim=-1)
-        acc: torch.Tensor = accuracy(preds, labels, ignore_index=NER_PAD_ID)
+        acc: torch.Tensor = accuracy(preds, labels, ignore_index=NER_PAD_ID)  # TODO: Opt1: No special label
+        # acc: torch.Tensor = accuracy(preds, labels, ignore_index=0)  # TODO: Opt2: Use special labels
+
         self.log(prog_bar=True, logger=False, on_epoch=True, name="global_step", value=self._global_step() * 1.0)
         self.log(prog_bar=True, logger=False, on_epoch=True, name="trained_rate", value=self._trained_rate())
         self.log(prog_bar=True, logger=False, on_epoch=True, name="train_loss", value=self.train_loss)
@@ -76,22 +101,64 @@ class NERTask(LightningModule):
         self.log(prog_bar=True, logger=False, on_epoch=True, name="val_loss", value=outputs.loss)
         self.log(prog_bar=True, logger=False, on_epoch=True, name="val_acc", value=acc)
 
-        out_hr()
-        print(f"  -                     preds = {preds.shape} | {preds.tolist()}")
-        print(f"  -                       acc = {acc.shape} | {acc}")
+        if self.args.env.on_debugging:
+            out_hr()
+            print(f"  -                     preds = {preds.shape} | {preds.tolist()}")
+            print(f"  -                       acc = {acc.shape} | {acc}")
 
-        out_hr()
-        encoded_examples: List[NEREncodedExample] = [self.val_dataset[i] for i in example_ids]
-        for encoded_example in encoded_examples:
-            print(f"  - encoded_example.idx       = {encoded_example.idx}")
-            print(f"  - encoded_example.raw       = {encoded_example.raw}")
-            print(f"  - encoded_example.encoded   = {encoded_example.encoded}")
-            print(f"  - encoded_example.label_ids = {encoded_example.label_ids}")
-            print()
-        out_hr()
+        dict_of_token_pred_ids: Dict[int, List[int]] = {}
+        dict_of_char_label_ids: Dict[int, List[int]] = {}
+        dict_of_char_pred_ids: Dict[int, List[int]] = {}
+        for token_pred_ids, example_id in zip(preds.tolist(), example_ids):
+            token_pred_tags: List[str] = [self.id_to_label(x) for x in token_pred_ids]
+            encoded_example: NEREncodedExample = self.val_dataset[example_id]
+            offset_to_label: Dict[int, str] = encoded_example.raw.get_offset_label_dict()
+            all_char_pair_tags: List[Tuple[str | None, str | None]] = [(None, None)] * len(encoded_example.raw.character_list)
+            for token_id in range(self.args.model.max_seq_length):
+                token_span: CharSpan = encoded_example.encoded.token_to_chars(token_id)
+                if token_span:
+                    char_pred_tags = label_to_char_labels(token_pred_tags[token_id], token_span.end - token_span.start)
+                    for offset, char_pred_tag in zip(range(token_span.start, token_span.end), char_pred_tags):
+                        all_char_pair_tags[offset] = (offset_to_label[offset], char_pred_tag)
+            valid_char_pair_tags = [(a, b) for a, b in all_char_pair_tags if a and b]
+            valid_char_label_ids = [self.label_to_id(a) for a, b in valid_char_pair_tags]
+            valid_char_pred_ids = [self.label_to_id(b) for a, b in valid_char_pair_tags]
+            dict_of_token_pred_ids[example_id] = token_pred_ids
+            dict_of_char_label_ids[example_id] = valid_char_label_ids
+            dict_of_char_pred_ids[example_id] = valid_char_pred_ids
+
+        if self.args.env.on_tracing:
+            out_hr()
+        flatlist_of_char_label_ids: List[int] = []
+        flatlist_of_char_pred_ids: List[int] = []
+        for encoded_example in [self.val_dataset[i] for i in example_ids]:
+            token_pred_ids = dict_of_token_pred_ids[encoded_example.idx]
+            char_label_ids = dict_of_char_label_ids[encoded_example.idx]
+            char_pred_ids = dict_of_char_pred_ids[encoded_example.idx]
+            flatlist_of_char_label_ids.extend(char_label_ids)
+            flatlist_of_char_pred_ids.extend(char_pred_ids)
+            if self.args.env.on_tracing:
+                print(f"  - encoded_example.idx                = {encoded_example.idx}")
+                print(f"  - encoded_example.raw.entity_list    = ({len(encoded_example.raw.entity_list)}) {encoded_example.raw.entity_list}")
+                print(f"  - encoded_example.raw.origin         = ({len(encoded_example.raw.origin)}) {encoded_example.raw.origin}")
+                print(f"  - encoded_example.raw.character_list = ({len(encoded_example.raw.character_list)}) {' | '.join(f'{x}/{y}' for x, y in encoded_example.raw.character_list)}")
+                print(f"  - encoded_example.encoded.tokens()   = ({len(encoded_example.encoded.tokens())}) {' '.join(encoded_example.encoded.tokens())}")
+                current_repr = lambda x: f"{self.id_to_label(x):5s}"
+                print(f"  - encoded_example.label_ids          = ({len(encoded_example.label_ids)}) {' '.join(map(str, map(current_repr, encoded_example.label_ids)))}")
+                print(f"  - encoded_example.token_pred_ids     = ({len(token_pred_ids)}) {' '.join(map(str, map(current_repr, token_pred_ids)))}")
+                print(f"  - encoded_example.char_label_ids     = ({len(char_label_ids)}) {' '.join(map(str, map(current_repr, char_label_ids)))}")
+                print(f"  - encoded_example.char_pred_ids      = ({len(char_pred_ids)}) {' '.join(map(str, map(current_repr, char_pred_ids)))}")
+                out_hr('-')
+
+        if self.args.env.on_debugging:
+            current_repr = lambda x: f"{x:02d}"
+            print(f"  - flatlist_of_char_label_ids         = ({len(flatlist_of_char_label_ids)}) {' '.join(map(str, map(current_repr, flatlist_of_char_label_ids)))}")
+            print(f"  - flatlist_of_char_pred_ids          = ({len(flatlist_of_char_pred_ids)}) {' '.join(map(str, map(current_repr, flatlist_of_char_pred_ids)))}")
+        assert len(flatlist_of_char_label_ids) == len(flatlist_of_char_pred_ids)
         return {
-            "loss": outputs.loss, "logits": outputs.logits,
-            "preds": preds, "labels": labels, "examples": encoded_examples,
+            "loss": outputs.loss,
+            "char_label_ids": flatlist_of_char_label_ids,
+            "char_pred_ids": flatlist_of_char_pred_ids,
         }
 
     def test_step(self, batch, batch_idx):
@@ -103,110 +170,23 @@ class NERTask(LightningModule):
         self.log(prog_bar=False, logger=True, on_epoch=True, name="test_acc", value=acc)
         return {"test_loss": outputs.loss, "test_acc": acc}
 
-    def validation_epoch_end(
-            self, outputs: List[Dict[str, torch.Tensor | List[NERRawExample]]], data_type: str = "valid", write_predictions: bool = False
-    ) -> None:
+    def validation_epoch_end(self, outputs: List[Dict[str, torch.Tensor | List[int]]]) -> None:
         """When validation step ends, either token- or character-level predicted
         labels are aligned with the original character-level labels and then
         evaluated.
         """
         print()
         print(f"[validation_epoch_end]")
-        print(f"  = outputs: {len(outputs)} * {outputs[0].keys()}")
-        examples: List[NEREncodedExample] = [x for output in outputs for x in output["examples"]]
-        labels: torch.Tensor = torch.cat([output["labels"] for output in outputs], dim=0)
-        preds: torch.Tensor = torch.cat([output["preds"] for output in outputs], dim=0)
-
-        print(f"  - labels({labels.shape}): {labels.tolist()}")
-        print(f"  - preds ({preds.shape}): {preds.tolist()}")
-        print(f"  - examples({len(examples)}):")
-        for example in examples:
-            example: NEREncodedExample = example
-            out_hr('-')
-            print(f"    - example[{example.idx}].raw.origin         = {example.raw.origin}")
-            print(f"    - example[{example.idx}].raw.character_list = {example.raw.character_list}")
-            print(f"    - example[{example.idx}].encoded.tokens()   = {example.encoded.tokens()}")
-            print(f"    - example[{example.idx}].label_ids          = {example.label_ids}")
-        out_hr('-')
+        char_label_ids: List[int] = [x for output in outputs for x in output["char_label_ids"]]
+        char_pred_ids: List[int] = [x for output in outputs for x in output["char_pred_ids"]]
+        if self.args.env.on_debugging:
+            print(f"  - outputs        = {len(outputs)} * {list(outputs[0].keys())}")
+            current_repr = lambda x: f"{x:02d}"
+            print(f"  - char_label_ids = ({len(char_label_ids)}) {' '.join(map(str, map(current_repr, char_label_ids)))}")
+            print(f"  - char_pred_ids  = ({len(char_pred_ids)}) {' '.join(map(str, map(current_repr, char_pred_ids)))}")
         exit(1)
 
-        original_examples = self.hparams.data[data_type]["original_examples"]
-        list_of_character_preds = []
-        list_of_originals = []
-        label_list = self.hparams.label_list
-
-        for i, (subword_preds, example) in enumerate(zip(list_of_subword_preds, original_examples)):
-            original_sentence = example["original_sentence"]  # 안녕 하세요 ^^
-            character_preds = [subword_preds[0].tolist()]  # [CLS]
-            character_preds_idx = 1
-            for word in original_sentence.split(" "):  # ['안녕', '하세요', '^^']
-                if character_preds_idx >= self.hparams.max_seq_length - 1:
-                    break
-                subwords = self.tokenizer.tokenize(word)  # 안녕 -> [안, ##녕] / 하세요 -> [하, ##세요] / ^^ -> [UNK]
-                if self.tokenizer.unk_token in subwords:  # 뻥튀기가 필요한 case!
-                    unk_aligned_subwords = self.tokenizer_out_aligner(
-                        word, subwords, strip_char
-                    )  # [UNK] -> [UNK, +UNK]
-                    unk_flag = False
-                    for subword in unk_aligned_subwords:
-                        if character_preds_idx >= self.hparams.max_seq_length - 1:
-                            break
-                        subword_pred = subword_preds[character_preds_idx].tolist()
-                        subword_pred_label = label_list[subword_pred]
-                        if subword == self.tokenizer.unk_token:
-                            unk_flag = True
-                            character_preds.append(subword_pred)
-                            continue
-                        elif subword == self.in_unk_token:
-                            if subword_pred_label == "O":
-                                character_preds.append(subword_pred)
-                            else:
-                                _, entity_category = subword_pred_label.split("-")
-                                character_pred_label = "I-" + entity_category
-                                character_pred = label_list.index(character_pred_label)
-                                character_preds.append(character_pred)
-                            continue
-                        else:
-                            if unk_flag:
-                                character_preds_idx += 1
-                                subword_pred = subword_preds[character_preds_idx].tolist()
-                                character_preds.append(subword_pred)
-                                unk_flag = False
-                            else:
-                                character_preds.append(subword_pred)
-                                character_preds_idx += 1  # `+UNK`가 끝나는 시점에서도 += 1 을 해줘야 다음 label로 넘어감
-                else:
-                    for subword in subwords:
-                        if character_preds_idx >= self.hparams.max_seq_length - 1:
-                            break
-                        subword = subword.replace(strip_char, "")  # xlm roberta: "▁" / others "##"
-                        subword_pred = subword_preds[character_preds_idx].tolist()
-                        subword_pred_label = label_list[subword_pred]
-                        for i in range(0, len(subword)):  # 안, 녕
-                            if i == 0:
-                                character_preds.append(subword_pred)
-                            else:
-                                if subword_pred_label == "O":
-                                    character_preds.append(subword_pred)
-                                else:
-                                    _, entity_category = subword_pred_label.split("-")
-                                    character_pred_label = "I-" + entity_category
-                                    character_pred = label_list.index(character_pred_label)
-                                    character_preds.append(character_pred)
-                        character_preds_idx += 1
-            character_preds.append(subword_preds[-1].tolist())  # [SEP] label
-            list_of_character_preds.extend(character_preds)
-            original_labels = ["O"] + example["original_clean_labels"][: len(character_preds) - 2] + ["O"]
-            originals = []
-            for label in original_labels:
-                originals.append(label_list.index(label))
-            assert len(character_preds) == len(originals)
-            list_of_originals.extend(originals)
-
         self._set_metrics_device()
-
-        if write_predictions is True:
-            self.predictions = list_of_character_preds
 
         for k, metric in self.metrics.items():
             metric(list_of_character_preds, list_of_originals, label_list)
