@@ -14,7 +14,7 @@ from chrisbase.io import JobTimer, err_hr
 from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
 from nlpbook.ner.corpus import NERCorpus, NERDataset, encoded_examples_to_batch
 from nlpbook.ner.task import NERTask
-from transformers import BertConfig, BertForTokenClassification, PreTrainedTokenizerFast, AutoTokenizer
+from transformers import BertConfig, BertForTokenClassification, PreTrainedTokenizerFast, AutoTokenizer, RobertaTokenizerFast, BertTokenizerFast
 from transformers.modeling_outputs import TokenClassifierOutput
 
 app = Typer()
@@ -35,7 +35,9 @@ def train(args_file: Path | str):
             err_hr(c='-')
 
         corpus = NERCorpus(args)
-        tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained, do_lower_case=False, use_fast=True)
+        # BertTokenizerFast | RobertaTokenizerFast | AutoTokenizer | PreTrainedTokenizerFast
+        tokenizer: PreTrainedTokenizerFast | BertTokenizerFast | RobertaTokenizerFast = \
+            AutoTokenizer.from_pretrained(args.model.pretrained, do_lower_case=False, use_fast=True)
         assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
         train_dataset = NERDataset("train", args=args, corpus=corpus, tokenizer=tokenizer)
         train_dataloader = DataLoader(train_dataset, sampler=RandomSampler(train_dataset, replacement=False),
