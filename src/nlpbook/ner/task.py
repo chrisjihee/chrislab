@@ -1,4 +1,3 @@
-from klue_baseline.metrics.functional import klue_ner_entity_macro_f1, klue_ner_char_macro_f1
 from typing import List, Dict, Tuple
 
 import pytorch_lightning as pl
@@ -8,9 +7,10 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import ExponentialLR
 
 from chrisbase.io import out_hr
+from klue_baseline.metrics.functional import klue_ner_entity_macro_f1, klue_ner_char_macro_f1
 from nlpbook.arguments import TesterArguments, TrainerArguments
 from nlpbook.metrics import accuracy
-from nlpbook.ner import NER_PAD_ID, NERDataset, NEREncodedExample
+from nlpbook.ner import NERDataset, NEREncodedExample
 from transformers import PreTrainedModel, CharSpan
 from transformers.modeling_outputs import TokenClassifierOutput
 
@@ -72,8 +72,7 @@ class NERTask(LightningModule):
         outputs: TokenClassifierOutput = self.model(**batch)
         labels: torch.Tensor = batch["labels"]
         preds: torch.Tensor = outputs.logits.argmax(dim=-1)
-        acc: torch.Tensor = accuracy(preds, labels, ignore_index=0)  # TODO: Opt1: No special label
-        # acc: torch.Tensor = accuracy(preds, labels, ignore_index=NER_PAD_ID)  # TODO: Opt2: Use special labels
+        acc: torch.Tensor = accuracy(preds, labels, ignore_index=0)
         self.train_loss = outputs.loss
         self.train_acc = acc
         return {"loss": outputs.loss}
@@ -91,8 +90,7 @@ class NERTask(LightningModule):
         outputs: TokenClassifierOutput = self.model(**batch)
         labels: torch.Tensor = batch["labels"]
         preds: torch.Tensor = outputs.logits.argmax(dim=-1)
-        acc: torch.Tensor = accuracy(preds, labels, ignore_index=0)  # TODO: Opt1: No special label
-        # acc: torch.Tensor = accuracy(preds, labels, ignore_index=NER_PAD_ID)  # TODO: Opt2: Use special labels
+        acc: torch.Tensor = accuracy(preds, labels, ignore_index=0)
 
         self.log(prog_bar=True, logger=False, on_epoch=True, name="global_step", value=self._global_step() * 1.0)
         self.log(prog_bar=True, logger=False, on_epoch=True, name="trained_rate", value=self._trained_rate())
@@ -166,9 +164,9 @@ class NERTask(LightningModule):
 
     def test_step(self, batch, batch_idx):
         outputs: TokenClassifierOutput = self.model(**batch)
-        preds = outputs.logits.argmax(dim=-1)
-        labels = batch["labels"]
-        acc = accuracy(preds, labels, ignore_index=NER_PAD_ID)
+        labels: torch.Tensor = batch["labels"]
+        preds: torch.Tensor = outputs.logits.argmax(dim=-1)
+        acc: torch.Tensor = accuracy(preds, labels, ignore_index=0)
         self.log(prog_bar=False, logger=True, on_epoch=True, name="test_loss", value=outputs.loss)
         self.log(prog_bar=False, logger=True, on_epoch=True, name="test_acc", value=acc)
         return {"test_loss": outputs.loss, "test_acc": acc}
