@@ -5,20 +5,90 @@ import pytorch_lightning as pl
 import torch
 from flask import Flask
 from torch import Tensor
-from torch.utils.data import DataLoader, RandomSampler
+from torch.utils.data import DataLoader
+from torch.utils.data import RandomSampler
 from torch.utils.data import SequentialSampler
 from typer import Typer
 
+import lightning as L
 import nlpbook
 from chrisbase.io import JobTimer, err_hr
 from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
 from nlpbook.ner.corpus import NERCorpus, NERDataset, encoded_examples_to_batch
 from nlpbook.ner.task import NERTask
-from transformers import BertConfig, BertForTokenClassification, PreTrainedTokenizerFast, AutoTokenizer, RobertaTokenizerFast, BertTokenizerFast
+from transformers import BertConfig, BertForTokenClassification, PreTrainedTokenizerFast, AutoTokenizer
 from transformers.modeling_outputs import TokenClassifierOutput
 
 app = Typer()
-logger = logging.getLogger("nlpbook")
+logger = logging.getLogger("chrislab")
+
+
+def new_set_logger(level=logging.INFO):
+    stream_handler = logging.StreamHandler()
+    formatter = logging.Formatter(fmt="%(levelname)s\t%(name)s\t%(message)s")
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(stream_handler)
+    logger.setLevel(level)
+
+
+@app.command()
+def new_train(args_file: Path | str):
+    args_file = Path(args_file)
+    assert args_file.exists(), f"No args_file: {args_file}"
+    args: TrainerArguments = TrainerArguments.from_json(args_file.read_text()).show()
+    new_set_logger()
+    L.seed_everything(args.learning.seed)
+
+    with JobTimer(f"chrialab.nlpbook.ner new_train {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
+        # Data
+        tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained, use_fast=True)
+        assert isinstance(tokenizer, PreTrainedTokenizerFast), f"Our code support only PreTrainedTokenizerFast, but used {type(tokenizer)}"
+        corpus = NERCorpus(args)
+        train_dataset = NERDataset("train", args=args, corpus=corpus, tokenizer=tokenizer)
+        train_dataloader = DataLoader(train_dataset, sampler=RandomSampler(train_dataset, replacement=False),
+                                      num_workers=args.hardware.cpu_workers,
+                                      batch_size=args.hardware.batch_size,
+                                      collate_fn=encoded_examples_to_batch)
+        logger.info(f"Created train_dataset providing {len(train_dataset)} examples")
+        logger.info(f"Created train_dataloader loading {len(train_dataloader)} batches")
+        err_hr(c='-')
+        valid_dataset = NERDataset("valid", args=args, corpus=corpus, tokenizer=tokenizer)
+        valid_dataloader = DataLoader(valid_dataset, sampler=SequentialSampler(valid_dataset),
+                                      num_workers=args.hardware.cpu_workers,
+                                      batch_size=args.hardware.batch_size,
+                                      collate_fn=encoded_examples_to_batch,
+                                      drop_last=False)
+        logger.info(f"Created valid_dataset providing {len(valid_dataset)} examples")
+        logger.info(f"Created valid_dataloader loading {len(valid_dataloader)} batches")
+        err_hr(c='-')
+
+        # Model
+        pretrained_model_config = BertConfig.from_pretrained(
+            args.model.pretrained,
+            num_labels=corpus.num_labels
+        )
+        model = BertForTokenClassification.from_pretrained(
+            args.model.pretrained,
+            config=pretrained_model_config
+        )
+        err_hr(c='-')
+
+        # Optimizer
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning.speed)
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
+
+        # Fabric
+        with RuntimeChecking(nlpbook.setup_csv_out(args)):
+            torch.set_float32_matmul_precision('high')
+            fabric = L.Fabric()
+            fabric.setup(model, optimizer)
+            train_dataloader, valid_dataloader = fabric.setup_dataloaders(train_dataloader, valid_dataloader)
+            train_with_fabric(fabric, args, model, optimizer, train_dataloader, valid_dataloader)
+
+
+def train_with_fabric(fabric, args, model, optimizer, train_dataloader, valid_dataloader):
+    for epoch in range(args.learning.epochs):
+        logger.info("Epoch: %d" % epoch)
 
 
 @app.command()

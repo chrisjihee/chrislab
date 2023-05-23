@@ -13,7 +13,7 @@ from torch.utils.data.dataset import Dataset
 from nlpbook.arguments import TrainerArguments, TesterArguments
 from transformers import PreTrainedTokenizer
 
-logger = logging.getLogger("nlpbook")
+logger = logging.getLogger("chrislab")
 
 
 @dataclass

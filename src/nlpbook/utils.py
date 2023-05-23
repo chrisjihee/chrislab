@@ -72,7 +72,7 @@ REMOTE_MODEL_MAP = {
     },
 }
 GOOGLE_DRIVE_URL = "https://docs.google.com/uc?export=download"
-logger = logging.getLogger("nlpbook")
+logger = logging.getLogger("chrislab")
 
 
 def save_response_content(response, save_path):

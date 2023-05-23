@@ -16,7 +16,7 @@ from nlpbook.arguments import TesterArguments
 from transformers import PreTrainedTokenizerFast, BatchEncoding, CharSpan
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
 
-logger = logging.getLogger("nlpbook")
+logger = logging.getLogger("chrislab")
 
 
 @dataclass
@@ -106,7 +106,6 @@ class NERCorpus:
                 f.writelines([x + "\n" for x in labels])
         else:
             labels = label_map_path.read_text(encoding="utf-8").splitlines()
-            logger.info(f"Loaded {len(labels)} labels from {label_map_path}")
         return labels
 
     @property
@@ -126,14 +125,7 @@ def _convert_to_encoded_examples(
         tokenizer: PreTrainedTokenizerFast,
         args: TesterArguments,
         label_list: List[str],
-        cls_token_at_end: Optional[bool] = False,
-        num_show_example: int = 3,
 ) -> List[NEREncodedExample]:
-    """
-    `cls_token_at_end` define the location of the CLS token:
-            - False (Default, BERT/XLM pattern): [CLS] + A + [SEP] + B + [SEP]
-            - True (XLNet/GPT pattern): A + [SEP] + B + [SEP] + [CLS]
-    """
     label_to_id: Dict[str, int] = {label: i for i, label in enumerate(label_list)}
     id_to_label: Dict[int, str] = {i: label for i, label in enumerate(label_list)}
     if args.env.off_debugging:
@@ -189,7 +181,7 @@ def _convert_to_encoded_examples(
 
     if args.env.off_debugging:
         out_hr()
-    for encoded_example in encoded_examples[:num_show_example]:
+    for encoded_example in encoded_examples[:args.data.show_examples]:
         logger.info("  === [Example %d] ===" % encoded_example.idx)
         logger.info("  = sentence   : %s" % encoded_example.raw.origin)
         logger.info("  = characters : %s" % " | ".join(f"{x}/{y}" for x, y in encoded_example.raw.character_list))
@@ -203,34 +195,18 @@ def _convert_to_encoded_examples(
 class NERDataset(Dataset):
     def __init__(self, split: str, args: TesterArguments, tokenizer: PreTrainedTokenizerFast, corpus: NERCorpus):
         assert corpus, "corpus is not valid"
-        self.corpus = corpus
-
         assert args.data.home, f"No data_home: {args.data.home}"
         assert args.data.name, f"No data_name: {args.data.name}"
+        self.corpus = corpus
         data_file_dict: dict = args.data.files.to_dict()
         assert split in data_file_dict, f"No '{split}' split in data_file: should be one of {list(data_file_dict.keys())}"
         assert data_file_dict[split], f"No data_file for '{split}' split: {args.data.files}"
         text_data_path: Path = Path(args.data.home) / args.data.name / data_file_dict[split]
-        cache_data_path = text_data_path \
-            .with_stem(text_data_path.stem + f"-by-{tokenizer.__class__.__name__}-as-{args.model.max_seq_length}toks") \
-            .with_suffix(".cache")
-        cache_lock_path = cache_data_path.with_suffix(".lock")
-
-        with FileLock(cache_lock_path):
-            if os.path.exists(cache_data_path) and args.data.caching:
-                start = time.time()
-                self.features: List[NEREncodedExample] = torch.load(cache_data_path)
-                logger.info(f"Loading features from cached file at {cache_data_path} [took {time.time() - start:.3f} s]")
-            else:
-                assert text_data_path.exists() and text_data_path.is_file(), f"No data_text_path: {text_data_path}"
-                logger.info(f"Creating features from dataset file at {text_data_path}")
-                examples: List[NERRawExample] = self.corpus.read_raw_examples(text_data_path)
-                self.features: List[NEREncodedExample] = _convert_to_encoded_examples(examples, tokenizer, args,
-                                                                                      label_list=self.corpus.get_labels())
-                if args.data.caching:
-                    start = time.time()
-                    torch.save(self.features, cache_data_path)
-                    logger.info(f"Saving features into cached file at {cache_data_path} [took {time.time() - start:.3f} s]")
+        assert text_data_path.exists() and text_data_path.is_file(), f"No data_text_path: {text_data_path}"
+        logger.info(f"Creating features from dataset file at {text_data_path}")
+        examples: List[NERRawExample] = self.corpus.read_raw_examples(text_data_path)
+        self.features: List[NEREncodedExample] = \
+            _convert_to_encoded_examples(examples, tokenizer, args, label_list=self.corpus.get_labels())
 
     def __len__(self) -> int:
         return len(self.features)

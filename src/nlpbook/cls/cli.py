@@ -18,7 +18,7 @@ from transformers import BertConfig, BertForSequenceClassification, BertTokenize
 from transformers.modeling_outputs import SequenceClassifierOutput
 
 app = Typer()
-logger = logging.getLogger("nlpbook")
+logger = logging.getLogger("chrislab")
 
 
 @app.command()
