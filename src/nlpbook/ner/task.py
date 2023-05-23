@@ -78,7 +78,7 @@ class NERTask(LightningModule):
         acc: torch.Tensor = accuracy(preds, labels, ignore_index=0)
         self.train_loss = outputs.loss
         self.train_acc = acc
-        return {"loss": outputs.loss}
+        return outputs.loss
 
     def validation_step(self, batch: Dict[str, torch.Tensor | List[int]], batch_idx: int) -> Dict[str, torch.Tensor]:
         if self.args.env.on_debugging:
@@ -153,7 +153,7 @@ class NERTask(LightningModule):
         assert len(flatlist_of_char_label_ids) == len(flatlist_of_char_pred_ids)
         self._validation_char_pred_ids.extend(flatlist_of_char_pred_ids)
         self._validation_char_label_ids.extend(flatlist_of_char_label_ids)
-        return {"loss": outputs.loss}
+        return outputs.loss
 
     def on_validation_start(self):
         self._validation_char_pred_ids: List[int] = []
@@ -162,10 +162,10 @@ class NERTask(LightningModule):
     def on_validation_epoch_end(self):
         assert self._validation_char_pred_ids and self._validation_char_label_ids
         assert len(self._validation_char_pred_ids) == len(self._validation_char_label_ids)
-        val_chr_f1 = klue_ner_char_macro_f1(preds=self._validation_char_pred_ids, labels=self._validation_char_label_ids, label_list=self._labels)
-        val_ent_f1 = klue_ner_entity_macro_f1(preds=self._validation_char_pred_ids, labels=self._validation_char_label_ids, label_list=self._labels)
-        self.log(prog_bar=True, logger=True, on_epoch=True, name="val_chr_f1", value=val_chr_f1)
-        self.log(prog_bar=True, logger=True, on_epoch=True, name="val_ent_f1", value=val_ent_f1)
+        chr_f1 = klue_ner_char_macro_f1(preds=self._validation_char_pred_ids, labels=self._validation_char_label_ids, label_list=self._labels)
+        ent_f1 = klue_ner_entity_macro_f1(preds=self._validation_char_pred_ids, labels=self._validation_char_label_ids, label_list=self._labels)
+        self.log(prog_bar=True, logger=True, on_epoch=True, name="chr_f1", value=chr_f1)
+        self.log(prog_bar=True, logger=True, on_epoch=True, name="ent_f1", value=ent_f1)
 
     def test_step(self, batch, batch_idx):
         outputs: TokenClassifierOutput = self.model(**batch)
@@ -174,4 +174,4 @@ class NERTask(LightningModule):
         acc: torch.Tensor = accuracy(preds, labels, ignore_index=0)
         self.log(prog_bar=False, logger=True, on_epoch=True, name="test_loss", value=outputs.loss)
         self.log(prog_bar=False, logger=True, on_epoch=True, name="test_acc", value=acc)
-        return {"test_loss": outputs.loss, "test_acc": acc}
+        return outputs.loss
