@@ -1,19 +1,21 @@
 import logging
+import sys
 from pathlib import Path
+from typing import Dict
 
 import pytorch_lightning as pl
 import torch
 from flask import Flask
 from torch import Tensor
-from torch.utils.data import DataLoader
-from torch.utils.data import RandomSampler
-from torch.utils.data import SequentialSampler
+from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from typer import Typer
 
 import lightning as L
 import nlpbook
-from chrisbase.io import JobTimer, err_hr
+from chrisbase.io import JobTimer, err_hr, pop_keys
+from chrislab.common.util import time_tqdm_cls, mute_tqdm_cls
 from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
+from nlpbook.metrics import accuracy
 from nlpbook.ner.corpus import NERCorpus, NERDataset, encoded_examples_to_batch
 from nlpbook.ner.task import NERTask
 from transformers import BertConfig, BertForTokenClassification, PreTrainedTokenizerFast, AutoTokenizer
@@ -48,16 +50,19 @@ def new_train(args_file: Path | str):
         train_dataloader = DataLoader(train_dataset, sampler=RandomSampler(train_dataset, replacement=False),
                                       num_workers=args.hardware.cpu_workers,
                                       batch_size=args.hardware.batch_size,
-                                      collate_fn=encoded_examples_to_batch)
+                                      collate_fn=encoded_examples_to_batch,
+                                      drop_last=True)
         logger.info(f"Created train_dataset providing {len(train_dataset)} examples")
         logger.info(f"Created train_dataloader loading {len(train_dataloader)} batches")
+        args.output.total_steps = args.learning.epochs * len(train_dataloader)
+        args.output.epoch_per_step = 1 / len(train_dataloader)
         err_hr(c='-')
         valid_dataset = NERDataset("valid", args=args, corpus=corpus, tokenizer=tokenizer)
         valid_dataloader = DataLoader(valid_dataset, sampler=SequentialSampler(valid_dataset),
                                       num_workers=args.hardware.cpu_workers,
                                       batch_size=args.hardware.batch_size,
                                       collate_fn=encoded_examples_to_batch,
-                                      drop_last=False)
+                                      drop_last=True)
         logger.info(f"Created valid_dataset providing {len(valid_dataset)} examples")
         logger.info(f"Created valid_dataloader loading {len(valid_dataloader)} batches")
         err_hr(c='-')
@@ -78,17 +83,52 @@ def new_train(args_file: Path | str):
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
 
         # Fabric
-        with RuntimeChecking(nlpbook.setup_csv_out(args)):
+        with RuntimeChecking(args.setup_csv_out()):
             torch.set_float32_matmul_precision('high')
-            fabric = L.Fabric()
+            fabric = L.Fabric(loggers=args.output.csv_out)
             fabric.setup(model, optimizer)
             train_dataloader, valid_dataloader = fabric.setup_dataloaders(train_dataloader, valid_dataloader)
-            train_with_fabric(fabric, args, model, optimizer, train_dataloader, valid_dataloader)
+            train_with_fabric(fabric, args, model, optimizer, scheduler, train_dataloader, valid_dataloader)
 
 
-def train_with_fabric(fabric, args, model, optimizer, train_dataloader, valid_dataloader):
-    for epoch in range(args.learning.epochs):
-        logger.info("Epoch: %d" % epoch)
+def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
+                      model: torch.nn.Module, optimizer: torch.optim.Optimizer, scheduler: torch.optim.lr_scheduler.LRScheduler,
+                      train_dataloader: DataLoader, valid_dataloader: DataLoader):
+    args.output.global_step = 0
+    args.output.global_epoch = 0.0
+    time_tqdm = time_tqdm_cls(bar_size=30, desc_size=17, file=sys.stdout)
+    mute_tqdm = mute_tqdm_cls()
+    for epoch in range(1, args.learning.epochs + 1):
+        epoch_info = f"(Epoch {epoch:02d})"
+        # print(time_tqdm.to_desc(pre=current, desc=f"composed #{fabric.global_rank + 1:01d}") + f": learning_rate={optimizer.param_groups[0]['lr']}")
+        print(time_tqdm.to_desc(pre=epoch_info, desc=f"composed #{fabric.global_rank + 1:01d}") + f": learning_rate={optimizer.param_groups[0]['lr']:.10f}")
+        epoch_tqdm = time_tqdm if fabric.is_global_zero else mute_tqdm
+        for batch_idx, batch in enumerate(epoch_tqdm(train_dataloader, position=fabric.global_rank,
+                                                     pre=epoch_info, desc=f"training #{fabric.global_rank + 1:01d}",
+                                                     unit=f"x{train_dataloader.batch_size}")):
+            args.output.global_step += 1
+            args.output.global_epoch += args.output.epoch_per_step
+            batch: Dict[str, torch.Tensor] = pop_keys(batch, "example_ids")
+            outputs: TokenClassifierOutput = model(**batch)
+            labels: torch.Tensor = batch["labels"]
+            preds: torch.Tensor = outputs.logits.argmax(dim=-1)
+            acc: torch.Tensor = accuracy(preds, labels, ignore_index=0)
+            fabric.log_dict({
+                "epoch": args.output.global_epoch,
+                "loss": outputs.loss,
+                "acc": acc,
+                "lr": optimizer.param_groups[0]['lr'],
+            }, step=args.output.global_step)
+            fabric.backward(outputs.loss)
+            fabric.clip_gradients(model, optimizer, clip_val=0.25)
+            optimizer.step()
+            optimizer.zero_grad()
+        scheduler.step()
+
+
+@torch.no_grad()
+def validate(fabric, model, val_dataloader):
+    pass
 
 
 @app.command()

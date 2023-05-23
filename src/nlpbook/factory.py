@@ -3,17 +3,17 @@ from pathlib import Path
 import pytorch_lightning as pl
 import torch
 from flask import Flask, request, jsonify, render_template
-from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.loggers import CSVLogger
 
 from chrisbase.io import merge_dicts
 from chrisbase.time import now
+from lightning.fabric.loggers import CSVLogger
+from lightning.pytorch.callbacks import ModelCheckpoint
 from nlpbook.arguments import TrainerArguments, TesterArguments, ServerArguments
 
 
 def setup_csv_out(args: ServerArguments, version=None) -> ServerArguments:
     if not version:
-        version = now(f'{args.tag}-%m%d.%H%M')
+        version = now(f'{args.tag}-{args.job.name}-%m%d.%H%M')
     csv_out: CSVLogger = CSVLogger(args.model.finetuning_home, args.data.name, version)
     args.output.dir_path = Path(csv_out.log_dir)
     args.output.csv_out = csv_out

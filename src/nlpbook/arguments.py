@@ -6,14 +6,14 @@ from typing import List
 
 import pandas as pd
 from dataclasses_json import DataClassJsonMixin
-from pytorch_lightning.accelerators import Accelerator
-from pytorch_lightning.loggers import CSVLogger
-from pytorch_lightning.strategies import Strategy
 
 from chrisbase.io import ProjectEnv, make_dir
 from chrisbase.io import files, make_parent_dir, out_hr, out_table
 from chrisbase.time import now, str_delta
 from chrisbase.util import to_dataframe
+from lightning.fabric.accelerators import Accelerator
+from lightning.fabric.loggers import CSVLogger
+from lightning.fabric.strategies import Strategy
 
 
 @dataclass
@@ -105,6 +105,7 @@ class LearningOption(OptionData):
 
 @dataclass
 class JobTimer(ResultData):
+    name: str = field()
     t1 = datetime.now()
     t2 = datetime.now()
     started: str | None = field(init=False)
@@ -133,15 +134,19 @@ class JobOutput(ResultData):
     dir_path: Path | None = field(init=False, default=None)
     csv_out: CSVLogger | None = field(init=False, default=None)
     result: dict = field(init=False, default_factory=dict)
+    global_step: int = field(init=False, default=0)
+    global_epoch: float = field(init=False, default=0.0)
+    total_steps: int = field(init=False, default=0)
+    epoch_per_step: float = field(init=False, default=0.0)
 
 
 @dataclass
 class CommonArguments(ArgumentGroupData):
     tag = "common"
+    job: JobTimer = field()
     env: ProjectEnv = field()
     data: DataOption | None = field(default=None)
     model: ModelOption | None = field(default=None)
-    timer: JobTimer = field(default=JobTimer())
     output: JobOutput = field(default=JobOutput())
 
     def __post_init__(self):
@@ -157,10 +162,10 @@ class CommonArguments(ArgumentGroupData):
         if not columns:
             columns = [self.data_type, "value"]
         return pd.concat([
+            to_dataframe(columns=columns, raw=self.job, data_prefix="job"),
             to_dataframe(columns=columns, raw=self.env, data_prefix="env"),
             to_dataframe(columns=columns, raw=self.data, data_prefix="data"),
             to_dataframe(columns=columns, raw=self.model, data_prefix="model"),
-            to_dataframe(columns=columns, raw=self.timer, data_prefix="timer"),
             to_dataframe(columns=columns, raw=self.output, data_prefix="output"),
         ]).reset_index(drop=True)
 
@@ -168,6 +173,15 @@ class CommonArguments(ArgumentGroupData):
         out_hr(c='-')
         out_table(self.dataframe())
         out_hr(c='-')
+        return self
+
+    def setup_csv_out(self, version=None):
+        if not version:
+            version = now('%m%d.%H%M%S')
+        self.output.csv_out = CSVLogger(root_dir=self.model.finetuning_home, name=self.data.name,
+                                        version=f'{self.tag}-{self.job.name}-{version}',
+                                        flush_logs_every_n_steps=1)
+        self.output.dir_path = Path(self.output.csv_out.log_dir)
         return self
 
     def save(self, to: Path | str = None) -> Path | None:
@@ -243,8 +257,8 @@ class RuntimeChecking:
         self.args: CommonArguments = args
 
     def __enter__(self):
-        self.args.timer.set_started()
+        self.args.job.set_started()
 
     def __exit__(self, *exc_info):
-        self.args.timer.set_settled()
+        self.args.job.set_settled()
         self.args.save(self.args.output.dir_path / self.args.env.argument_file)

@@ -70,7 +70,7 @@ class NERTask(LightningModule):
             'lr_scheduler': scheduler,
         }
 
-    def training_step(self, batch: Dict[str, torch.Tensor | List[int]], batch_idx: int) -> Dict[str, torch.Tensor]:
+    def training_step(self, batch: Dict[str, torch.Tensor | List[int]], batch_idx: int) -> torch.Tensor:
         _: List[int] = batch.pop("example_ids")
         outputs: TokenClassifierOutput = self.model(**batch)
         labels: torch.Tensor = batch["labels"]
@@ -80,7 +80,7 @@ class NERTask(LightningModule):
         self.train_acc = acc
         return outputs.loss
 
-    def validation_step(self, batch: Dict[str, torch.Tensor | List[int]], batch_idx: int) -> Dict[str, torch.Tensor]:
+    def validation_step(self, batch: Dict[str, torch.Tensor | List[int]], batch_idx: int) -> torch.Tensor:
         if self.args.env.on_debugging:
             print()
             print(f"[validation_step] batch_idx: {batch_idx}, global_step: {self._global_step()}")
@@ -167,7 +167,7 @@ class NERTask(LightningModule):
         self.log(prog_bar=True, logger=True, on_epoch=True, name="chr_f1", value=chr_f1)
         self.log(prog_bar=True, logger=True, on_epoch=True, name="ent_f1", value=ent_f1)
 
-    def test_step(self, batch, batch_idx):
+    def test_step(self, batch, batch_idx) -> torch.Tensor:
         outputs: TokenClassifierOutput = self.model(**batch)
         labels: torch.Tensor = batch["labels"]
         preds: torch.Tensor = outputs.logits.argmax(dim=-1)
