@@ -46,15 +46,14 @@ def make_trainer(args: TrainerArguments) -> pl.Trainer:
     )
     trainer = pl.Trainer(
         logger=args.output.csv_out,
-        devices=args.hardware.devices if not args.hardware.devices else None,
-        strategy=args.hardware.strategy if not args.hardware.strategy else None,
-        precision=args.hardware.precision if args.hardware.precision else 32,
-        accelerator=args.hardware.accelerator if args.hardware.accelerator else None,
+        devices=args.hardware.devices,
+        strategy=args.hardware.strategy,
+        precision=args.hardware.precision,
+        accelerator=args.hardware.accelerator,
         deterministic=torch.cuda.is_available() and args.learning.seed is not None,
         # enable_progress_bar=False,
         num_sanity_val_steps=0,
-        val_check_interval=args.learning.log_steps,
-        log_every_n_steps=args.learning.log_steps,
+        val_check_interval=args.learning.val_check,
         max_epochs=args.learning.epochs,
         callbacks=[logging_callback, checkpoint_callback],
     )
@@ -64,10 +63,10 @@ def make_trainer(args: TrainerArguments) -> pl.Trainer:
 def make_tester(args: TesterArguments) -> pl.Trainer:
     tester = pl.Trainer(
         logger=args.output.csv_out,
-        devices=args.hardware.devices if not args.hardware.devices else None,
-        strategy=args.hardware.strategy if not args.hardware.strategy else None,
-        precision=args.hardware.precision if args.hardware.precision else 32,
-        accelerator=args.hardware.accelerator if args.hardware.accelerator else None,
+        devices=args.hardware.devices,
+        strategy=args.hardware.strategy,
+        precision=args.hardware.precision,
+        accelerator=args.hardware.accelerator,
         # enable_progress_bar=False,
     )
     return tester

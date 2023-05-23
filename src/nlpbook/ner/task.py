@@ -36,6 +36,9 @@ class NERTask(LightningModule):
         self.trainer: pl.Trainer = trainer
 
         self.val_dataset: NERDataset = val_dataset
+        self._validation_char_pred_ids = None
+        self._validation_char_label_ids = None
+
         self._labels: List[str] = self.val_dataset.get_labels()
         self._label_to_id: Dict[str, int] = {label: i for i, label in enumerate(self._labels)}
         self._id_to_label: Dict[int, str] = {i: label for i, label in enumerate(self._labels)}
@@ -148,17 +151,19 @@ class NERTask(LightningModule):
             print(f"  - flatlist_of_char_label_ids = ({len(flatlist_of_char_label_ids)}) {' '.join(map(str, map(current_repr, flatlist_of_char_label_ids)))}")
             print(f"  - flatlist_of_char_pred_ids  = ({len(flatlist_of_char_pred_ids)}) {' '.join(map(str, map(current_repr, flatlist_of_char_pred_ids)))}")
         assert len(flatlist_of_char_label_ids) == len(flatlist_of_char_pred_ids)
-        return {
-            "loss": outputs.loss,
-            "char_pred_ids": flatlist_of_char_pred_ids,
-            "char_label_ids": flatlist_of_char_label_ids,
-        }
+        self._validation_char_pred_ids.extend(flatlist_of_char_pred_ids)
+        self._validation_char_label_ids.extend(flatlist_of_char_label_ids)
+        return {"loss": outputs.loss}
 
-    def validation_epoch_end(self, outputs: List[Dict[str, torch.Tensor | List[int]]]) -> None:
-        char_pred_ids: List[int] = [x for output in outputs for x in output["char_pred_ids"]]
-        char_label_ids: List[int] = [x for output in outputs for x in output["char_label_ids"]]
-        val_chr_f1 = klue_ner_char_macro_f1(preds=char_pred_ids, labels=char_label_ids, label_list=self._labels)
-        val_ent_f1 = klue_ner_entity_macro_f1(preds=char_pred_ids, labels=char_label_ids, label_list=self._labels)
+    def on_validation_start(self):
+        self._validation_char_pred_ids: List[int] = []
+        self._validation_char_label_ids: List[int] = []
+
+    def on_validation_epoch_end(self):
+        assert self._validation_char_pred_ids and self._validation_char_label_ids
+        assert len(self._validation_char_pred_ids) == len(self._validation_char_label_ids)
+        val_chr_f1 = klue_ner_char_macro_f1(preds=self._validation_char_pred_ids, labels=self._validation_char_label_ids, label_list=self._labels)
+        val_ent_f1 = klue_ner_entity_macro_f1(preds=self._validation_char_pred_ids, labels=self._validation_char_label_ids, label_list=self._labels)
         self.log(prog_bar=True, logger=True, on_epoch=True, name="val_chr_f1", value=val_chr_f1)
         self.log(prog_bar=True, logger=True, on_epoch=True, name="val_ent_f1", value=val_ent_f1)
 

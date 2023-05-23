@@ -81,8 +81,8 @@ class HardwareOption(OptionData):
     accelerator: str | Accelerator = field(default="auto")  # possbile value: "cpu", "gpu", "tpu", "ipu", "hpu", "mps", "auto"
     batch_size: int = field(default=32)
     precision: int | str = field(default=32)  # floating-point precision type
-    strategy: str | Strategy | None = field(default=None)  # multi-device strategies
-    devices: List[int] | int | str = field(default=1)  # devices to use
+    strategy: str | Strategy = field(default="auto")  # multi-device strategies
+    devices: List[int] | int | str = field(default="auto")  # devices to use
 
     def __post_init__(self):
         if not self.strategy:
@@ -95,7 +95,7 @@ class HardwareOption(OptionData):
 @dataclass
 class LearningOption(OptionData):
     condition: str = field(default="min val_loss")  # monitor condition for num_save
-    log_steps: int = field(default=10)
+    val_check: int | float = field(default=10)
     num_save: int = field(default=100)
     epochs: int = field(default=1)
     speed: float = field(default=5e-5)
