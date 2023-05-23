@@ -1,7 +1,7 @@
 import logging
 import sys
 from pathlib import Path
-from typing import Dict
+from typing import Any, Dict
 
 import pytorch_lightning as pl
 import torch
@@ -12,7 +12,7 @@ from typer import Typer
 
 import lightning as L
 import nlpbook
-from chrisbase.io import JobTimer, err_hr, pop_keys
+from chrisbase.io import JobTimer, pop_keys, err_hr, out_hr
 from chrislab.common.util import time_tqdm_cls, mute_tqdm_cls
 from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
 from nlpbook.metrics import accuracy
@@ -93,18 +93,19 @@ def new_train(args_file: Path | str):
 def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
                       model: torch.nn.Module, optimizer: torch.optim.Optimizer, scheduler: torch.optim.lr_scheduler.LRScheduler,
                       train_dataloader: DataLoader, valid_dataloader: DataLoader):
+    time_tqdm = time_tqdm_cls(bar_size=30, desc_size=15, file=sys.stdout)
+    mute_tqdm = mute_tqdm_cls()
+    val_interval: int = int(args.learning.val_check * len(train_dataloader)) if isinstance(args.learning.val_check, float) else int(args.learning.val_check)
+    metrics: Dict[str, Any] = {}
     args.output.global_step = 0
     args.output.global_epoch = 0.0
-    time_tqdm = time_tqdm_cls(bar_size=30, desc_size=17, file=sys.stdout)
-    mute_tqdm = mute_tqdm_cls()
-    for epoch in range(1, args.learning.epochs + 1):
-        epoch_info = f"(Epoch {epoch:02d})"
-        # print(time_tqdm.to_desc(pre=current, desc=f"composed #{fabric.global_rank + 1:01d}") + f": learning_rate={optimizer.param_groups[0]['lr']}")
-        print(time_tqdm.to_desc(pre=epoch_info, desc=f"composed #{fabric.global_rank + 1:01d}") + f": learning_rate={optimizer.param_groups[0]['lr']:.10f}")
+    for epoch in range(args.learning.epochs):
+        epoch_info = f"(Epoch {epoch + 1:02d})"
+        metrics["epoch"] = round(args.output.global_epoch, 4)
+        metrics["lr"] = optimizer.param_groups[0]['lr']
         epoch_tqdm = time_tqdm if fabric.is_global_zero else mute_tqdm
-        for batch_idx, batch in enumerate(epoch_tqdm(train_dataloader, position=fabric.global_rank,
-                                                     pre=epoch_info, desc=f"training #{fabric.global_rank + 1:01d}",
-                                                     unit=f"x{train_dataloader.batch_size}")):
+        for batch_idx, batch in enumerate(epoch_tqdm(train_dataloader, position=fabric.global_rank, pre=epoch_info,
+                                                     desc=f"batch training", unit=f"x{train_dataloader.batch_size}")):
             args.output.global_step += 1
             args.output.global_epoch += args.output.epoch_per_step
             batch: Dict[str, torch.Tensor] = pop_keys(batch, "example_ids")
@@ -112,22 +113,41 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
             labels: torch.Tensor = batch["labels"]
             preds: torch.Tensor = outputs.logits.argmax(dim=-1)
             acc: torch.Tensor = accuracy(preds, labels, ignore_index=0)
-            fabric.log_dict({
-                "epoch": args.output.global_epoch,
-                "loss": outputs.loss,
-                "acc": acc,
-                "lr": optimizer.param_groups[0]['lr'],
-            }, step=args.output.global_step)
+            metrics["epoch"] = round(args.output.global_epoch, 4)
+            metrics["loss"] = outputs.loss.item()
+            metrics["acc"] = acc.item()
             fabric.backward(outputs.loss)
             fabric.clip_gradients(model, optimizer, clip_val=0.25)
             optimizer.step()
             optimizer.zero_grad()
+            if (batch_idx + 1) % val_interval == 0:
+                validate(fabric, args, model, optimizer, valid_dataloader, metrics)
+            fabric.log_dict(metrics, step=args.output.global_step)
         scheduler.step()
+        metrics["lr"] = optimizer.param_groups[0]['lr']
+        if epoch + 1 < args.learning.epochs:
+            out_hr('-')
 
 
 @torch.no_grad()
-def validate(fabric, model, val_dataloader):
-    pass
+def validate(fabric: L.Fabric, args: TrainerArguments,
+             model: torch.nn.Module, optimizer: torch.optim.Optimizer,
+             valid_dataloader: DataLoader, metrics: Dict[str, Any]):
+    model.eval()
+    metrics["val_loss"] = torch.zeros(len(valid_dataloader))
+    metrics["val_acc"] = torch.zeros(len(valid_dataloader))
+    for batch_idx, batch in enumerate(valid_dataloader):
+        example_ids: torch.Tensor = batch.pop("example_ids")
+        outputs: TokenClassifierOutput = model(**batch)
+        labels: torch.Tensor = batch["labels"]
+        preds: torch.Tensor = outputs.logits.argmax(dim=-1)
+        acc: torch.Tensor = accuracy(preds, labels, ignore_index=0)
+        metrics["val_loss"][batch_idx] = outputs.loss
+        metrics["val_acc"][batch_idx] = acc
+    metrics["val_loss"] = metrics["val_loss"].mean().item()
+    metrics["val_acc"] = metrics["val_acc"].mean().item()
+    validation_result = ', '.join([f'{k}={v:.4f}' for k, v in metrics.items() if k.startswith('val_')])
+    fabric.print(' | ' + validation_result)
 
 
 @app.command()
