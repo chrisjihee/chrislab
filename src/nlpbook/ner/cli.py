@@ -54,7 +54,6 @@ def new_train(args_file: Path | str):
                                       drop_last=True)
         logger.info(f"Created train_dataset providing {len(train_dataset)} examples")
         logger.info(f"Created train_dataloader loading {len(train_dataloader)} batches")
-        args.output.total_steps = args.learning.epochs * len(train_dataloader)
         args.output.epoch_per_step = 1 / len(train_dataloader)
         err_hr(c='-')
         valid_dataset = NERDataset("valid", args=args, corpus=corpus, tokenizer=tokenizer)

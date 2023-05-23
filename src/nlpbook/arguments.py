@@ -136,7 +136,6 @@ class JobOutput(ResultData):
     result: dict = field(init=False, default_factory=dict)
     global_step: int = field(init=False, default=0)
     global_epoch: float = field(init=False, default=0.0)
-    total_steps: int = field(init=False, default=0)
     epoch_per_step: float = field(init=False, default=0.0)
 
 
