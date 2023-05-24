@@ -1,4 +1,5 @@
 import logging
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict
@@ -23,6 +24,7 @@ from transformers.modeling_outputs import TokenClassifierOutput
 
 app = Typer()
 logger = logging.getLogger("chrislab")
+term_pattern = re.compile(re.escape("{") + "(.+?)(:.+?)?" + re.escape("}"))
 
 
 def new_set_logger(level=logging.INFO):
@@ -90,6 +92,16 @@ def new_train(args_file: Path | str):
             train_with_fabric(fabric, args, model, optimizer, scheduler, train_dataloader, valid_dataloader)
 
 
+# https://lightning.ai/docs/fabric/stable/guide/checkpoint.html
+def save_checkpoint(fabric, args, metrics, model, optimizer):
+    checkpoint_state = {"model": model, "optimizer": optimizer, "args": args}
+    terms = [m.group(1) for m in term_pattern.finditer(args.model.finetuning_name)]
+    terms = {term: metrics[term] for term in terms}
+    checkpoint_stem = args.model.finetuning_name.format(**terms)
+    checkpoint_path = (args.output.dir_path / "model.out").with_stem(checkpoint_stem).with_suffix(".ckpt")
+    fabric.save(checkpoint_path, checkpoint_state)
+
+
 def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
                       model: torch.nn.Module, optimizer: torch.optim.Optimizer, scheduler: torch.optim.lr_scheduler.LRScheduler,
                       train_dataloader: DataLoader, valid_dataloader: DataLoader):
@@ -121,7 +133,9 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
             optimizer.step()
             optimizer.zero_grad()
             if (batch_idx + 1) % val_interval == 0:
-                validate(fabric, args, model, optimizer, valid_dataloader, metrics)
+                validate(fabric, args, model, optimizer, valid_dataloader,
+                         metrics=metrics, print_result=True)
+                save_checkpoint(fabric, args, metrics, model, optimizer)
             fabric.log_dict(metrics, step=args.output.global_step)
         scheduler.step()
         metrics["lr"] = optimizer.param_groups[0]['lr']
@@ -132,7 +146,7 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
 @torch.no_grad()
 def validate(fabric: L.Fabric, args: TrainerArguments,
              model: torch.nn.Module, optimizer: torch.optim.Optimizer,
-             valid_dataloader: DataLoader, metrics: Dict[str, Any]):
+             valid_dataloader: DataLoader, metrics: Dict[str, Any], print_result: bool = True):
     model.eval()
     metrics["val_loss"] = torch.zeros(len(valid_dataloader))
     metrics["val_acc"] = torch.zeros(len(valid_dataloader))
@@ -147,7 +161,8 @@ def validate(fabric: L.Fabric, args: TrainerArguments,
     metrics["val_loss"] = metrics["val_loss"].mean().item()
     metrics["val_acc"] = metrics["val_acc"].mean().item()
     validation_result = ', '.join([f'{k}={v:.4f}' for k, v in metrics.items() if k.startswith('val_')])
-    fabric.print(' | ' + validation_result)
+    if print_result:
+        fabric.print(' | ' + validation_result)
 
 
 @app.command()
