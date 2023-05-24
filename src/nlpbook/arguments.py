@@ -1,3 +1,4 @@
+import math
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -101,6 +102,9 @@ class LearningOption(OptionData):
     epochs: int = field(default=1)
     speed: float = field(default=5e-5)
     seed: int | None = field(default=None)  # random seed
+
+    def __post_init__(self):
+        self.validating_on = math.fabs(self.validating_on)
 
 
 @dataclass

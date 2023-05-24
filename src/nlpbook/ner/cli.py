@@ -118,9 +118,9 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
                       train_dataloader: DataLoader, valid_dataloader: DataLoader):
     time_tqdm = time_tqdm_cls(bar_size=30, desc_size=15, file=sys.stdout)
     mute_tqdm = mute_tqdm_cls()
-    val_interval: int = int(args.learning.validating_on * len(train_dataloader)) if isinstance(args.learning.validating_on, float) else int(args.learning.validating_on)
+    val_interval: float = args.learning.validating_on * len(train_dataloader) if args.learning.validating_on <= 1.0 else args.learning.validating_on
     sorted_checkpoints: List[Tuple[float, Path]] = []
-    sorting_reverse: int = args.learning.keeping_by.split()[0].lower() == "max"
+    sorting_reverse: bool = not args.learning.keeping_by.split()[0].lower().startswith("min")
     sorting_metric: str = args.learning.keeping_by.split()[-1]
     metrics: Dict[str, Any] = {}
     args.output.global_step = 0
@@ -146,9 +146,8 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
             fabric.clip_gradients(model, optimizer, clip_val=0.25)
             optimizer.step()
             optimizer.zero_grad()
-            if (batch_idx + 1) % val_interval == 0:
-                validate(fabric, args, model, optimizer, valid_dataloader,
-                         metrics=metrics, print_result=True)
+            if batch_idx + 1 == len(train_dataloader) or (batch_idx + 1) % val_interval < 1:
+                validate(fabric, args, model, optimizer, valid_dataloader, metrics=metrics, print_result=True)
                 sorted_checkpoints = save_checkpoint(fabric, args, metrics, model, optimizer, sorted_checkpoints, sorting_reverse, sorting_metric)
             fabric.log_dict(metrics, step=args.output.global_step)
         scheduler.step()
