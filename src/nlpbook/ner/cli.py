@@ -2,7 +2,7 @@ import logging
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List, Tuple
 
 import pytorch_lightning as pl
 import torch
@@ -93,13 +93,24 @@ def new_train(args_file: Path | str):
 
 
 # https://lightning.ai/docs/fabric/stable/guide/checkpoint.html
-def save_checkpoint(fabric, args, metrics, model, optimizer):
+def save_checkpoint(fabric, args, metrics, model, optimizer,
+                    sorted_checkpoints: List[Tuple[float, Path]], sorting_reverse, sorting_metric):
     checkpoint_state = {"model": model, "optimizer": optimizer, "args": args}
     terms = [m.group(1) for m in term_pattern.finditer(args.model.finetuning_name)]
     terms = {term: metrics[term] for term in terms}
     checkpoint_stem = args.model.finetuning_name.format(**terms)
-    checkpoint_path = (args.output.dir_path / "model.out").with_stem(checkpoint_stem).with_suffix(".ckpt")
-    fabric.save(checkpoint_path, checkpoint_state)
+    checkpoint_path: Path = (args.output.dir_path / "model.out").with_stem(checkpoint_stem).with_suffix(".ckpt")
+
+    sorted_checkpoints.append((metrics[sorting_metric], checkpoint_path))
+    sorted_checkpoints.sort(key=lambda x: x[0], reverse=sorting_reverse)
+    for _, path in sorted_checkpoints[args.learning.num_keeping:]:
+        path.unlink(missing_ok=True)
+    sorted_checkpoints = [(value, path) for value, path in sorted_checkpoints[:args.learning.num_keeping] if path.exists()]
+    if len(sorted_checkpoints) < args.learning.num_keeping:
+        fabric.save(checkpoint_path, checkpoint_state)
+        sorted_checkpoints.append((metrics[sorting_metric], checkpoint_path))
+        sorted_checkpoints.sort(key=lambda x: x[0], reverse=sorting_reverse)
+    return sorted_checkpoints
 
 
 def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
@@ -107,7 +118,10 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
                       train_dataloader: DataLoader, valid_dataloader: DataLoader):
     time_tqdm = time_tqdm_cls(bar_size=30, desc_size=15, file=sys.stdout)
     mute_tqdm = mute_tqdm_cls()
-    val_interval: int = int(args.learning.val_check * len(train_dataloader)) if isinstance(args.learning.val_check, float) else int(args.learning.val_check)
+    val_interval: int = int(args.learning.validating_on * len(train_dataloader)) if isinstance(args.learning.validating_on, float) else int(args.learning.validating_on)
+    sorted_checkpoints: List[Tuple[float, Path]] = []
+    sorting_reverse: int = args.learning.keeping_by.split()[0].lower() == "max"
+    sorting_metric: str = args.learning.keeping_by.split()[-1]
     metrics: Dict[str, Any] = {}
     args.output.global_step = 0
     args.output.global_epoch = 0.0
@@ -135,7 +149,7 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
             if (batch_idx + 1) % val_interval == 0:
                 validate(fabric, args, model, optimizer, valid_dataloader,
                          metrics=metrics, print_result=True)
-                save_checkpoint(fabric, args, metrics, model, optimizer)
+                sorted_checkpoints = save_checkpoint(fabric, args, metrics, model, optimizer, sorted_checkpoints, sorting_reverse, sorting_metric)
             fabric.log_dict(metrics, step=args.output.global_step)
         scheduler.step()
         metrics["lr"] = optimizer.param_groups[0]['lr']

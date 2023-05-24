@@ -95,9 +95,9 @@ class HardwareOption(OptionData):
 
 @dataclass
 class LearningOption(OptionData):
-    condition: str = field(default="min val_loss")  # monitor condition for num_save
-    val_check: int | float = field(default=10)
-    num_save: int = field(default=100)
+    validating_on: int | float = field(default=1.0)
+    num_keeping: int = field(default=5)
+    keeping_by: str = field(default="min val_loss")
     epochs: int = field(default=1)
     speed: float = field(default=5e-5)
     seed: int | None = field(default=None)  # random seed
