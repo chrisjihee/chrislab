@@ -96,6 +96,7 @@ class HardwareOption(OptionData):
 
 @dataclass
 class LearningOption(OptionData):
+    validating_fmt: str | None = field(default=None)
     validating_on: int | float = field(default=1.0)
     num_keeping: int = field(default=5)
     keeping_by: str = field(default="min val_loss")

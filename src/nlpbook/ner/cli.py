@@ -15,11 +15,12 @@ import lightning as L
 import nlpbook
 from chrisbase.io import JobTimer, pop_keys, err_hr, out_hr
 from chrislab.common.util import time_tqdm_cls, mute_tqdm_cls
+from klue_baseline.metrics.functional import klue_ner_entity_macro_f1, klue_ner_char_macro_f1
 from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
 from nlpbook.metrics import accuracy
-from nlpbook.ner.corpus import NERCorpus, NERDataset, encoded_examples_to_batch
+from nlpbook.ner.corpus import NERCorpus, NERDataset, encoded_examples_to_batch, NEREncodedExample
 from nlpbook.ner.task import NERTask
-from transformers import BertConfig, BertForTokenClassification, PreTrainedTokenizerFast, AutoTokenizer
+from transformers import PreTrainedTokenizerFast, AutoTokenizer, AutoConfig, AutoModelForTokenClassification, BertForTokenClassification, CharSpan
 from transformers.modeling_outputs import TokenClassifierOutput
 
 app = Typer()
@@ -69,11 +70,11 @@ def new_train(args_file: Path | str):
         err_hr(c='-')
 
         # Model
-        pretrained_model_config = BertConfig.from_pretrained(
+        pretrained_model_config = AutoConfig.from_pretrained(
             args.model.pretrained,
             num_labels=corpus.num_labels
         )
-        model = BertForTokenClassification.from_pretrained(
+        model = AutoModelForTokenClassification.from_pretrained(
             args.model.pretrained,
             config=pretrained_model_config
         )
@@ -89,7 +90,7 @@ def new_train(args_file: Path | str):
             fabric = L.Fabric(loggers=args.output.csv_out)
             fabric.setup(model, optimizer)
             train_dataloader, valid_dataloader = fabric.setup_dataloaders(train_dataloader, valid_dataloader)
-            train_with_fabric(fabric, args, model, optimizer, scheduler, train_dataloader, valid_dataloader)
+            train_with_fabric(fabric, args, model, optimizer, scheduler, train_dataloader, valid_dataloader, valid_dataset)
 
 
 # https://lightning.ai/docs/fabric/stable/guide/checkpoint.html
@@ -115,8 +116,8 @@ def save_checkpoint(fabric, args, metrics, model, optimizer,
 
 def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
                       model: torch.nn.Module, optimizer: torch.optim.Optimizer, scheduler: torch.optim.lr_scheduler.LRScheduler,
-                      train_dataloader: DataLoader, valid_dataloader: DataLoader):
-    time_tqdm = time_tqdm_cls(bar_size=30, desc_size=15, file=sys.stdout)
+                      train_dataloader: DataLoader, valid_dataloader: DataLoader, valid_dataset: NERDataset):
+    time_tqdm = time_tqdm_cls(bar_size=20, desc_size=8, file=sys.stdout)
     mute_tqdm = mute_tqdm_cls()
     val_interval: float = args.learning.validating_on * len(train_dataloader) if args.learning.validating_on <= 1.0 else args.learning.validating_on
     sorted_checkpoints: List[Tuple[float, Path]] = []
@@ -131,7 +132,7 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
         metrics["lr"] = optimizer.param_groups[0]['lr']
         epoch_tqdm = time_tqdm if fabric.is_global_zero else mute_tqdm
         for batch_idx, batch in enumerate(epoch_tqdm(train_dataloader, position=fabric.global_rank, pre=epoch_info,
-                                                     desc=f"batch training", unit=f"x{train_dataloader.batch_size}")):
+                                                     desc=f"training", unit=f"x{train_dataloader.batch_size}")):
             args.output.global_step += 1
             args.output.global_epoch += args.output.epoch_per_step
             batch: Dict[str, torch.Tensor] = pop_keys(batch, "example_ids")
@@ -147,8 +148,9 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
             optimizer.step()
             optimizer.zero_grad()
             if batch_idx + 1 == len(train_dataloader) or (batch_idx + 1) % val_interval < 1:
-                validate(fabric, args, model, optimizer, valid_dataloader, metrics=metrics, print_result=True)
-                sorted_checkpoints = save_checkpoint(fabric, args, metrics, model, optimizer, sorted_checkpoints, sorting_reverse, sorting_metric)
+                validate(fabric, args, model, valid_dataloader, valid_dataset, metrics=metrics, print_result=args.learning.validating_fmt is not None)
+                sorted_checkpoints = save_checkpoint(fabric, args, metrics, model, optimizer,
+                                                     sorted_checkpoints, sorting_reverse, sorting_metric)
             fabric.log_dict(step=args.output.global_step, metrics=metrics)
         scheduler.step()
         metrics["lr"] = optimizer.param_groups[0]['lr']
@@ -156,26 +158,53 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
             out_hr('-')
 
 
+def label_to_char_labels(label, num_char):
+    for i in range(num_char):
+        if i > 0 and ("-" in label):
+            yield "I-" + label.split("-", maxsplit=1)[-1]
+        else:
+            yield label
+
+
 @torch.no_grad()
-def validate(fabric: L.Fabric, args: TrainerArguments,
-             model: torch.nn.Module, optimizer: torch.optim.Optimizer,
-             valid_dataloader: DataLoader, metrics: Dict[str, Any], print_result: bool = True):
+def validate(fabric: L.Fabric, args: TrainerArguments, model: torch.nn.Module,
+             valid_dataloader: DataLoader, valid_dataset: NERDataset,
+             metrics: Dict[str, Any], print_result: bool = True):
     model.eval()
     metrics["val_loss"] = torch.zeros(len(valid_dataloader))
-    metrics["val_acc"] = torch.zeros(len(valid_dataloader))
+    # metrics["val_acc"] = torch.zeros(len(valid_dataloader))
+    whole_char_label_pairs: List[Tuple[int, int]] = []
     for batch_idx, batch in enumerate(valid_dataloader):
         example_ids: torch.Tensor = batch.pop("example_ids")
         outputs: TokenClassifierOutput = model(**batch)
-        labels: torch.Tensor = batch["labels"]
+        # labels: torch.Tensor = batch["labels"]
         preds: torch.Tensor = outputs.logits.argmax(dim=-1)
-        acc: torch.Tensor = accuracy(preds, labels, ignore_index=0)
+        # acc: torch.Tensor = accuracy(preds, labels, ignore_index=0)
+        for example_id, pred_ids in zip(example_ids.tolist(), preds.tolist()):
+            pred_labels = [valid_dataset.id_to_label(x) for x in pred_ids]
+            encoded_example: NEREncodedExample = valid_dataset[example_id]
+            offset_to_label: Dict[int, str] = encoded_example.raw.get_offset_label_dict()
+            char_label_pairs: List[Tuple[str | None, str | None]] = [(None, None)] * len(encoded_example.raw.character_list)
+            for token_id in range(args.model.max_seq_length):
+                token_span: CharSpan = encoded_example.encoded.token_to_chars(token_id)
+                if token_span:
+                    char_pred_tags = label_to_char_labels(pred_labels[token_id], token_span.end - token_span.start)
+                    for offset, char_pred_tag in zip(range(token_span.start, token_span.end), char_pred_tags):
+                        char_label_pairs[offset] = (offset_to_label[offset], char_pred_tag)
+            whole_char_label_pairs.extend([(valid_dataset.label_to_id(y), valid_dataset.label_to_id(p))
+                                           for y, p in char_label_pairs if y and p])
         metrics["val_loss"][batch_idx] = outputs.loss
-        metrics["val_acc"][batch_idx] = acc
+        # metrics["val_acc"][batch_idx] = acc
     metrics["val_loss"] = metrics["val_loss"].mean().item()
-    metrics["val_acc"] = metrics["val_acc"].mean().item()
-    validation_result = ', '.join([f'{k}={v:.4f}' for k, v in metrics.items() if k.startswith('val_')])
+    # metrics["val_acc"] = metrics["val_acc"].mean().item()
+    char_preds, char_labels = ([p for (y, p) in whole_char_label_pairs],
+                               [y for (y, p) in whole_char_label_pairs])
+    metrics["val_f1c"] = klue_ner_char_macro_f1(preds=char_preds, labels=char_labels, label_list=valid_dataset.get_labels())
+    metrics["val_f1e"] = klue_ner_entity_macro_f1(preds=char_preds, labels=char_labels, label_list=valid_dataset.get_labels())
     if print_result:
-        fabric.print(' | ' + validation_result)
+        terms = [m.group(1) for m in term_pattern.finditer(args.learning.validating_fmt)]
+        terms = {term: metrics[term] for term in terms}
+        fabric.print(' | ' + args.learning.validating_fmt.format(**terms))
 
 
 @app.command()
@@ -210,11 +239,11 @@ def train(args_file: Path | str):
                                     drop_last=False)
         err_hr(c='-')
 
-        pretrained_model_config = BertConfig.from_pretrained(
+        pretrained_model_config = AutoConfig.from_pretrained(
             args.model.pretrained,
             num_labels=corpus.num_labels
         )
-        model = BertForTokenClassification.from_pretrained(
+        model = AutoModelForTokenClassification.from_pretrained(
             args.model.pretrained,
             config=pretrained_model_config
         )
@@ -257,11 +286,11 @@ def test(args_file: Path | str):
                                      drop_last=False)
         err_hr(c='-')
 
-        pretrained_model_config = BertConfig.from_pretrained(
+        pretrained_model_config = AutoConfig.from_pretrained(
             args.model.pretrained,
             num_labels=corpus.num_labels
         )
-        model = BertForTokenClassification.from_pretrained(
+        model = AutoModelForTokenClassification.from_pretrained(
             args.model.pretrained,
             config=pretrained_model_config
         )
@@ -296,7 +325,7 @@ def serve(args_file: Path | str):
         labels = label_map_path.read_text().splitlines(keepends=False)
         id_to_label = {idx: label for idx, label in enumerate(labels)}
 
-        pretrained_model_config = BertConfig.from_pretrained(
+        pretrained_model_config = AutoConfig.from_pretrained(
             args.model.pretrained,
             num_labels=checkpoint['state_dict']['model.classifier.bias'].shape.numel(),
         )

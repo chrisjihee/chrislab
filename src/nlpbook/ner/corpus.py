@@ -205,8 +205,11 @@ class NERDataset(Dataset):
         assert text_data_path.exists() and text_data_path.is_file(), f"No data_text_path: {text_data_path}"
         logger.info(f"Creating features from dataset file at {text_data_path}")
         examples: List[NERRawExample] = self.corpus.read_raw_examples(text_data_path)
+        self.label_list: List[str] = self.corpus.get_labels()
+        self._label_to_id: Dict[str, int] = {label: i for i, label in enumerate(self.label_list)}
+        self._id_to_label: Dict[int, str] = {i: label for i, label in enumerate(self.label_list)}
         self.features: List[NEREncodedExample] = \
-            _convert_to_encoded_examples(examples, tokenizer, args, label_list=self.corpus.get_labels())
+            _convert_to_encoded_examples(examples, tokenizer, args, label_list=self.label_list)
 
     def __len__(self) -> int:
         return len(self.features)
@@ -215,7 +218,13 @@ class NERDataset(Dataset):
         return self.features[i]
 
     def get_labels(self) -> List[str]:
-        return self.corpus.get_labels()
+        return self.label_list
+
+    def label_to_id(self, label: str) -> int:
+        return self._label_to_id[label]
+
+    def id_to_label(self, label_id: int) -> str:
+        return self._id_to_label[label_id]
 
 
 def parse_tagged(origin: str, tagged: str, debug: bool = False) -> Optional[NERRawExample]:
