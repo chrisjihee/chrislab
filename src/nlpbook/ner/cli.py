@@ -145,12 +145,14 @@ class FabricTrainer(L.Fabric):
                     # self.clip_gradients(self.model, self.optimizer, clip_val=0.25)
                     self.optimizer.step()
                     self.optimizer.zero_grad()
+                    self.model.eval()
                     if batch_idx + 1 == len(self.train_dataloader) or (batch_idx + 1) % val_interval < 1:
                         validate(self, self.args, self.model, self.valid_dataloader, self.valid_dataset,
                                  metrics=metrics, print_result=self.args.learning.validating_fmt is not None)
                         sorted_checkpoints = save_checkpoint(self, self.args, metrics, self.model, self.optimizer,
                                                              sorted_checkpoints, sorting_reverse, sorting_metric)
                     self.log_dict(step=self.args.output.global_step, metrics=metrics)
+                    self.model.train()
                 self.scheduler.step()
                 metrics["lr"] = self.optimizer.param_groups[0]['lr']
                 if epoch + 1 < self.args.learning.epochs:
@@ -281,11 +283,13 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
             fabric.clip_gradients(model, optimizer, clip_val=0.25)
             optimizer.step()
             optimizer.zero_grad()
+            model.eval()
             if batch_idx + 1 == len(train_dataloader) or (batch_idx + 1) % val_interval < 1:
                 validate(fabric, args, model, valid_dataloader, valid_dataset, metrics=metrics, print_result=args.learning.validating_fmt is not None)
                 sorted_checkpoints = save_checkpoint(fabric, args, metrics, model, optimizer,
                                                      sorted_checkpoints, sorting_reverse, sorting_metric)
             fabric.log_dict(step=args.output.global_step, metrics=metrics)
+            model.train()
         scheduler.step()
         metrics["lr"] = optimizer.param_groups[0]['lr']
         if epoch + 1 < args.learning.epochs:
@@ -304,7 +308,6 @@ def label_to_char_labels(label, num_char):
 def validate(fabric: L.Fabric, args: TrainerArguments, model: torch.nn.Module,
              valid_dataloader: DataLoader, valid_dataset: NERDataset,
              metrics: Dict[str, Any], print_result: bool = True):
-    model.eval()
     metrics["val_loss"] = torch.zeros(len(valid_dataloader))
     # metrics["val_acc"] = torch.zeros(len(valid_dataloader))
     whole_char_label_pairs: List[Tuple[int, int]] = []
