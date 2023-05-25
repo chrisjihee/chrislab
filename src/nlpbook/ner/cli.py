@@ -149,7 +149,7 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
             if batch_idx + 1 == len(train_dataloader) or (batch_idx + 1) % val_interval < 1:
                 validate(fabric, args, model, optimizer, valid_dataloader, metrics=metrics, print_result=True)
                 sorted_checkpoints = save_checkpoint(fabric, args, metrics, model, optimizer, sorted_checkpoints, sorting_reverse, sorting_metric)
-            fabric.log_dict(metrics, step=args.output.global_step)
+            fabric.log_dict(step=args.output.global_step, metrics=metrics)
         scheduler.step()
         metrics["lr"] = optimizer.param_groups[0]['lr']
         if epoch + 1 < args.learning.epochs:
