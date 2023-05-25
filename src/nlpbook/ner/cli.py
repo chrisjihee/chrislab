@@ -36,6 +36,84 @@ def new_set_logger(level=logging.INFO):
     logger.setLevel(level)
 
 
+def new_set_logger2(level=logging.INFO, filename="running.log", fmt="%(levelname)s\t%(name)s\t%(message)s"):
+    from chrisbase.io import sys_stderr, sys_stdout
+    stream_handler = logging.StreamHandler(stream=sys_stderr)
+    file_handler = logging.FileHandler(filename=filename, mode="w", encoding="utf-8")
+
+    stream_handler.setFormatter(logging.Formatter(fmt=fmt))
+    file_handler.setFormatter(logging.Formatter(fmt=fmt))
+
+    logger.addHandler(stream_handler)
+    logger.addHandler(file_handler)
+
+    logger.setLevel(level)
+
+
+class FabricTrainer(L.Fabric):
+    def __init__(self, args: TrainerArguments):
+        # Data
+        tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained, use_fast=True)
+        assert isinstance(tokenizer, PreTrainedTokenizerFast), f"Our code support only PreTrainedTokenizerFast, but used {type(tokenizer)}"
+        corpus = NERCorpus(args)
+        train_dataset = NERDataset("train", args=args, corpus=corpus, tokenizer=tokenizer)
+        train_dataloader = DataLoader(train_dataset, sampler=RandomSampler(train_dataset, replacement=False),
+                                      num_workers=args.hardware.cpu_workers,
+                                      batch_size=args.hardware.batch_size,
+                                      collate_fn=encoded_examples_to_batch,
+                                      drop_last=True)
+        logger.info(f"Created train_dataset providing {len(train_dataset)} examples")
+        logger.info(f"Created train_dataloader loading {len(train_dataloader)} batches")
+        args.output.epoch_per_step = 1 / len(train_dataloader)
+        err_hr(c='-')
+        valid_dataset = NERDataset("valid", args=args, corpus=corpus, tokenizer=tokenizer)
+        valid_dataloader = DataLoader(valid_dataset, sampler=SequentialSampler(valid_dataset),
+                                      num_workers=args.hardware.cpu_workers,
+                                      batch_size=args.hardware.batch_size,
+                                      collate_fn=encoded_examples_to_batch,
+                                      drop_last=True)
+        logger.info(f"Created valid_dataset providing {len(valid_dataset)} examples")
+        logger.info(f"Created valid_dataloader loading {len(valid_dataloader)} batches")
+        err_hr(c='-')
+
+        # Model
+        pretrained_model_config = AutoConfig.from_pretrained(
+            args.model.pretrained,
+            num_labels=corpus.num_labels
+        )
+        model = AutoModelForTokenClassification.from_pretrained(
+            args.model.pretrained,
+            config=pretrained_model_config
+        )
+        err_hr(c='-')
+
+        # Optimizer
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning.speed)
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
+
+        # Fabric
+        args.setup_csv_out()
+        super().__init__(
+            accelerator=args.hardware.accelerator,
+            precision=args.hardware.precision,
+            strategy=args.hardware.strategy,
+            devices=args.hardware.devices,
+            loggers=args.output.csv_out
+        )
+        self.setup(model, optimizer)
+        train_dataloader, valid_dataloader = self.setup_dataloaders(train_dataloader, valid_dataloader)
+        self.train_dataloader = train_dataloader
+        self.valid_dataloader = valid_dataloader
+        self.args = args
+        train_with_fabric(self, args, model, optimizer, scheduler, train_dataloader, valid_dataloader, valid_dataset)
+
+    def run(self):
+        with RuntimeChecking():
+            print(f"self.args.output.csv_out.log_dir={self.args.output.csv_out.log_dir}")
+            print("RUNTIME!!")
+            logger.info("RUNTIME (2)")
+
+
 @app.command()
 def new_train(args_file: Path | str):
     args_file = Path(args_file)
