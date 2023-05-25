@@ -4,24 +4,23 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-import pytorch_lightning as pl
-import torch
-from flask import Flask
-from torch import Tensor
-from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
-from typer import Typer
-
 import lightning as L
+import lightning.pytorch as pl
 import nlpbook
+import torch
 from chrisbase.io import JobTimer, pop_keys, err_hr, out_hr
 from chrislab.common.util import time_tqdm_cls, mute_tqdm_cls
+from flask import Flask
 from klue_baseline.metrics.functional import klue_ner_entity_macro_f1, klue_ner_char_macro_f1
 from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
 from nlpbook.metrics import accuracy
 from nlpbook.ner.corpus import NERCorpus, NERDataset, encoded_examples_to_batch, NEREncodedExample
 from nlpbook.ner.task import NERTask
+from torch import Tensor
+from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from transformers import PreTrainedTokenizerFast, AutoTokenizer, AutoConfig, AutoModelForTokenClassification, BertForTokenClassification, CharSpan
 from transformers.modeling_outputs import TokenClassifierOutput
+from typer import Typer
 
 app = Typer()
 logger = logging.getLogger("chrislab")
@@ -37,7 +36,7 @@ def new_set_logger(level=logging.INFO):
 
 
 def new_set_logger2(level=logging.INFO, filename="running.log", fmt="%(levelname)s\t%(name)s\t%(message)s"):
-    from chrisbase.io import sys_stderr, sys_stdout
+    from chrisbase.io import sys_stderr
     stream_handler = logging.StreamHandler(stream=sys_stderr)
     file_handler = logging.FileHandler(filename=filename, mode="w", encoding="utf-8")
 
@@ -127,6 +126,7 @@ class FabricTrainer(L.Fabric):
             for epoch in range(self.args.learning.epochs):
                 epoch_info = f"(Epoch {epoch + 1:02d})"
                 metrics["epoch"] = round(self.args.output.global_epoch, 4)
+                metrics["trained_rate"] = round(self.args.output.global_epoch, 4) / self.args.learning.epochs
                 metrics["lr"] = self.optimizer.param_groups[0]['lr']
                 epoch_tqdm = time_tqdm if self.is_global_zero else mute_tqdm
                 for batch_idx, batch in enumerate(epoch_tqdm(self.train_dataloader, position=self.global_rank, pre=epoch_info,
@@ -139,6 +139,7 @@ class FabricTrainer(L.Fabric):
                     preds: torch.Tensor = outputs.logits.argmax(dim=-1)
                     acc: torch.Tensor = accuracy(preds, labels, ignore_index=0)
                     metrics["epoch"] = round(self.args.output.global_epoch, 4)
+                    metrics["trained_rate"] = round(self.args.output.global_epoch, 4) / self.args.learning.epochs
                     metrics["loss"] = outputs.loss.item()
                     metrics["acc"] = acc.item()
                     self.backward(outputs.loss)
@@ -265,6 +266,7 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
     for epoch in range(args.learning.epochs):
         epoch_info = f"(Epoch {epoch + 1:02d})"
         metrics["epoch"] = round(args.output.global_epoch, 4)
+        metrics["trained_rate"] = round(args.output.global_epoch, 4) / args.learning.epochs
         metrics["lr"] = optimizer.param_groups[0]['lr']
         epoch_tqdm = time_tqdm if fabric.is_global_zero else mute_tqdm
         for batch_idx, batch in enumerate(epoch_tqdm(train_dataloader, position=fabric.global_rank, pre=epoch_info,
@@ -277,6 +279,7 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
             preds: torch.Tensor = outputs.logits.argmax(dim=-1)
             acc: torch.Tensor = accuracy(preds, labels, ignore_index=0)
             metrics["epoch"] = round(args.output.global_epoch, 4)
+            metrics["trained_rate"] = round(args.output.global_epoch, 4) / args.learning.epochs
             metrics["loss"] = outputs.loss.item()
             metrics["acc"] = acc.item()
             fabric.backward(outputs.loss)

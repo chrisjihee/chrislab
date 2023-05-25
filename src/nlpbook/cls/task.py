@@ -1,10 +1,9 @@
-import pytorch_lightning as pl
-from pytorch_lightning import LightningModule
-from torch.optim import AdamW
-from torch.optim.lr_scheduler import ExponentialLR
-
+import lightning.pytorch as pl
+from lightning.pytorch import LightningModule
 from nlpbook.arguments import TrainerArguments, TesterArguments
 from nlpbook.metrics import accuracy
+from torch.optim import AdamW
+from torch.optim.lr_scheduler import ExponentialLR
 from transformers import PreTrainedModel
 from transformers.modeling_outputs import SequenceClassifierOutput
 

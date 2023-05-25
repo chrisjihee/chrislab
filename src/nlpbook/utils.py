@@ -4,8 +4,8 @@ import sys
 
 import requests
 import tqdm
-
 from transformers import HfArgumentParser
+
 from .arguments import TrainerArguments, TesterArguments
 
 REMOTE_DATA_MAP = {
@@ -215,7 +215,7 @@ def set_seed(args: TrainerArguments):
     if args.learning.seed is not None:
         from transformers import set_seed
         set_seed(args.learning.seed)
-        from pytorch_lightning import seed_everything
+        from lightning.pytorch import seed_everything
         seed_everything(args.learning.seed)
     else:
         print("not fixed seed", file=sys.stderr)

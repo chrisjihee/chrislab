@@ -1,21 +1,20 @@
 import logging
 from pathlib import Path
 
-import pytorch_lightning as pl
+import lightning.pytorch as pl
+import nlpbook
 import torch
 from Korpora import Korpora
-from flask import Flask
-from torch.utils.data import DataLoader, RandomSampler
-from torch.utils.data import SequentialSampler
-from typer import Typer
-
-import nlpbook
 from chrisbase.io import JobTimer, err_hr
+from flask import Flask
 from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
 from nlpbook.cls.corpus import NsmcCorpus, ClassificationDataset
 from nlpbook.cls.task import ClassificationTask
+from torch.utils.data import DataLoader, RandomSampler
+from torch.utils.data import SequentialSampler
 from transformers import BertConfig, BertForSequenceClassification, BertTokenizer
 from transformers.modeling_outputs import SequenceClassifierOutput
+from typer import Typer
 
 app = Typer()
 logger = logging.getLogger("chrislab")

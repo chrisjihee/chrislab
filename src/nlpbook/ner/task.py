@@ -1,16 +1,15 @@
 from typing import List, Dict, Tuple
 
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import torch
-from pytorch_lightning import LightningModule
-from torch.optim import AdamW
-from torch.optim.lr_scheduler import ExponentialLR
-
 from chrisbase.io import out_hr
 from klue_baseline.metrics.functional import klue_ner_entity_macro_f1, klue_ner_char_macro_f1
+from lightning.pytorch import LightningModule
 from nlpbook.arguments import TesterArguments, TrainerArguments
 from nlpbook.metrics import accuracy
 from nlpbook.ner import NERDataset, NEREncodedExample
+from torch.optim import AdamW
+from torch.optim.lr_scheduler import ExponentialLR
 from transformers import PreTrainedModel, CharSpan
 from transformers.modeling_outputs import TokenClassifierOutput
 
@@ -164,8 +163,8 @@ class NERTask(LightningModule):
         assert len(self._validation_char_pred_ids) == len(self._validation_char_label_ids)
         chr_f1 = klue_ner_char_macro_f1(preds=self._validation_char_pred_ids, labels=self._validation_char_label_ids, label_list=self._labels)
         ent_f1 = klue_ner_entity_macro_f1(preds=self._validation_char_pred_ids, labels=self._validation_char_label_ids, label_list=self._labels)
-        self.log(prog_bar=True, logger=True, on_epoch=True, name="chr_f1", value=chr_f1)
-        self.log(prog_bar=True, logger=True, on_epoch=True, name="ent_f1", value=ent_f1)
+        self.log(prog_bar=True, logger=True, on_epoch=True, name="val_f1c", value=chr_f1)
+        self.log(prog_bar=True, logger=True, on_epoch=True, name="val_f1e", value=ent_f1)
 
     def test_step(self, batch, batch_idx) -> torch.Tensor:
         outputs: TokenClassifierOutput = self.model(**batch)

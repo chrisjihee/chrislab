@@ -1,12 +1,11 @@
 from pathlib import Path
 
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import torch
-from flask import Flask, request, jsonify, render_template
-
 from chrisbase.io import merge_dicts
 from chrisbase.time import now
-from lightning.fabric.loggers import CSVLogger
+from flask import Flask, request, jsonify, render_template
+from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
 from nlpbook.arguments import TrainerArguments, TesterArguments, ServerArguments
 

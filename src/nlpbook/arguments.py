@@ -6,15 +6,14 @@ from pathlib import Path
 from typing import List
 
 import pandas as pd
-from dataclasses_json import DataClassJsonMixin
-
 from chrisbase.io import ProjectEnv, make_dir
 from chrisbase.io import files, make_parent_dir, out_hr, out_table
 from chrisbase.time import now, str_delta
 from chrisbase.util import to_dataframe
+from dataclasses_json import DataClassJsonMixin
 from lightning.fabric.accelerators import Accelerator
-from lightning.fabric.loggers import CSVLogger
 from lightning.fabric.strategies import Strategy
+from lightning.pytorch.loggers import CSVLogger
 
 
 @dataclass
@@ -182,7 +181,7 @@ class CommonArguments(ArgumentGroupData):
     def setup_csv_out(self, version=None):
         if not version:
             version = now('%m%d.%H%M%S')
-        self.output.csv_out = CSVLogger(root_dir=self.model.finetuning_home, name=self.data.name,
+        self.output.csv_out = CSVLogger(self.model.finetuning_home, name=self.data.name,
                                         version=f'{self.tag}-{self.job.name}-{version}',
                                         flush_logs_every_n_steps=1)
         self.output.dir_path = Path(self.output.csv_out.log_dir)
