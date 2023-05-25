@@ -105,24 +105,80 @@ class FabricTrainer(L.Fabric):
         self.train_dataloader = train_dataloader
         self.valid_dataloader = valid_dataloader
         self.args = args
-        train_with_fabric(self, args, model, optimizer, scheduler, train_dataloader, valid_dataloader, valid_dataset)
+        self.model = model
+        self.optimizer = optimizer
+        self.scheduler = scheduler
+        self.train_dataloader = train_dataloader
+        self.valid_dataloader = valid_dataloader
+        self.valid_dataset = valid_dataset
 
     def run(self):
-        with RuntimeChecking():
-            print(f"self.args.output.csv_out.log_dir={self.args.output.csv_out.log_dir}")
-            print("RUNTIME!!")
-            logger.info("RUNTIME (2)")
+        with RuntimeChecking(self.args):
+            time_tqdm = time_tqdm_cls(bar_size=20, desc_size=8, file=sys.stdout)
+            mute_tqdm = mute_tqdm_cls()
+            val_interval: float = self.args.learning.validating_on if self.args.learning.validating_on > 1.0 \
+                else self.args.learning.validating_on * len(self.train_dataloader)
+            sorted_checkpoints: List[Tuple[float, Path]] = []
+            sorting_reverse: bool = not self.args.learning.keeping_by.split()[0].lower().startswith("min")
+            sorting_metric: str = self.args.learning.keeping_by.split()[-1]
+            metrics: Dict[str, Any] = {}
+            self.args.output.global_step = 0
+            self.args.output.global_epoch = 0.0
+            for epoch in range(self.args.learning.epochs):
+                epoch_info = f"(Epoch {epoch + 1:02d})"
+                metrics["epoch"] = round(self.args.output.global_epoch, 4)
+                metrics["lr"] = self.optimizer.param_groups[0]['lr']
+                epoch_tqdm = time_tqdm if self.is_global_zero else mute_tqdm
+                for batch_idx, batch in enumerate(epoch_tqdm(self.train_dataloader, position=self.global_rank, pre=epoch_info,
+                                                             desc=f"training", unit=f"x{self.train_dataloader.batch_size}")):
+                    self.args.output.global_step += 1
+                    self.args.output.global_epoch += self.args.output.epoch_per_step
+                    batch: Dict[str, torch.Tensor] = pop_keys(batch, "example_ids")
+                    outputs: TokenClassifierOutput = self.model(**batch)
+                    labels: torch.Tensor = batch["labels"]
+                    preds: torch.Tensor = outputs.logits.argmax(dim=-1)
+                    acc: torch.Tensor = accuracy(preds, labels, ignore_index=0)
+                    metrics["epoch"] = round(self.args.output.global_epoch, 4)
+                    metrics["loss"] = outputs.loss.item()
+                    metrics["acc"] = acc.item()
+                    self.backward(outputs.loss)
+                    # self.clip_gradients(self.model, self.optimizer, clip_val=0.25)
+                    self.optimizer.step()
+                    self.optimizer.zero_grad()
+                    if batch_idx + 1 == len(self.train_dataloader) or (batch_idx + 1) % val_interval < 1:
+                        validate(self, self.args, self.model, self.valid_dataloader, self.valid_dataset,
+                                 metrics=metrics, print_result=self.args.learning.validating_fmt is not None)
+                        sorted_checkpoints = save_checkpoint(self, self.args, metrics, self.model, self.optimizer,
+                                                             sorted_checkpoints, sorting_reverse, sorting_metric)
+                    self.log_dict(step=self.args.output.global_step, metrics=metrics)
+                self.scheduler.step()
+                metrics["lr"] = self.optimizer.param_groups[0]['lr']
+                if epoch + 1 < self.args.learning.epochs:
+                    out_hr('-')
 
 
 @app.command()
-def new_train(args_file: Path | str):
+def fabric_train2(args_file: Path | str):
     args_file = Path(args_file)
     assert args_file.exists(), f"No args_file: {args_file}"
     args: TrainerArguments = TrainerArguments.from_json(args_file.read_text()).show()
     new_set_logger()
     L.seed_everything(args.learning.seed)
 
-    with JobTimer(f"chrialab.nlpbook.ner new_train {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
+    with JobTimer(f"chrialab.nlpbook.ner fabric_train2 {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
+        # torch.set_float32_matmul_precision('high')
+        FabricTrainer(args).run()
+
+
+@app.command()
+def fabric_train1(args_file: Path | str):
+    args_file = Path(args_file)
+    assert args_file.exists(), f"No args_file: {args_file}"
+    args: TrainerArguments = TrainerArguments.from_json(args_file.read_text()).show()
+    new_set_logger()
+    L.seed_everything(args.learning.seed)
+
+    with JobTimer(f"chrialab.nlpbook.ner fabric_train1 {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
         # Data
         tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained, use_fast=True)
         assert isinstance(tokenizer, PreTrainedTokenizerFast), f"Our code support only PreTrainedTokenizerFast, but used {type(tokenizer)}"
