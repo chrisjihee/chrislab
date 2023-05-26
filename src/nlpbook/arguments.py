@@ -112,12 +112,9 @@ class JobTimer(ResultData):
     name: str = field()
     t1 = datetime.now()
     t2 = datetime.now()
-    started: str | None = field(init=False)
-    settled: str | None = field(init=False)
-    elapsed: str | None = field(init=False)
-
-    def __post_init__(self):
-        self.set_started()
+    started: str | None = field(default=None)
+    settled: str | None = field(default=None)
+    elapsed: str | None = field(default=None)
 
     def set_started(self):
         self.started = now()
