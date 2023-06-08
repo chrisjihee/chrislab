@@ -31,6 +31,93 @@ class DPRawExample(DataClassJsonMixin):
 class DPCorpus:
     def __init__(self, args: TesterArguments):
         self.args = args
+        self.dep_labels = [
+            "NP",
+            "NP_AJT",
+            "VP",
+            "NP_SBJ",
+            "VP_MOD",
+            "NP_OBJ",
+            "AP",
+            "NP_CNJ",
+            "NP_MOD",
+            "VNP",
+            "DP",
+            "VP_AJT",
+            "VNP_MOD",
+            "NP_CMP",
+            "VP_SBJ",
+            "VP_CMP",
+            "VP_OBJ",
+            "VNP_CMP",
+            "AP_MOD",
+            "X_AJT",
+            "VP_CNJ",
+            "VNP_AJT",
+            "IP",
+            "X",
+            "X_SBJ",
+            "VNP_OBJ",
+            "VNP_SBJ",
+            "X_OBJ",
+            "AP_AJT",
+            "L",
+            "X_MOD",
+            "X_CNJ",
+            "VNP_CNJ",
+            "X_CMP",
+            "AP_CMP",
+            "AP_SBJ",
+            "R",
+            "NP_SVJ",
+        ]
+        self.pos_labels = [
+            "NNG",
+            "NNP",
+            "NNB",
+            "NP",
+            "NR",
+            "VV",
+            "VA",
+            "VX",
+            "VCP",
+            "VCN",
+            "MMA",
+            "MMD",
+            "MMN",
+            "MAG",
+            "MAJ",
+            "JC",
+            "IC",
+            "JKS",
+            "JKC",
+            "JKG",
+            "JKO",
+            "JKB",
+            "JKV",
+            "JKQ",
+            "JX",
+            "EP",
+            "EF",
+            "EC",
+            "ETN",
+            "ETM",
+            "XPN",
+            "XSN",
+            "XSV",
+            "XSA",
+            "XR",
+            "SF",
+            "SP",
+            "SS",
+            "SE",
+            "SO",
+            "SL",
+            "SH",
+            "SW",
+            "SN",
+            "NA",
+        ]
 
     def read_raw_examples(self, data_path: Path) -> List[DPRawExample]:
         sent_id = -1
@@ -65,6 +152,12 @@ class DPCorpus:
         logger.info(f"Loaded {len(examples)} examples from {data_path}")
         return examples
 
+    def get_dep_labels(self) -> List[str]:
+        return self.dep_labels
+
+    def get_pos_labels(self) -> List[str]:
+        return self.pos_labels
+
 
 class DPDataset(Dataset):
     def __init__(self, split: str, args: TesterArguments, tokenizer: PreTrainedTokenizerFast, corpus: DPCorpus):
@@ -79,3 +172,5 @@ class DPDataset(Dataset):
         assert text_data_path.exists() and text_data_path.is_file(), f"No data_text_path: {text_data_path}"
         logger.info(f"Creating features from dataset file at {text_data_path}")
         examples: List[DPRawExample] = self.corpus.read_raw_examples(text_data_path)
+        self.dep_labels: List[str] = self.corpus.get_dep_labels()
+        self.pos_labels: List[str] = self.corpus.get_pos_labels()
