@@ -1,14 +1,11 @@
 import logging
-import os
 import re
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, ClassVar, Dict
 
 import torch
 from dataclasses_json import DataClassJsonMixin
-from filelock import FileLock
 from torch.utils.data.dataset import Dataset
 
 from chrisbase.io import make_parent_dir, files, merge_dicts, out_hr
