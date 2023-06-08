@@ -378,7 +378,35 @@ class DPDataset(Dataset):
         examples: List[DPRawExample] = self.corpus.read_raw_examples(text_data_path)
         self.dep_labels: List[str] = self.corpus.get_dep_labels()
         self.pos_labels: List[str] = self.corpus.get_pos_labels()
+        self._dep_label_to_id: Dict[str, int] = {label: i for i, label in enumerate(self.dep_labels)}
+        self._pos_label_to_id: Dict[str, int] = {label: i for i, label in enumerate(self.pos_labels)}
+        self._id_to_dep_label: Dict[int, str] = {i: label for i, label in enumerate(self.dep_labels)}
+        self._id_to_pos_label: Dict[int, str] = {i: label for i, label in enumerate(self.pos_labels)}
         self.features: List[DPEncodedExample] = \
             _convert_to_encoded_examples(examples, tokenizer, args,
                                          pos_label_list=self.pos_labels,
                                          dep_label_list=self.dep_labels)
+
+    def __len__(self) -> int:
+        return len(self.features)
+
+    def __getitem__(self, i) -> DPEncodedExample:
+        return self.features[i]
+
+    def get_dep_labels(self) -> List[str]:
+        return self.dep_labels
+
+    def get_pos_labels(self) -> List[str]:
+        return self.pos_labels
+
+    def dep_label_to_id(self, label: str) -> int:
+        return self._dep_label_to_id[label]
+
+    def pos_label_to_id(self, label: str) -> int:
+        return self._pos_label_to_id[label]
+
+    def id_to_dep_label(self, label_id: int) -> str:
+        return self._id_to_dep_label[label_id]
+
+    def id_to_pos_label(self, label_id: int) -> str:
+        return self._id_to_pos_label[label_id]
