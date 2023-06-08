@@ -12,6 +12,7 @@ from chrisbase.io import JobTimer, pop_keys, err_hr, out_hr
 from chrislab.common.util import time_tqdm_cls, mute_tqdm_cls
 from flask import Flask
 from klue_baseline.metrics.functional import klue_ner_entity_macro_f1, klue_ner_char_macro_f1
+from nlpbook import new_set_logger
 from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
 from nlpbook.metrics import accuracy
 from nlpbook.ner.corpus import NERCorpus, NERDataset, encoded_examples_to_batch, NEREncodedExample
@@ -27,28 +28,6 @@ logger = logging.getLogger("chrislab")
 term_pattern = re.compile(re.escape("{") + "(.+?)(:.+?)?" + re.escape("}"))
 
 
-def new_set_logger(level=logging.INFO):
-    stream_handler = logging.StreamHandler()
-    formatter = logging.Formatter(fmt="%(levelname)s\t%(name)s\t%(message)s")
-    stream_handler.setFormatter(formatter)
-    logger.addHandler(stream_handler)
-    logger.setLevel(level)
-
-
-def new_set_logger2(level=logging.INFO, filename="running.log", fmt="%(levelname)s\t%(name)s\t%(message)s"):
-    from chrisbase.io import sys_stderr
-    stream_handler = logging.StreamHandler(stream=sys_stderr)
-    file_handler = logging.FileHandler(filename=filename, mode="w", encoding="utf-8")
-
-    stream_handler.setFormatter(logging.Formatter(fmt=fmt))
-    file_handler.setFormatter(logging.Formatter(fmt=fmt))
-
-    logger.addHandler(stream_handler)
-    logger.addHandler(file_handler)
-
-    logger.setLevel(level)
-
-
 @app.command()
 def fabric_train(args_file: Path | str):
     args_file = Path(args_file)
@@ -57,7 +36,7 @@ def fabric_train(args_file: Path | str):
     new_set_logger()
     L.seed_everything(args.learning.seed)
 
-    with JobTimer(f"chrialab.nlpbook.ner fabric_train1 {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
+    with JobTimer(f"chrialab.nlpbook.ner fabric_train {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
         # Data
         tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained, use_fast=True)
         assert isinstance(tokenizer, PreTrainedTokenizerFast), f"Our code support only PreTrainedTokenizerFast, but used {type(tokenizer)}"

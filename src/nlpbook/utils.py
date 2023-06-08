@@ -231,6 +231,28 @@ def set_logger(level=logging.INFO):
     logger.setLevel(level)
 
 
+def new_set_logger(level=logging.INFO):
+    stream_handler = logging.StreamHandler()
+    formatter = logging.Formatter(fmt="%(levelname)s\t%(name)s\t%(message)s")
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(stream_handler)
+    logger.setLevel(level)
+
+
+def new_set_logger2(level=logging.INFO, filename="running.log", fmt="%(levelname)s\t%(name)s\t%(message)s"):
+    from chrisbase.io import sys_stderr
+    stream_handler = logging.StreamHandler(stream=sys_stderr)
+    file_handler = logging.FileHandler(filename=filename, mode="w", encoding="utf-8")
+
+    stream_handler.setFormatter(logging.Formatter(fmt=fmt))
+    file_handler.setFormatter(logging.Formatter(fmt=fmt))
+
+    logger.addHandler(stream_handler)
+    logger.addHandler(file_handler)
+
+    logger.setLevel(level)
+
+
 def load_arguments(argument_class, json_file_path=None):
     parser = HfArgumentParser(argument_class)
     if json_file_path is not None:
