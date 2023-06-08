@@ -186,6 +186,7 @@ def _convert_to_encoded_examples(
         logger.info("  = labels     : %s" % " ".join([id_to_label[x] for x in encoded_example.label_ids]))
         logger.info("  === ")
 
+    logger.info(f"Converted {len(raw_examples)} raw examples to {len(encoded_examples)} encoded examples")
     return encoded_examples
 
 
