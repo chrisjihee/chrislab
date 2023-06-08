@@ -15,6 +15,7 @@ from klue_baseline.metrics.functional import klue_ner_entity_macro_f1, klue_ner_
 from nlpbook import new_set_logger
 from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
 from nlpbook.metrics import accuracy
+from nlpbook.dp.corpus import DPCorpus, DPDataset
 from nlpbook.ner.corpus import NERCorpus, NERDataset, encoded_examples_to_batch, NEREncodedExample
 from nlpbook.ner.task import NERTask
 from torch import Tensor
@@ -40,3 +41,5 @@ def fabric_train(args_file: Path | str):
         # Data
         tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained, use_fast=True)
         assert isinstance(tokenizer, PreTrainedTokenizerFast), f"Our code support only PreTrainedTokenizerFast, but used {type(tokenizer)}"
+        corpus = DPCorpus(args)
+        train_dataset = DPDataset("train", args=args, corpus=corpus, tokenizer=tokenizer)
