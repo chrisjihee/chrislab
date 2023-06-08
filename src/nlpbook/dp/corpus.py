@@ -18,7 +18,14 @@ logger = logging.getLogger("chrislab")
 
 @dataclass
 class DPRawExample(DataClassJsonMixin):
-    origin: str = field(default_factory=str)
+    guid: str = field()
+    text: str = field()
+    sent_id: int = field()
+    token_id: int = field()
+    token: str = field()
+    pos: str = field()
+    head: str = field()
+    dep: str = field()
 
 
 class DPCorpus:
@@ -26,9 +33,35 @@ class DPCorpus:
         self.args = args
 
     def read_raw_examples(self, data_path: Path) -> List[DPRawExample]:
+        sent_id = -1
         examples = []
         with data_path.open(encoding="utf-8") as inp:
-            pass
+            for line in inp:
+                line = line.strip()
+                if line == "" or line == "\n" or line == "\t":
+                    continue
+                if line.startswith("#"):
+                    parsed = line.strip().split("\t")
+                    if len(parsed) != 2:  # metadata line about dataset
+                        continue
+                    else:
+                        sent_id += 1
+                        text = parsed[1].strip()
+                        guid = parsed[0].replace("##", "").strip()
+                else:
+                    token_list = [token.replace("\n", "") for token in line.split("\t")] + ["-", "-"]
+                    examples.append(
+                        DPRawExample(
+                            guid=guid,
+                            text=text,
+                            sent_id=sent_id,
+                            token_id=int(token_list[0]),
+                            token=token_list[1],
+                            pos=token_list[3],
+                            head=token_list[4],
+                            dep=token_list[5],
+                        )
+                    )
         logger.info(f"Loaded {len(examples)} examples from {data_path}")
         return examples
 
