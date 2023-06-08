@@ -30,7 +30,9 @@ class DPRawExample(DataClassJsonMixin):
 
 @dataclass
 class DPEncodedExample:
-    guid: str
+    idx: int
+    raw: DPRawExample
+    encoded: BatchEncoding
     ids: List[int]
     mask: List[int]
     bpe_head_mask: List[int]
@@ -178,11 +180,15 @@ def _convert_to_encoded_examples(
         pos_label_list: List[str],
         dep_label_list: List[str],
 ) -> List[DPEncodedExample]:
-    pos_label_map = {label: i for i, label in enumerate(pos_label_list)}
-    dep_label_map = {label: i for i, label in enumerate(dep_label_list)}
+    pos_label_to_id = {label: i for i, label in enumerate(pos_label_list)}
+    dep_label_to_id = {label: i for i, label in enumerate(dep_label_list)}
+    id_to_pos_label = {i: label for i, label in enumerate(pos_label_list)}
+    id_to_dep_label = {i: label for i, label in enumerate(dep_label_list)}
     if args.env.off_debugging:
-        print(f"pos_label_map = {pos_label_map}")
-        print(f"dep_label_map = {dep_label_map}")
+        print(f"pos_label_to_id = {pos_label_to_id}")
+        print(f"dep_label_to_id = {dep_label_to_id}")
+        print(f"id_to_pos_label = {id_to_pos_label}")
+        print(f"id_to_dep_label = {id_to_dep_label}")
 
     SENT_ID = 0
     token_list: List[str] = []
@@ -191,6 +197,8 @@ def _convert_to_encoded_examples(
     dep_list: List[str] = []
 
     encoded_examples: List[DPEncodedExample] = []
+    prev_raw_example: Optional[DPRawExample] = None
+    prev_SENT_ID: int = -1
     for raw_example in raw_examples:
         raw_example: DPRawExample = raw_example
         if SENT_ID != raw_example.sent_id:
@@ -217,8 +225,8 @@ def _convert_to_encoded_examples(
                 head_token_mask = [1] + [0] * (bpe_len - 1)
                 tail_token_mask = [0] * (bpe_len - 1) + [1]
                 head_mask = [head] + [-1] * (bpe_len - 1)
-                dep_mask = [dep_label_map[dep]] + [-1] * (bpe_len - 1)
-                pos_mask = [pos_label_map[pos]] + [-1] * (bpe_len - 1)
+                dep_mask = [dep_label_to_id[dep]] + [-1] * (bpe_len - 1)
+                pos_mask = [pos_label_to_id[pos]] + [-1] * (bpe_len - 1)
                 bpe_head_mask.extend(head_token_mask)
                 bpe_tail_mask.extend(tail_token_mask)
                 head_ids.extend(head_mask)
@@ -243,7 +251,9 @@ def _convert_to_encoded_examples(
                 pos_ids.extend([-1] * (args.model.max_seq_length - len(pos_ids)))
 
             encoded_example = DPEncodedExample(
-                guid=raw_example.guid,
+                idx=prev_SENT_ID,
+                raw=prev_raw_example,
+                encoded=encoded,
                 ids=ids,
                 mask=mask,
                 bpe_head_mask=bpe_head_mask,
@@ -271,6 +281,8 @@ def _convert_to_encoded_examples(
         pos_list.append(raw_example.pos.split("+")[-1])  # 맨 뒤 pos정보만 사용
         head_list.append(int(raw_example.head))
         dep_list.append(raw_example.dep)
+        prev_raw_example = raw_example
+        prev_SENT_ID = SENT_ID
 
     encoded: BatchEncoding = tokenizer.encode_plus(" ".join(token_list),
                                                    max_length=args.model.max_seq_length,
@@ -294,8 +306,8 @@ def _convert_to_encoded_examples(
         head_token_mask = [1] + [0] * (bpe_len - 1)
         tail_token_mask = [0] * (bpe_len - 1) + [1]
         head_mask = [head] + [-1] * (bpe_len - 1)
-        dep_mask = [dep_label_map[dep]] + [-1] * (bpe_len - 1)
-        pos_mask = [pos_label_map[pos]] + [-1] * (bpe_len - 1)
+        dep_mask = [dep_label_to_id[dep]] + [-1] * (bpe_len - 1)
+        pos_mask = [pos_label_to_id[pos]] + [-1] * (bpe_len - 1)
         bpe_head_mask.extend(head_token_mask)
         bpe_tail_mask.extend(tail_token_mask)
         head_ids.extend(head_mask)
@@ -313,7 +325,9 @@ def _convert_to_encoded_examples(
     pos_ids.extend([-1] * (args.model.max_seq_length - len(pos_ids)))
 
     encoded_example = DPEncodedExample(
-        guid=raw_example.guid,
+        idx=prev_SENT_ID,
+        raw=prev_raw_example,
+        encoded=encoded,
         ids=ids,
         mask=mask,
         bpe_head_mask=bpe_head_mask,
@@ -331,6 +345,19 @@ def _convert_to_encoded_examples(
         print(f"dep_ids                 = {dep_ids}")
         print(f"pos_ids                 = {pos_ids}")
         print()
+
+    if args.env.off_debugging:
+        out_hr()
+    for encoded_example in encoded_examples[:args.data.show_examples]:
+        logger.info("  === [Example %s] ===" % encoded_example.idx)
+        logger.info("  = sentence      : %s" % encoded_example.raw.text)
+        logger.info("  = tokens        : %s" % " ".join(encoded_example.encoded.tokens()))
+        logger.info("  = bpe_head_mask : %s" % " ".join(str(x) for x in encoded_example.bpe_head_mask))
+        logger.info("  = bpe_tail_mask : %s" % " ".join(str(x) for x in encoded_example.bpe_tail_mask))
+        logger.info("  = head_ids      : %s" % " ".join(str(x) for x in encoded_example.head_ids))
+        logger.info("  = dep_labels    : %s" % " ".join(id_to_dep_label[x] if x in id_to_dep_label else str(x) for x in encoded_example.dep_ids))
+        logger.info("  = pos_labels    : %s" % " ".join(id_to_pos_label[x] if x in id_to_pos_label else str(x) for x in encoded_example.pos_ids))
+        logger.info("  === ")
 
     logger.info(f"Converted {len(raw_examples)} raw examples to {len(encoded_examples)} encoded examples")
     return encoded_examples
