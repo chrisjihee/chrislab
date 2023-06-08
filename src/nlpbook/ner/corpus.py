@@ -194,7 +194,7 @@ class NERDataset(Dataset):
         assert corpus, "corpus is not valid"
         assert args.data.home, f"No data_home: {args.data.home}"
         assert args.data.name, f"No data_name: {args.data.name}"
-        self.corpus = corpus
+        self.corpus: NERCorpus = corpus
         data_file_dict: dict = args.data.files.to_dict()
         assert split in data_file_dict, f"No '{split}' split in data_file: should be one of {list(data_file_dict.keys())}"
         assert data_file_dict[split], f"No data_file for '{split}' split: {args.data.files}"
