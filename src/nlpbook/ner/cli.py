@@ -15,7 +15,7 @@ from klue_baseline.metrics.functional import klue_ner_entity_macro_f1, klue_ner_
 from nlpbook import new_set_logger
 from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
 from nlpbook.metrics import accuracy
-from nlpbook.ner.corpus import NERCorpus, NERDataset, encoded_examples_to_batch, NEREncodedExample
+from nlpbook.ner.corpus import NERCorpus, NERDataset, ner_encoded_examples_to_batch, NEREncodedExample
 from nlpbook.ner.task import NERTask
 from torch import Tensor
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
@@ -46,7 +46,7 @@ def fabric_train(args_file: Path | str):
                                       sampler=RandomSampler(train_dataset, replacement=False),
                                       num_workers=args.hardware.cpu_workers,
                                       batch_size=args.hardware.batch_size,
-                                      collate_fn=encoded_examples_to_batch,
+                                      collate_fn=ner_encoded_examples_to_batch,
                                       drop_last=True)
         logger.info(f"Created train_dataset providing {len(train_dataset)} examples")
         logger.info(f"Created train_dataloader loading {len(train_dataloader)} batches")
@@ -57,7 +57,7 @@ def fabric_train(args_file: Path | str):
                                       sampler=SequentialSampler(valid_dataset),
                                       num_workers=args.hardware.cpu_workers,
                                       batch_size=args.hardware.batch_size,
-                                      collate_fn=encoded_examples_to_batch,
+                                      collate_fn=ner_encoded_examples_to_batch,
                                       drop_last=True)
         logger.info(f"Created valid_dataset providing {len(valid_dataset)} examples")
         logger.info(f"Created valid_dataloader loading {len(valid_dataloader)} batches")
@@ -224,7 +224,7 @@ def train(args_file: Path | str):
         train_dataloader = DataLoader(train_dataset, sampler=RandomSampler(train_dataset, replacement=False),
                                       num_workers=args.hardware.cpu_workers,
                                       batch_size=args.hardware.batch_size,
-                                      collate_fn=encoded_examples_to_batch,
+                                      collate_fn=ner_encoded_examples_to_batch,
                                       drop_last=False)
         err_hr(c='-')
 
@@ -232,7 +232,7 @@ def train(args_file: Path | str):
         val_dataloader = DataLoader(val_dataset, sampler=SequentialSampler(val_dataset),
                                     num_workers=args.hardware.cpu_workers,
                                     batch_size=args.hardware.batch_size,
-                                    collate_fn=encoded_examples_to_batch,
+                                    collate_fn=ner_encoded_examples_to_batch,
                                     drop_last=False)
         err_hr(c='-')
 

@@ -33,13 +33,34 @@ class DPEncodedExample:
     idx: int
     raw: DPRawExample
     encoded: BatchEncoding
-    ids: List[int]
-    mask: List[int]
     bpe_head_mask: List[int]
     bpe_tail_mask: List[int]
     head_ids: List[int]
     dep_ids: List[int]
     pos_ids: List[int]
+
+
+def dp_encoded_examples_to_batch(examples: List[DPEncodedExample]) -> Dict[str, torch.Tensor]:
+    first = examples[0]
+    batch = {}
+    for k, v in first.encoded.items():
+        if k not in ("label", "label_ids") and v is not None and not isinstance(v, str):
+            if isinstance(v, torch.Tensor):
+                batch[k] = torch.stack([ex.encoded[k] for ex in examples])
+            else:
+                batch[k] = torch.tensor([ex.encoded[k] for ex in examples], dtype=torch.long)
+    batch["bpe_head_mask"] = torch.tensor([ex.bpe_head_mask for ex in examples],
+                                          dtype=torch.long if type(first.bpe_head_mask[0]) is int else torch.float)
+    batch["bpe_tail_mask"] = torch.tensor([ex.bpe_tail_mask for ex in examples],
+                                          dtype=torch.long if type(first.bpe_tail_mask[0]) is int else torch.float)
+    batch["head_ids"] = torch.tensor([ex.head_ids for ex in examples],
+                                     dtype=torch.long if type(first.head_ids[0]) is int else torch.float)
+    batch["dep_ids"] = torch.tensor([ex.dep_ids for ex in examples],
+                                    dtype=torch.long if type(first.dep_ids[0]) is int else torch.float)
+    batch["pos_ids"] = torch.tensor([ex.pos_ids for ex in examples],
+                                    dtype=torch.long if type(first.pos_ids[0]) is int else torch.float)
+    batch["example_ids"] = torch.tensor([ex.idx for ex in examples], dtype=torch.int)
+    return batch
 
 
 class DPCorpus:
@@ -172,6 +193,10 @@ class DPCorpus:
     def get_pos_labels(self) -> List[str]:
         return self.pos_labels
 
+    @property
+    def num_labels(self):
+        return len(self.get_dep_labels())
+
 
 def _convert_to_encoded_examples(
         raw_examples: List[DPRawExample],
@@ -212,7 +237,6 @@ def _convert_to_encoded_examples(
                 print(f"encoded.tokens()        = {encoded.tokens()}")
                 for key in encoded.keys():
                     print(f"encoded[{key:14s}] = {encoded[key]}")
-            ids, mask = encoded.input_ids, encoded.attention_mask
 
             # TODO: 추후 encoded.word_to_tokens() 함수를 활용한 코드로 변경!
             bpe_head_mask = [0]
@@ -254,8 +278,6 @@ def _convert_to_encoded_examples(
                 idx=prev_SENT_ID,
                 raw=prev_raw_example,
                 encoded=encoded,
-                ids=ids,
-                mask=mask,
                 bpe_head_mask=bpe_head_mask,
                 bpe_tail_mask=bpe_tail_mask,
                 head_ids=head_ids,
@@ -273,9 +295,9 @@ def _convert_to_encoded_examples(
                 print()
 
             token_list = []
-            pos_list = []
             head_list = []
             dep_list = []
+            pos_list = []
 
         token_list.append(raw_example.token)
         pos_list.append(raw_example.pos.split("+")[-1])  # 맨 뒤 pos정보만 사용
@@ -293,7 +315,6 @@ def _convert_to_encoded_examples(
         print(f"encoded.tokens()        = {encoded.tokens()}")
         for key in encoded.keys():
             print(f"encoded[{key:14s}] = {encoded[key]}")
-    ids, mask = encoded.input_ids, encoded.attention_mask
 
     # TODO: 추후 encoded.word_to_tokens() 함수를 활용한 코드로 변경!
     bpe_head_mask = [0]
@@ -328,8 +349,6 @@ def _convert_to_encoded_examples(
         idx=prev_SENT_ID,
         raw=prev_raw_example,
         encoded=encoded,
-        ids=ids,
-        mask=mask,
         bpe_head_mask=bpe_head_mask,
         bpe_tail_mask=bpe_tail_mask,
         head_ids=head_ids,

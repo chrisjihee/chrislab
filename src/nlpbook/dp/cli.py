@@ -15,8 +15,7 @@ from klue_baseline.metrics.functional import klue_ner_entity_macro_f1, klue_ner_
 from nlpbook import new_set_logger
 from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
 from nlpbook.metrics import accuracy
-from nlpbook.dp.corpus import DPCorpus, DPDataset
-from nlpbook.ner.corpus import NERCorpus, NERDataset, encoded_examples_to_batch, NEREncodedExample
+from nlpbook.dp.corpus import DPCorpus, DPDataset, dp_encoded_examples_to_batch
 from nlpbook.ner.task import NERTask
 from torch import Tensor
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
@@ -47,7 +46,7 @@ def fabric_train(args_file: Path | str):
                                       sampler=RandomSampler(train_dataset, replacement=False),
                                       num_workers=args.hardware.cpu_workers,
                                       batch_size=args.hardware.batch_size,
-                                      collate_fn=encoded_examples_to_batch,
+                                      collate_fn=dp_encoded_examples_to_batch,
                                       drop_last=True)
         logger.info(f"Created train_dataset providing {len(train_dataset)} examples")
         logger.info(f"Created train_dataloader loading {len(train_dataloader)} batches")
@@ -58,8 +57,45 @@ def fabric_train(args_file: Path | str):
                                       sampler=SequentialSampler(valid_dataset),
                                       num_workers=args.hardware.cpu_workers,
                                       batch_size=args.hardware.batch_size,
-                                      collate_fn=encoded_examples_to_batch,
+                                      collate_fn=dp_encoded_examples_to_batch,
                                       drop_last=True)
         logger.info(f"Created valid_dataset providing {len(valid_dataset)} examples")
         logger.info(f"Created valid_dataloader loading {len(valid_dataloader)} batches")
         err_hr(c='-')
+
+        # Model
+        pretrained_model_config = AutoConfig.from_pretrained(
+            args.model.pretrained,
+            num_labels=corpus.num_labels
+        )
+        model = AutoModelForTokenClassification.from_pretrained(
+            args.model.pretrained,
+            config=pretrained_model_config
+        )
+        err_hr(c='-')
+
+        # Optimizer
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning.speed)
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
+
+        # Fabric
+        with RuntimeChecking(args.setup_csv_out()):
+            torch.set_float32_matmul_precision('high')
+            fabric = L.Fabric(loggers=args.output.csv_out)
+            fabric.setup(model, optimizer)
+            train_dataloader, valid_dataloader = fabric.setup_dataloaders(train_dataloader, valid_dataloader)
+            train_with_fabric(fabric, args, model, optimizer, scheduler, train_dataloader, valid_dataloader, valid_dataset)
+
+
+def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
+                      model: torch.nn.Module, optimizer: torch.optim.Optimizer, scheduler: torch.optim.lr_scheduler.LRScheduler,
+                      train_dataloader: DataLoader, valid_dataloader: DataLoader, valid_dataset: DPDataset):
+    time_tqdm = time_tqdm_cls(bar_size=20, desc_size=8, file=sys.stdout)
+    mute_tqdm = mute_tqdm_cls()
+    val_interval: float = args.learning.validating_on * len(train_dataloader) if args.learning.validating_on <= 1.0 else args.learning.validating_on
+    sorted_checkpoints: List[Tuple[float, Path]] = []
+    sorting_reverse: bool = not args.learning.keeping_by.split()[0].lower().startswith("min")
+    sorting_metric: str = args.learning.keeping_by.split()[-1]
+    metrics: Dict[str, Any] = {}
+    args.output.global_step = 0
+    args.output.global_epoch = 0.0

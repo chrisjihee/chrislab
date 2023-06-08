@@ -57,7 +57,7 @@ class NEREncodedExample:
     label_ids: Optional[List[int]] = None
 
 
-def encoded_examples_to_batch(examples: List[NEREncodedExample]) -> Dict[str, torch.Tensor]:
+def ner_encoded_examples_to_batch(examples: List[NEREncodedExample]) -> Dict[str, torch.Tensor]:
     first = examples[0]
     batch = {}
     for k, v in first.encoded.items():
