@@ -42,7 +42,8 @@ def fabric_train(args_file: Path | str):
         assert isinstance(tokenizer, PreTrainedTokenizerFast), f"Our code support only PreTrainedTokenizerFast, but used {type(tokenizer)}"
         corpus = NERCorpus(args)
         train_dataset = NERDataset("train", args=args, corpus=corpus, tokenizer=tokenizer)
-        train_dataloader = DataLoader(train_dataset, sampler=RandomSampler(train_dataset, replacement=False),
+        train_dataloader = DataLoader(train_dataset,
+                                      sampler=RandomSampler(train_dataset, replacement=False),
                                       num_workers=args.hardware.cpu_workers,
                                       batch_size=args.hardware.batch_size,
                                       collate_fn=encoded_examples_to_batch,
@@ -52,7 +53,8 @@ def fabric_train(args_file: Path | str):
         args.output.epoch_per_step = 1 / len(train_dataloader)
         err_hr(c='-')
         valid_dataset = NERDataset("valid", args=args, corpus=corpus, tokenizer=tokenizer)
-        valid_dataloader = DataLoader(valid_dataset, sampler=SequentialSampler(valid_dataset),
+        valid_dataloader = DataLoader(valid_dataset,
+                                      sampler=SequentialSampler(valid_dataset),
                                       num_workers=args.hardware.cpu_workers,
                                       batch_size=args.hardware.batch_size,
                                       collate_fn=encoded_examples_to_batch,
