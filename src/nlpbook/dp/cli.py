@@ -1,3 +1,4 @@
+import torch.nn.functional as F
 import logging
 import re
 import sys
@@ -14,12 +15,13 @@ from flask import Flask
 from klue_baseline.metrics.functional import klue_ner_entity_macro_f1, klue_ner_char_macro_f1
 from nlpbook import new_set_logger
 from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
+from nlpbook.dp.model import DPTransformer
 from nlpbook.metrics import accuracy
-from nlpbook.dp.corpus import DPCorpus, DPDataset, dp_encoded_examples_to_batch
+from nlpbook.dp.corpus import DPCorpus, DPDataset  # , dp_encoded_examples_to_batch
 from nlpbook.ner.task import NERTask
 from torch import Tensor
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
-from transformers import PreTrainedTokenizerFast, AutoTokenizer, AutoConfig, AutoModelForTokenClassification, BertForTokenClassification, CharSpan
+from transformers import PreTrainedTokenizerFast, AutoTokenizer, AutoConfig, AutoModelForTokenClassification, BertForTokenClassification, RobertaForTokenClassification, CharSpan, AutoModel, BertConfig, BertModel, RobertaConfig, RobertaModel, PreTrainedModel, PretrainedConfig
 from transformers.modeling_outputs import TokenClassifierOutput
 from typer import Typer
 
@@ -43,35 +45,39 @@ def fabric_train(args_file: Path | str):
         corpus = DPCorpus(args)
         train_dataset = DPDataset("train", args=args, corpus=corpus, tokenizer=tokenizer)
         train_dataloader = DataLoader(train_dataset,
+                                      # sampler=SequentialSampler(train_dataset),  # TODO: temporary
                                       sampler=RandomSampler(train_dataset, replacement=False),
                                       num_workers=args.hardware.cpu_workers,
                                       batch_size=args.hardware.batch_size,
-                                      collate_fn=dp_encoded_examples_to_batch,
-                                      drop_last=True)
+                                      collate_fn=corpus.dp_encoded_examples_to_batch,
+                                      drop_last=True,
+                                      # drop_last=False,  # TODO: temporary
+                                      )
         logger.info(f"Created train_dataset providing {len(train_dataset)} examples")
         logger.info(f"Created train_dataloader loading {len(train_dataloader)} batches")
-        args.output.epoch_per_step = 1 / len(train_dataloader)
+        args.output.epoch_per_step = 1 / len(train_dataloader)  # TODO: temporary
         err_hr(c='-')
         valid_dataset = DPDataset("valid", args=args, corpus=corpus, tokenizer=tokenizer)
         valid_dataloader = DataLoader(valid_dataset,
                                       sampler=SequentialSampler(valid_dataset),
                                       num_workers=args.hardware.cpu_workers,
                                       batch_size=args.hardware.batch_size,
-                                      collate_fn=dp_encoded_examples_to_batch,
+                                      collate_fn=corpus.dp_encoded_examples_to_batch,
                                       drop_last=True)
         logger.info(f"Created valid_dataset providing {len(valid_dataset)} examples")
         logger.info(f"Created valid_dataloader loading {len(valid_dataloader)} batches")
         err_hr(c='-')
 
         # Model
-        pretrained_model_config = AutoConfig.from_pretrained(
+        pretrained_model_config: PretrainedConfig | BertConfig | RobertaConfig = AutoConfig.from_pretrained(
             args.model.pretrained,
             num_labels=corpus.num_labels
         )
-        model = BertForTokenClassification.from_pretrained(
+        pretrained_model: PreTrainedModel | BertModel | RobertaModel = AutoModel.from_pretrained(
             args.model.pretrained,
             config=pretrained_model_config
         )
+        model = DPTransformer(args, corpus, pretrained_model)
         err_hr(c='-')
 
         # Optimizer
@@ -110,6 +116,61 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
             args.output.global_step += 1
             args.output.global_epoch += args.output.epoch_per_step
             batch: Dict[str, torch.Tensor] = pop_keys(batch, "example_ids")
-            print(batch)
-    #         outputs: TokenClassifierOutput = model(**batch)
+            inputs = {"input_ids": batch["input_ids"], "attention_mask": batch["attention_mask"]}
+
+            batch_size = batch["head_ids"].size()[0]
+            batch_index = torch.arange(0, int(batch_size)).long()
+            max_word_length = batch["max_word_length"].item()
+            head_index = (
+                torch.arange(0, max_word_length).view(max_word_length, 1).expand(max_word_length, batch_size).long()
+            )
+
+            # forward
+            out_arc, out_type = model(
+                batch["bpe_head_mask"],
+                batch["bpe_tail_mask"],
+                batch["pos_ids"],
+                batch["head_ids"],
+                max_word_length,
+                batch["mask_e"],
+                batch["mask_d"],
+                batch_index,
+                **inputs,
+            )
+
+            # compute loss
+            minus_inf = -1e8
+            minus_mask_d = (1 - batch["mask_d"]) * minus_inf
+            minus_mask_e = (1 - batch["mask_e"]) * minus_inf
+            out_arc = out_arc + minus_mask_d.unsqueeze(2) + minus_mask_e.unsqueeze(1)
+
+            loss_arc = F.log_softmax(out_arc, dim=2)
+            loss_type = F.log_softmax(out_type, dim=2)
+
+            loss_arc = loss_arc * batch["mask_d"].unsqueeze(2) * batch["mask_e"].unsqueeze(1)
+            loss_type = loss_type * batch["mask_d"].unsqueeze(2)
+            num = batch["mask_d"].sum()
+
+            loss_arc = loss_arc[batch_index, head_index, batch["head_ids"].data.t()].transpose(0, 1)
+            loss_type = loss_type[batch_index, head_index, batch["type_ids"].data.t()].transpose(0, 1)
+            loss_arc = -loss_arc.sum() / num
+            loss_type = -loss_type.sum() / num
+            loss = loss_arc + loss_type
+
+            metrics["epoch"] = round(args.output.global_epoch, 4)
+            metrics["trained_rate"] = round(args.output.global_epoch, 4) / args.learning.epochs
+            metrics["loss"] = loss.item()
+
+            fabric.backward(loss)
+            fabric.clip_gradients(model, optimizer, clip_val=0.25)
+            optimizer.step()
+            optimizer.zero_grad()
+            model.eval()
             exit(1)
+
+            # if batch_idx + 1 == len(train_dataloader) or (batch_idx + 1) % val_interval < 1:
+            #     validate(fabric, args, model, valid_dataloader, valid_dataset, metrics=metrics, print_result=args.learning.validating_fmt is not None)
+            #     sorted_checkpoints = save_checkpoint(fabric, args, metrics, model, optimizer,
+            #                                          sorted_checkpoints, sorting_reverse, sorting_metric)
+            # fabric.log_dict(step=args.output.global_step, metrics=metrics)
+            # model.train()

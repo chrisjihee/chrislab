@@ -40,29 +40,6 @@ class DPEncodedExample:
     pos_ids: List[int]
 
 
-def dp_encoded_examples_to_batch(examples: List[DPEncodedExample]) -> Dict[str, torch.Tensor]:
-    first = examples[0]
-    batch = {}
-    for k, v in first.encoded.items():
-        if k not in ("label", "label_ids") and v is not None and not isinstance(v, str):
-            if isinstance(v, torch.Tensor):
-                batch[k] = torch.stack([ex.encoded[k] for ex in examples])
-            else:
-                batch[k] = torch.tensor([ex.encoded[k] for ex in examples], dtype=torch.long)
-    batch["bpe_head_mask"] = torch.tensor([ex.bpe_head_mask for ex in examples],
-                                          dtype=torch.long if type(first.bpe_head_mask[0]) is int else torch.float)
-    batch["bpe_tail_mask"] = torch.tensor([ex.bpe_tail_mask for ex in examples],
-                                          dtype=torch.long if type(first.bpe_tail_mask[0]) is int else torch.float)
-    batch["head_ids"] = torch.tensor([ex.head_ids for ex in examples],
-                                     dtype=torch.long if type(first.head_ids[0]) is int else torch.float)
-    batch["dep_ids"] = torch.tensor([ex.dep_ids for ex in examples],
-                                    dtype=torch.long if type(first.dep_ids[0]) is int else torch.float)
-    batch["pos_ids"] = torch.tensor([ex.pos_ids for ex in examples],
-                                    dtype=torch.long if type(first.pos_ids[0]) is int else torch.float)
-    batch["example_ids"] = torch.tensor([ex.idx for ex in examples], dtype=torch.int)
-    return batch
-
-
 class DPCorpus:
     def __init__(self, args: TesterArguments):
         self.args = args
@@ -196,6 +173,59 @@ class DPCorpus:
     @property
     def num_labels(self):
         return len(self.get_dep_labels())
+
+    def dp_encoded_examples_to_batch(self, examples: List[DPEncodedExample]) -> Dict[str, torch.Tensor]:
+        batch_size = len(examples)
+        pos_padding_idx = len(self.get_pos_labels())
+        first = examples[0]
+        batch = {"example_ids": torch.tensor([ex.idx for ex in examples], dtype=torch.long)}
+
+        # 2. build inputs : packing tensors
+        # 나는 밥을 먹는다. => [CLS] 나 ##는 밥 ##을 먹 ##는 ##다 . [SEP]
+        # input_id : [2, 717, 2259, 1127, 2069, 1059, 2259, 2062, 18, 3, 0, 0, ...]
+        # bpe_head_mask : [0, 1, 0, 1, 0, 1, 0, 0, 0, 0, ...] (indicate word start (head) idx)
+        for k, v in first.encoded.items():
+            if k not in ("label", "label_ids") and v is not None and not isinstance(v, str):
+                if isinstance(v, torch.Tensor):
+                    batch[k] = torch.stack([ex.encoded[k] for ex in examples])
+                else:
+                    batch[k] = torch.tensor([ex.encoded[k] for ex in examples], dtype=torch.long)
+        batch["bpe_head_mask"] = torch.tensor([ex.bpe_head_mask for ex in examples],
+                                              dtype=torch.long if type(first.bpe_head_mask[0]) is int else torch.float)
+        batch["bpe_tail_mask"] = torch.tensor([ex.bpe_tail_mask for ex in examples],
+                                              dtype=torch.long if type(first.bpe_tail_mask[0]) is int else torch.float)
+
+        # 3. token_to_words : set in-batch max_word_length
+        max_word_length = max(torch.sum(batch["bpe_head_mask"], dim=1)).item()
+        batch["max_word_length"] = torch.tensor(max_word_length, dtype=torch.long)
+
+        # 3. token_to_words : placeholders
+        batch["head_ids"] = torch.zeros(batch_size, max_word_length, dtype=torch.long)
+        batch["type_ids"] = torch.zeros(batch_size, max_word_length, dtype=torch.long)
+        batch["pos_ids"] = torch.zeros(batch_size, max_word_length + 1, dtype=torch.long)
+        batch["mask_e"] = torch.zeros(batch_size, max_word_length + 1, dtype=torch.long)
+        # 3. token_to_words : head_ids, type_ids, pos_ids, mask_e, mask_d
+        for batch_id in range(batch_size):
+            example = examples[batch_id]
+            bpe_head_mask = example.bpe_head_mask
+            token_head_ids = example.head_ids
+            token_type_ids = example.dep_ids
+            token_pos_ids = example.pos_ids
+            # head_id : [1, 3, 5] (prediction candidates)
+            # token_head_ids : [-1, 3, -1, 3, -1, 0, -1, -1, -1, .-1, ...] (ground truth head ids)
+            head_id = [i for i, token in enumerate(example.bpe_head_mask) if token == 1]
+            word_length = len(head_id)
+            head_id.extend([0] * (max_word_length - word_length))
+            batch["head_ids"][batch_id] = torch.tensor(token_head_ids, dtype=torch.long)[head_id]
+            batch["type_ids"][batch_id] = torch.tensor(token_type_ids, dtype=torch.long)[head_id]
+            batch["pos_ids"][batch_id][0] = torch.tensor(pos_padding_idx)
+            batch["pos_ids"][batch_id][1:] = torch.tensor(token_pos_ids, dtype=torch.long)[head_id]
+            batch["pos_ids"][batch_id][int(torch.sum(torch.tensor(bpe_head_mask, dtype=torch.long))) + 1:] = torch.tensor(pos_padding_idx)
+            batch["mask_e"][batch_id] = torch.LongTensor([1] * (word_length + 1) + [0] * (max_word_length - word_length))
+        batch["mask_d"] = batch["mask_e"][:, 1:]
+
+        # 4. pack everything
+        return batch
 
 
 def _convert_to_encoded_examples(
