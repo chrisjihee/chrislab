@@ -68,7 +68,7 @@ def fabric_train(args_file: Path | str):
             args.model.pretrained,
             num_labels=corpus.num_labels
         )
-        model = AutoModelForTokenClassification.from_pretrained(
+        model = BertForTokenClassification.from_pretrained(
             args.model.pretrained,
             config=pretrained_model_config
         )
@@ -99,3 +99,17 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
     metrics: Dict[str, Any] = {}
     args.output.global_step = 0
     args.output.global_epoch = 0.0
+    for epoch in range(args.learning.epochs):
+        epoch_info = f"(Epoch {epoch + 1:02d})"
+        metrics["epoch"] = round(args.output.global_epoch, 4)
+        metrics["trained_rate"] = round(args.output.global_epoch, 4) / args.learning.epochs
+        metrics["lr"] = optimizer.param_groups[0]['lr']
+        epoch_tqdm = time_tqdm if fabric.is_global_zero else mute_tqdm
+        for batch_idx, batch in enumerate(epoch_tqdm(train_dataloader, position=fabric.global_rank, pre=epoch_info,
+                                                     desc=f"training", unit=f"x{train_dataloader.batch_size}")):
+            args.output.global_step += 1
+            args.output.global_epoch += args.output.epoch_per_step
+            batch: Dict[str, torch.Tensor] = pop_keys(batch, "example_ids")
+            print(batch)
+    #         outputs: TokenClassifierOutput = model(**batch)
+            exit(1)
