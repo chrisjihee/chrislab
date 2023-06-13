@@ -55,7 +55,7 @@ def fabric_train(args_file: Path | str):
                                       )
         logger.info(f"Created train_dataset providing {len(train_dataset)} examples")
         logger.info(f"Created train_dataloader loading {len(train_dataloader)} batches")
-        args.output.epoch_per_step = 1 / len(train_dataloader)  # TODO: temporary
+        args.output.epoch_per_step = 1 / len(train_dataloader)
         err_hr(c='-')
         valid_dataset = DPDataset("valid", args=args, corpus=corpus, tokenizer=tokenizer)
         valid_dataloader = DataLoader(valid_dataset,
@@ -93,8 +93,8 @@ def fabric_train(args_file: Path | str):
             train_with_fabric(fabric, args, model, optimizer, scheduler, train_dataloader, valid_dataloader, valid_dataset)
 
 
-def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
-                      model: torch.nn.Module, optimizer: torch.optim.Optimizer, scheduler: torch.optim.lr_scheduler.LRScheduler,
+def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: DPTransformer,
+                      optimizer: torch.optim.Optimizer, scheduler: torch.optim.lr_scheduler.LRScheduler,
                       train_dataloader: DataLoader, valid_dataloader: DataLoader, valid_dataset: DPDataset):
     time_tqdm = time_tqdm_cls(bar_size=20, desc_size=8, file=sys.stdout)
     mute_tqdm = mute_tqdm_cls()
@@ -126,7 +126,7 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
             )
 
             # forward
-            out_arc, out_type = model(
+            out_arc, out_type = model.forward(
                 batch["bpe_head_mask"],
                 batch["bpe_tail_mask"],
                 batch["pos_ids"],
@@ -165,12 +165,67 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
             fabric.clip_gradients(model, optimizer, clip_val=0.25)
             optimizer.step()
             optimizer.zero_grad()
-            model.eval()
-            exit(1)
 
-            # if batch_idx + 1 == len(train_dataloader) or (batch_idx + 1) % val_interval < 1:
-            #     validate(fabric, args, model, valid_dataloader, valid_dataset, metrics=metrics, print_result=args.learning.validating_fmt is not None)
+            model.eval()
+            if batch_idx + 1 == len(train_dataloader) or (batch_idx + 1) % val_interval < 1:
+                validate(fabric, args, model, valid_dataloader, valid_dataset, metrics=metrics, print_result=args.learning.validating_fmt is not None)
             #     sorted_checkpoints = save_checkpoint(fabric, args, metrics, model, optimizer,
             #                                          sorted_checkpoints, sorting_reverse, sorting_metric)
             # fabric.log_dict(step=args.output.global_step, metrics=metrics)
             # model.train()
+
+
+@torch.no_grad()
+def validate(fabric: L.Fabric, args: TrainerArguments, model: DPTransformer,
+             valid_dataloader: DataLoader, valid_dataset: DPDataset,
+             metrics: Dict[str, Any], print_result: bool = True):
+    metrics["val_loss"] = torch.zeros(len(valid_dataloader))
+    for batch_idx, batch in enumerate(valid_dataloader):
+        example_ids: torch.Tensor = batch.pop("example_ids")
+        inputs = {"input_ids": batch["input_ids"], "attention_mask": batch["attention_mask"]}
+
+        batch_size = batch["head_ids"].size()[0]
+        batch_index = torch.arange(0, int(batch_size)).long()
+        max_word_length = batch["max_word_length"].item()
+        head_index = (
+            torch.arange(0, max_word_length).view(max_word_length, 1).expand(max_word_length, batch_size).long()
+        )
+
+        # forward
+        out_arc, out_type = model.forward(
+            batch["bpe_head_mask"],
+            batch["bpe_tail_mask"],
+            batch["pos_ids"],
+            batch["head_ids"],
+            max_word_length,
+            batch["mask_e"],
+            batch["mask_d"],
+            batch_index,
+            **inputs,
+        )
+
+        # compute loss
+        minus_inf = -1e8
+        minus_mask_d = (1 - batch["mask_d"]) * minus_inf
+        minus_mask_e = (1 - batch["mask_e"]) * minus_inf
+        out_arc = out_arc + minus_mask_d.unsqueeze(2) + minus_mask_e.unsqueeze(1)
+
+        loss_arc = F.log_softmax(out_arc, dim=2)
+        loss_type = F.log_softmax(out_type, dim=2)
+
+        loss_arc = loss_arc * batch["mask_d"].unsqueeze(2) * batch["mask_e"].unsqueeze(1)
+        loss_type = loss_type * batch["mask_d"].unsqueeze(2)
+        num = batch["mask_d"].sum()
+
+        loss_arc = loss_arc[batch_index, head_index, batch["head_ids"].data.t()].transpose(0, 1)
+        loss_type = loss_type[batch_index, head_index, batch["type_ids"].data.t()].transpose(0, 1)
+        loss_arc = -loss_arc.sum() / num
+        loss_type = -loss_type.sum() / num
+        loss = loss_arc + loss_type
+
+        metrics["val_loss"][batch_idx] = loss
+    metrics["val_loss"] = metrics["val_loss"].mean().item()
+    if print_result:
+        terms = [m.group(1) for m in term_pattern.finditer(args.learning.validating_fmt)]
+        terms = {term: metrics[term] for term in terms}
+        fabric.print(' | ' + args.learning.validating_fmt.format(**terms))

@@ -108,8 +108,8 @@ def save_checkpoint(fabric, args, metrics, model, optimizer,
     return sorted_checkpoints
 
 
-def train_with_fabric(fabric: L.Fabric, args: TrainerArguments,
-                      model: torch.nn.Module, optimizer: torch.optim.Optimizer, scheduler: torch.optim.lr_scheduler.LRScheduler,
+def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: torch.nn.Module,
+                      optimizer: torch.optim.Optimizer, scheduler: torch.optim.lr_scheduler.LRScheduler,
                       train_dataloader: DataLoader, valid_dataloader: DataLoader, valid_dataset: NERDataset):
     time_tqdm = time_tqdm_cls(bar_size=20, desc_size=8, file=sys.stdout)
     mute_tqdm = mute_tqdm_cls()
