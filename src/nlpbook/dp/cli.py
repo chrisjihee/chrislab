@@ -126,6 +126,7 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: DPTransfo
             )
 
             # forward
+            model.train()
             out_arc, out_type = model.forward(
                 batch["bpe_head_mask"],
                 batch["bpe_tail_mask"],
@@ -172,7 +173,6 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: DPTransfo
             #     sorted_checkpoints = save_checkpoint(fabric, args, metrics, model, optimizer,
             #                                          sorted_checkpoints, sorting_reverse, sorting_metric)
             # fabric.log_dict(step=args.output.global_step, metrics=metrics)
-            # model.train()
 
 
 @torch.no_grad()
