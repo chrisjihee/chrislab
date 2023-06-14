@@ -87,7 +87,13 @@ def fabric_train(args_file: Path | str):
         # Fabric
         with RuntimeChecking(args.setup_csv_out()):
             torch.set_float32_matmul_precision('high')
-            fabric = L.Fabric(loggers=args.output.csv_out)
+            fabric = L.Fabric(
+                loggers=args.output.csv_out,
+                accelerator=args.hardware.accelerator,
+                precision=args.hardware.precision,
+                strategy=args.hardware.strategy,
+                devices=args.hardware.devices,
+            )
             fabric.setup(model, optimizer)
             train_dataloader, valid_dataloader = fabric.setup_dataloaders(train_dataloader, valid_dataloader)
             train_with_fabric(fabric, args, model, optimizer, scheduler, train_dataloader, valid_dataloader, valid_dataset)
