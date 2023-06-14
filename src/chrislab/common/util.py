@@ -22,15 +22,15 @@ from chrisbase.time import now
 from chrisbase.util import number_only, NO, tupled, to_dataframe
 
 
+def set_tokenizers_parallelism(value=False):
+    os.environ["TOKENIZERS_PARALLELISM"] = f"{value}".lower()
+
+
 def cuda_visible_devices(gpus=None):
-    if gpus:
+    if torch.cuda.is_available() and gpus:
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         os.environ["CUDA_VISIBLE_DEVICES"] = gpus
     return os.environ.get("CUDA_VISIBLE_DEVICES")
-
-
-def set_tokenizers_parallelism(value=False):
-    os.environ["TOKENIZERS_PARALLELISM"] = f"{value}".lower()
 
 
 def num_cuda_devices():
@@ -58,10 +58,6 @@ def include_cuda_bin_dir(candidate_dirs=None) -> Path:
 def set_torch_ext_path(dev=1):
     torch_ext_dir = Path(f"cache/torch_extensions/dev={dev}")
     os.environ['TORCH_EXTENSIONS_DIR'] = f"{torch_ext_dir.absolute()}"
-
-
-def set_tokenizers_parallelism(value=False):
-    os.environ["TOKENIZERS_PARALLELISM"] = f"{value}".lower()
 
 
 def copy_ipynb_for_run(infile, run_opts=None):

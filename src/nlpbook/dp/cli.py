@@ -111,8 +111,7 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: DPTransfo
         metrics["trained_rate"] = round(args.output.global_epoch, 4) / args.learning.epochs
         metrics["lr"] = optimizer.param_groups[0]['lr']
         epoch_tqdm = time_tqdm if fabric.is_global_zero else mute_tqdm
-        for batch_idx, batch in enumerate(epoch_tqdm(train_dataloader, position=fabric.global_rank, pre=epoch_info,
-                                                     desc=f"training", unit=f"x{train_dataloader.batch_size}")):
+        for batch_idx, batch in enumerate(epoch_tqdm(train_dataloader, position=fabric.global_rank, pre=epoch_info, desc="training", unit="batch")):
             args.output.global_step += 1
             args.output.global_epoch += args.output.epoch_per_step
             batch: Dict[str, torch.Tensor] = pop_keys(batch, "example_ids")

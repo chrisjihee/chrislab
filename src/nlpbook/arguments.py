@@ -78,6 +78,7 @@ class ModelOption(OptionData):
 
 @dataclass
 class HardwareOption(OptionData):
+    # cpu_workers: int = field(default=0)
     cpu_workers: int = field(default=os.cpu_count())
     accelerator: str | Accelerator = field(default="auto")  # possbile value: "cpu", "gpu", "tpu", "ipu", "hpu", "mps", "auto"
     batch_size: int = field(default=32)
