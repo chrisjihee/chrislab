@@ -115,6 +115,7 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: DPTransfo
         epoch_tqdm = time_tqdm if fabric.is_global_zero else mute_tqdm
         assert len(train_dataloader) > 0
         for batch_idx, batch in enumerate(epoch_tqdm(train_dataloader, position=fabric.global_rank, pre=epoch_info, desc="training", unit="batch")):
+            model.train()
             args.output.global_step += 1
             args.output.global_epoch += args.output.epoch_per_step
             batch: Dict[str, torch.Tensor] = pop_keys(batch, "example_ids")
@@ -128,7 +129,6 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: DPTransfo
             )
 
             # forward
-            model.train()
             out_arc, out_type = model.forward(
                 batch["bpe_head_mask"],
                 batch["bpe_tail_mask"],
