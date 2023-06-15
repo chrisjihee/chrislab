@@ -1,31 +1,34 @@
 import logging
-import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+import torch
+from flask import Flask
+from torch import Tensor
+from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
+from typer import Typer
+
 import lightning as L
 import lightning.pytorch as pl
 import nlpbook
-import torch
 from chrisbase.io import JobTimer, pop_keys, err_hr, out_hr
 from chrislab.common.util import time_tqdm_cls, mute_tqdm_cls
-from flask import Flask
-from klue_baseline.metrics.functional import klue_ner_entity_macro_f1, klue_ner_char_macro_f1
-from nlpbook import new_set_logger
+from nlpbook import new_set_logger, save_checkpoint, TERM_IN_NAME_FORMAT
 from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
-from nlpbook.metrics import accuracy
+from nlpbook.metrics import accuracy, NER_CharMacroF1, NER_EntityMacroF1, klue_ner_char_macro_f1, klue_ner_entity_macro_f1
 from nlpbook.ner.corpus import NERCorpus, NERDataset, ner_encoded_examples_to_batch, NEREncodedExample
 from nlpbook.ner.task import NERTask
-from torch import Tensor
-from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from transformers import PreTrainedTokenizerFast, AutoTokenizer, AutoConfig, AutoModelForTokenClassification, BertForTokenClassification, CharSpan
 from transformers.modeling_outputs import TokenClassifierOutput
-from typer import Typer
 
 app = Typer()
 logger = logging.getLogger("chrislab")
-term_pattern = re.compile(re.escape("{") + "(.+?)(:.+?)?" + re.escape("}"))
+
+metric_tools_for_NER = {
+    "F1c": NER_CharMacroF1,
+    "F1e": NER_EntityMacroF1,
+}
 
 
 @app.command()
@@ -85,27 +88,6 @@ def fabric_train(args_file: Path | str):
             fabric.setup(model, optimizer)
             train_dataloader, valid_dataloader = fabric.setup_dataloaders(train_dataloader, valid_dataloader)
             train_with_fabric(fabric, args, model, optimizer, scheduler, train_dataloader, valid_dataloader, valid_dataset)
-
-
-# https://lightning.ai/docs/fabric/stable/guide/checkpoint.html
-def save_checkpoint(fabric, args, metrics, model, optimizer,
-                    sorted_checkpoints: List[Tuple[float, Path]], sorting_reverse, sorting_metric):
-    checkpoint_state = {"model": model, "optimizer": optimizer, "args": args}
-    terms = [m.group(1) for m in term_pattern.finditer(args.model.finetuning_name)]
-    terms = {term: metrics[term] for term in terms}
-    checkpoint_stem = args.model.finetuning_name.format(**terms)
-    checkpoint_path: Path = (args.output.dir_path / "model.out").with_stem(checkpoint_stem).with_suffix(".ckpt")
-
-    sorted_checkpoints.append((metrics[sorting_metric], checkpoint_path))
-    sorted_checkpoints.sort(key=lambda x: x[0], reverse=sorting_reverse)
-    for _, path in sorted_checkpoints[args.learning.num_keeping:]:
-        path.unlink(missing_ok=True)
-    sorted_checkpoints = [(value, path) for value, path in sorted_checkpoints[:args.learning.num_keeping] if path.exists()]
-    if len(sorted_checkpoints) < args.learning.num_keeping:
-        fabric.save(checkpoint_path, checkpoint_state)
-        sorted_checkpoints.append((metrics[sorting_metric], checkpoint_path))
-        sorted_checkpoints.sort(key=lambda x: x[0], reverse=sorting_reverse)
-    return sorted_checkpoints
 
 
 def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: torch.nn.Module,
@@ -196,10 +178,10 @@ def validate(fabric: L.Fabric, args: TrainerArguments, model: torch.nn.Module,
     # metrics["val_acc"] = metrics["val_acc"].mean().item()
     char_preds, char_labels = ([p for (y, p) in whole_char_label_pairs],
                                [y for (y, p) in whole_char_label_pairs])
-    metrics["val_f1c"] = klue_ner_char_macro_f1(preds=char_preds, labels=char_labels, label_list=valid_dataset.get_labels())
-    metrics["val_f1e"] = klue_ner_entity_macro_f1(preds=char_preds, labels=char_labels, label_list=valid_dataset.get_labels())
+    metrics["val_F1c"] = klue_ner_char_macro_f1(preds=char_preds, labels=char_labels, label_list=valid_dataset.get_labels())
+    metrics["val_F1e"] = klue_ner_entity_macro_f1(preds=char_preds, labels=char_labels, label_list=valid_dataset.get_labels())
     if print_result:
-        terms = [m.group(1) for m in term_pattern.finditer(args.learning.validating_fmt)]
+        terms = [m.group(1) for m in TERM_IN_NAME_FORMAT.finditer(args.learning.validating_fmt)]
         terms = {term: metrics[term] for term in terms}
         fabric.print(' | ' + args.learning.validating_fmt.format(**terms))
 

@@ -1,29 +1,23 @@
-import torch.nn.functional as F
 import logging
 import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-import lightning as L
-import lightning.pytorch as pl
-import nlpbook
 import torch
-from chrisbase.io import JobTimer, pop_keys, err_hr, out_hr
-from chrislab.common.util import time_tqdm_cls, mute_tqdm_cls
-from flask import Flask
-from klue_baseline.metrics.functional import klue_ner_entity_macro_f1, klue_ner_char_macro_f1
-from nlpbook import new_set_logger
-from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
-from nlpbook.dp.model import DPTransformer
-from nlpbook.metrics import accuracy
-from nlpbook.dp.corpus import DPCorpus, DPDataset  # , dp_encoded_examples_to_batch
-from nlpbook.ner.task import NERTask
-from torch import Tensor
+import torch.nn.functional as F
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
-from transformers import PreTrainedTokenizerFast, AutoTokenizer, AutoConfig, AutoModelForTokenClassification, BertForTokenClassification, RobertaForTokenClassification, CharSpan, AutoModel, BertConfig, BertModel, RobertaConfig, RobertaModel, PreTrainedModel, PretrainedConfig
-from transformers.modeling_outputs import TokenClassifierOutput
 from typer import Typer
+
+import lightning as L
+from chrisbase.io import JobTimer, pop_keys, err_hr
+from chrislab.common.util import time_tqdm_cls, mute_tqdm_cls
+from nlpbook import new_set_logger, save_checkpoint
+from nlpbook.arguments import TrainerArguments, RuntimeChecking
+from nlpbook.dp.corpus import DPCorpus, DPDataset
+from nlpbook.dp.model import DPTransformer
+from nlpbook.metrics import DPResult
+from transformers import PreTrainedTokenizerFast, AutoTokenizer, AutoConfig, AutoModel, BertConfig, BertModel, RobertaConfig, RobertaModel, PreTrainedModel, PretrainedConfig
 
 app = Typer()
 logger = logging.getLogger("chrislab")
@@ -50,8 +44,8 @@ def fabric_train(args_file: Path | str):
                                       num_workers=args.hardware.cpu_workers,
                                       batch_size=args.hardware.batch_size,
                                       collate_fn=corpus.dp_encoded_examples_to_batch,
-                                      drop_last=True,
-                                      # drop_last=False,  # TODO: temporary
+                                      # drop_last=True,
+                                      drop_last=False,  # TODO: temporary
                                       )
         logger.info(f"Created train_dataset providing {len(train_dataset)} examples")
         logger.info(f"Created train_dataloader loading {len(train_dataloader)} batches")
@@ -63,7 +57,9 @@ def fabric_train(args_file: Path | str):
                                       num_workers=args.hardware.cpu_workers,
                                       batch_size=args.hardware.batch_size,
                                       collate_fn=corpus.dp_encoded_examples_to_batch,
-                                      drop_last=True)
+                                      # drop_last=True,
+                                      drop_last=False,  # TODO: temporary
+                                      )
         logger.info(f"Created valid_dataset providing {len(valid_dataset)} examples")
         logger.info(f"Created valid_dataloader loading {len(valid_dataloader)} batches")
         err_hr(c='-')
@@ -108,15 +104,16 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: DPTransfo
     sorted_checkpoints: List[Tuple[float, Path]] = []
     sorting_reverse: bool = not args.learning.keeping_by.split()[0].lower().startswith("min")
     sorting_metric: str = args.learning.keeping_by.split()[-1]
-    metrics: Dict[str, Any] = {}
+    metric_values: Dict[str, Any] = {}
     args.output.global_step = 0
     args.output.global_epoch = 0.0
     for epoch in range(args.learning.epochs):
         epoch_info = f"(Epoch {epoch + 1:02d})"
-        metrics["epoch"] = round(args.output.global_epoch, 4)
-        metrics["trained_rate"] = round(args.output.global_epoch, 4) / args.learning.epochs
-        metrics["lr"] = optimizer.param_groups[0]['lr']
+        metric_values["epoch"] = round(args.output.global_epoch, 4)
+        metric_values["trained_rate"] = round(args.output.global_epoch, 4) / args.learning.epochs
+        metric_values["lr"] = optimizer.param_groups[0]['lr']
         epoch_tqdm = time_tqdm if fabric.is_global_zero else mute_tqdm
+        assert len(train_dataloader) > 0
         for batch_idx, batch in enumerate(epoch_tqdm(train_dataloader, position=fabric.global_rank, pre=epoch_info, desc="training", unit="batch")):
             args.output.global_step += 1
             args.output.global_epoch += args.output.epoch_per_step
@@ -163,9 +160,9 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: DPTransfo
             loss_type = -loss_type.sum() / num
             loss = loss_arc + loss_type
 
-            metrics["epoch"] = round(args.output.global_epoch, 4)
-            metrics["trained_rate"] = round(args.output.global_epoch, 4) / args.learning.epochs
-            metrics["loss"] = loss.item()
+            metric_values["epoch"] = round(args.output.global_epoch, 4)
+            metric_values["trained_rate"] = round(args.output.global_epoch, 4) / args.learning.epochs
+            metric_values["loss"] = loss.item()
 
             fabric.backward(loss)
             fabric.clip_gradients(model, optimizer, clip_val=0.25)
@@ -174,17 +171,21 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: DPTransfo
 
             model.eval()
             if batch_idx + 1 == len(train_dataloader) or (batch_idx + 1) % val_interval < 1:
-                validate(fabric, args, model, valid_dataloader, valid_dataset, metrics=metrics, print_result=args.learning.validating_fmt is not None)
-            #     sorted_checkpoints = save_checkpoint(fabric, args, metrics, model, optimizer,
-            #                                          sorted_checkpoints, sorting_reverse, sorting_metric)
-            # fabric.log_dict(step=args.output.global_step, metrics=metrics)
+                validate(fabric, args, model, valid_dataloader, valid_dataset,
+                         metric_values=metric_values, print_result=args.learning.validating_fmt is not None)
+                sorted_checkpoints = save_checkpoint(fabric, args, metric_values, model, optimizer,
+                                                     sorted_checkpoints, sorting_reverse, sorting_metric)
+            fabric.log_dict(step=args.output.global_step, metrics=metric_values)
 
 
 @torch.no_grad()
 def validate(fabric: L.Fabric, args: TrainerArguments, model: DPTransformer,
              valid_dataloader: DataLoader, valid_dataset: DPDataset,
-             metrics: Dict[str, Any], print_result: bool = True):
-    metrics["val_loss"] = torch.zeros(len(valid_dataloader))
+             metric_values: Dict[str, Any], print_result: bool = True):
+    metric_values["val_loss"] = torch.zeros(len(valid_dataloader))
+    all_preds = []
+    all_labels = []
+    assert len(valid_dataloader) > 0
     for batch_idx, batch in enumerate(valid_dataloader):
         example_ids: torch.Tensor = batch.pop("example_ids")
         inputs = {"input_ids": batch["input_ids"], "attention_mask": batch["attention_mask"]}
@@ -206,6 +207,7 @@ def validate(fabric: L.Fabric, args: TrainerArguments, model: DPTransformer,
             batch["mask_e"],
             batch["mask_d"],
             batch_index,
+            is_training=False,
             **inputs,
         )
 
@@ -228,9 +230,23 @@ def validate(fabric: L.Fabric, args: TrainerArguments, model: DPTransformer,
         loss_type = -loss_type.sum() / num
         loss = loss_arc + loss_type
 
-        metrics["val_loss"][batch_idx] = loss
-    metrics["val_loss"] = metrics["val_loss"].mean().item()
+        metric_values["val_loss"][batch_idx] = loss
+
+        # predict arc and its type
+        pred_heads: torch.Tensor = torch.argmax(out_arc, dim=2)
+        pred_types: torch.Tensor = torch.argmax(out_type, dim=2)
+        preds = DPResult(pred_heads, pred_types)
+        labels = DPResult(batch["head_ids"], batch["type_ids"])
+        all_preds.append(preds)
+        all_labels.append(labels)
+
+    metric_values["val_loss"] = metric_values["val_loss"].mean().item()
+    assert len(all_preds) > 0 and len(all_labels) and len(all_preds) == len(all_labels)
+    for k, metric_tool in model.metric_tools.items():
+        metric_tool(all_preds, all_labels)
+        metric_values[f"val_{k}"] = metric_tool.compute()
+
     if print_result:
         terms = [m.group(1) for m in term_pattern.finditer(args.learning.validating_fmt)]
-        terms = {term: metrics[term] for term in terms}
+        terms = {term: metric_values[term] for term in terms}
         fabric.print(' | ' + args.learning.validating_fmt.format(**terms))

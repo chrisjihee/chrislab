@@ -1,11 +1,14 @@
 import logging
 import os
+import re
 import sys
+from pathlib import Path
+from typing import List, Tuple
 
 import requests
 import tqdm
-from transformers import HfArgumentParser
 
+from transformers import HfArgumentParser
 from .arguments import TrainerArguments, TesterArguments
 
 REMOTE_DATA_MAP = {
@@ -73,6 +76,7 @@ REMOTE_MODEL_MAP = {
 }
 GOOGLE_DRIVE_URL = "https://docs.google.com/uc?export=download"
 logger = logging.getLogger("chrislab")
+TERM_IN_NAME_FORMAT = re.compile(re.escape("{") + "(.+?)(:.+?)?" + re.escape("}"))
 
 
 def save_response_content(response, save_path):
@@ -262,3 +266,24 @@ def load_arguments(argument_class, json_file_path=None):
     else:
         args, = parser.parse_args_into_dataclasses()
     return args
+
+
+# https://lightning.ai/docs/fabric/stable/guide/checkpoint.html
+def save_checkpoint(fabric, args, metric_values, model, optimizer,
+                    sorted_checkpoints: List[Tuple[float, Path]], sorting_reverse, sorting_metric):
+    checkpoint_state = {"model": model, "optimizer": optimizer, "args": args}
+    terms = [m.group(1) for m in TERM_IN_NAME_FORMAT.finditer(args.model.finetuning_name)]
+    terms = {term: metric_values[term] for term in terms}
+    checkpoint_stem = args.model.finetuning_name.format(**terms)
+    checkpoint_path: Path = (args.output.dir_path / "model.out").with_stem(checkpoint_stem).with_suffix(".ckpt")
+
+    sorted_checkpoints.append((metric_values[sorting_metric], checkpoint_path))
+    sorted_checkpoints.sort(key=lambda x: x[0], reverse=sorting_reverse)
+    for _, path in sorted_checkpoints[args.learning.num_keeping:]:
+        path.unlink(missing_ok=True)
+    sorted_checkpoints = [(value, path) for value, path in sorted_checkpoints[:args.learning.num_keeping] if path.exists()]
+    if len(sorted_checkpoints) < args.learning.num_keeping:
+        fabric.save(checkpoint_path, checkpoint_state)
+        sorted_checkpoints.append((metric_values[sorting_metric], checkpoint_path))
+        sorted_checkpoints.sort(key=lambda x: x[0], reverse=sorting_reverse)
+    return sorted_checkpoints
