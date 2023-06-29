@@ -36,7 +36,6 @@ def fabric_train(args_file: Path | str):
     args_file = Path(args_file)
     assert args_file.exists(), f"No args_file: {args_file}"
     args: TrainerArguments = TrainerArguments.from_json(args_file.read_text()).show()
-    new_set_logger()
     L.seed_everything(args.learning.seed)
 
     with JobTimer(f"chrialab.nlpbook.ner fabric_train {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):

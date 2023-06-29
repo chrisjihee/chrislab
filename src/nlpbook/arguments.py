@@ -13,8 +13,7 @@ from lightning.fabric.accelerators import Accelerator
 from lightning.fabric.strategies import Strategy
 from lightning.pytorch.loggers import CSVLogger
 
-from chrisbase.io import ProjectEnv, make_dir
-from chrisbase.io import files, make_parent_dir, out_hr, out_table
+from chrisbase.io import ProjectEnv, files, make_dir, make_parent_dir, hr, str_table, out_hr, out_table
 from chrisbase.time import now, str_delta
 from chrisbase.util import to_dataframe
 
@@ -175,6 +174,10 @@ class CommonArguments(ArgumentGroupData):
             to_dataframe(columns=columns, raw=self.output, data_prefix="output"),
         ]).reset_index(drop=True)
 
+    def log(self, logger, level=logging.INFO, title="Configured Arguments:"):
+        logger.log(level=level, msg="\n".join([title, hr(c='-'), str_table(self.dataframe()), hr(c='-')]))
+        return self
+
     def show(self):
         out_hr(c='-')
         out_table(self.dataframe())
@@ -257,6 +260,8 @@ class ArgumentsUsing:
                                                               filepath=self.args.output.dir_path / self.args.env.logging_file,
                                                               filemode="w",
                                                               level=self.logging_level, )
+        if isinstance(self.args, TrainerArguments):
+            nlpbook.set_seed(self.args, logger=self.logger)
         return self.args_file, self.logger
 
     def __exit__(self, *exc_info):

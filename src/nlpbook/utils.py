@@ -216,14 +216,14 @@ def download_pretrained_model(args, config_only=False):
         raise ValueError(f"not valid model name({pretrained_model_name}), cannot download resources")
 
 
-def set_seed(args: TrainerArguments):
+def set_seed(args: TrainerArguments, logger=logger):
     if args.learning.seed is not None:
         from transformers import set_seed
         set_seed(args.learning.seed)
         from lightning.pytorch import seed_everything
         seed_everything(args.learning.seed)
     else:
-        print("not fixed seed", file=sys.stderr)
+        logger.warning("not fixed seed")
 
 
 def new_logger(name="chrislab", stream=sys_stdout, level=logging.INFO, fmt="%(levelname)s\t%(name)s\t%(message)s") -> logging.Logger:
