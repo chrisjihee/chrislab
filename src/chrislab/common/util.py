@@ -19,27 +19,18 @@ from chrisbase.io import make_dir, files_info, dirs, exists_or, hr
 from chrisbase.io import prepend_to_global_path
 from chrisbase.io import running_file, run_command
 from chrisbase.time import now
-from chrisbase.util import number_only, NO, tupled, to_dataframe
+from chrisbase.util import number_only, NO, to_dataframe
 
 
 def set_tokenizers_parallelism(value=False):
     os.environ["TOKENIZERS_PARALLELISM"] = f"{value}".lower()
 
 
-def cuda_visible_devices(gpus=None):
-    if torch.cuda.is_available() and gpus:
+def cuda_visible_devices(devices=None):
+    if torch.cuda.is_available() and devices:
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-        os.environ["CUDA_VISIBLE_DEVICES"] = gpus
+        os.environ["CUDA_VISIBLE_DEVICES"] = devices
     return os.environ.get("CUDA_VISIBLE_DEVICES")
-
-
-def num_cuda_devices():
-    from torch.cuda import _device_count_nvml
-    nvml_count = _device_count_nvml()
-    if nvml_count >= 0:
-        return nvml_count
-    else:
-        return torch.cuda.device_count()
 
 
 def include_cuda_bin_dir(candidate_dirs=None) -> Path:
@@ -121,50 +112,6 @@ def get_options_from_path(default, valid_strategies=('dp', 'ddp', 'deepspeed')):
         final['strategy'] = splits[-2] if splits[-2] in valid_strategies else default['strategy']
         final['run'] = int(number_only(splits[-1]))
     return final
-
-
-def set_devices_to_runs(runs, use_gpu, have_gpu=num_cuda_devices()):
-    gpus_for_use = {
-        1: {
-            0: [0],
-            1: [0],
-            2: [1],
-            3: [2],
-            4: [3],
-            5: [0] if have_gpu < 8 else [4],
-            6: [1] if have_gpu < 8 else [5],
-            7: [2] if have_gpu < 8 else [6],
-            8: [3] if have_gpu < 8 else [7],
-        },
-        2: {
-            0: [0, 1],
-            1: [0, 1],
-            2: [2, 3],
-            3: [0, 1] if have_gpu < 8 else [4, 5],
-            4: [2, 3] if have_gpu < 8 else [6, 7],
-            5: [0, 1],
-            6: [2, 3],
-            7: [0, 1] if have_gpu < 8 else [4, 5],
-            8: [2, 3] if have_gpu < 8 else [6, 7],
-        },
-        4: {
-            0: [0, 1, 2, 3],
-            1: [0, 1, 2, 3],
-            2: [0, 1, 2, 3] if have_gpu < 8 else [4, 5, 6, 7],
-            3: [0, 1, 2, 3],
-            4: [0, 1, 2, 3] if have_gpu < 8 else [4, 5, 6, 7],
-            5: [0, 1, 2, 3],
-            6: [0, 1, 2, 3] if have_gpu < 8 else [4, 5, 6, 7],
-            7: [0, 1, 2, 3],
-            8: [0, 1, 2, 3] if have_gpu < 8 else [4, 5, 6, 7],
-        },
-    }
-    assert use_gpu in gpus_for_use, f"Not defined {use_gpu} in gpus_for_use: defined for {list(gpus_for_use.keys())}"
-    for r in runs:
-        assert r in gpus_for_use[use_gpu], f"Not defined {r} in gpus_for_use[{use_gpu}]: defined for {list(gpus_for_use[use_gpu].keys())}"
-        for x in tupled(runs[r]):
-            x['devices'] = gpus_for_use[use_gpu][r] if use_gpu in gpus_for_use and r in gpus_for_use[use_gpu] else None
-    return runs
 
 
 class EmptyTqdm:
