@@ -7,8 +7,9 @@ from typing import List, Tuple
 
 import requests
 import tqdm
-
 from transformers import HfArgumentParser
+
+from chrisbase.io import sys_stdout
 from .arguments import TrainerArguments, TesterArguments
 
 REMOTE_DATA_MAP = {
@@ -225,36 +226,28 @@ def set_seed(args: TrainerArguments):
         print("not fixed seed", file=sys.stderr)
 
 
-def set_logger(level=logging.INFO):
-    import torch
-    if torch.cuda.is_available():
-        stream_handler = logging.StreamHandler()
-        formatter = logging.Formatter(fmt="%(levelname)s:%(name)s:%(message)s")
-        stream_handler.setFormatter(formatter)
-        logger.addHandler(stream_handler)
-    logger.setLevel(level)
+def new_logger(name="chrislab", stream=sys_stdout, level=logging.INFO, fmt="%(levelname)s\t%(name)s\t%(message)s") -> logging.Logger:
+    stream_handler = logging.StreamHandler(stream=stream)
+    stream_handler.setFormatter(logging.Formatter(fmt=fmt))
+    new_logger = logging.getLogger(name)
+    new_logger.addHandler(stream_handler)
+    new_logger.setLevel(level)
+    return new_logger
 
 
-def new_set_logger(level=logging.INFO):
-    stream_handler = logging.StreamHandler()
-    formatter = logging.Formatter(fmt="%(levelname)s\t%(name)s\t%(message)s")
-    stream_handler.setFormatter(formatter)
-    logger.addHandler(stream_handler)
-    logger.setLevel(level)
-
-
-def new_set_logger2(level=logging.INFO, filename="running.log", fmt="%(levelname)s\t%(name)s\t%(message)s"):
-    from chrisbase.io import sys_stderr
-    stream_handler = logging.StreamHandler(stream=sys_stderr)
-    file_handler = logging.FileHandler(filename=filename, mode="w", encoding="utf-8")
+def new_logger_file(name="chrislab", filepath="running.log", filemode="a",
+                    stream=sys_stdout, level=logging.INFO, fmt="%(levelname)s\t%(name)s\t%(message)s") -> logging.Logger:
+    stream_handler = logging.StreamHandler(stream=stream)
+    file_handler = logging.FileHandler(filename=filepath, mode=filemode, encoding="utf-8")
 
     stream_handler.setFormatter(logging.Formatter(fmt=fmt))
     file_handler.setFormatter(logging.Formatter(fmt=fmt))
 
-    logger.addHandler(stream_handler)
-    logger.addHandler(file_handler)
-
-    logger.setLevel(level)
+    new_logger = logging.getLogger(name)
+    new_logger.addHandler(stream_handler)
+    new_logger.addHandler(file_handler)
+    new_logger.setLevel(level)
+    return new_logger
 
 
 def load_arguments(argument_class, json_file_path=None):

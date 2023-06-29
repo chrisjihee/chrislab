@@ -1,19 +1,22 @@
+import nlpbook
+import logging
 import math
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 import pandas as pd
-from chrisbase.io import ProjectEnv, make_dir
-from chrisbase.io import files, make_parent_dir, out_hr, out_table
-from chrisbase.time import now, str_delta
-from chrisbase.util import to_dataframe
 from dataclasses_json import DataClassJsonMixin
 from lightning.fabric.accelerators import Accelerator
 from lightning.fabric.strategies import Strategy
 from lightning.pytorch.loggers import CSVLogger
+
+from chrisbase.io import ProjectEnv, make_dir
+from chrisbase.io import files, make_parent_dir, out_hr, out_table
+from chrisbase.time import now, str_delta
+from chrisbase.util import to_dataframe
 
 
 @dataclass
@@ -152,6 +155,8 @@ class CommonArguments(ArgumentGroupData):
 
     def __post_init__(self):
         super().__post_init__()
+        if not self.env.logging_file.stem.endswith(self.tag):
+            self.env.logging_file = self.env.logging_file.with_stem(f"{self.env.logging_file.stem}-{self.tag}")
         if not self.env.argument_file.stem.endswith(self.tag):
             self.env.argument_file = self.env.argument_file.with_stem(f"{self.env.argument_file.stem}-{self.tag}")
         if self.data and self.model:
@@ -241,15 +246,21 @@ class TrainerArguments(TesterArguments):
 
 
 class ArgumentsUsing:
-    def __init__(self, args: CommonArguments):
+    def __init__(self, args: CommonArguments, logging_level: int = logging.INFO, delete_on_exit: bool = True):
         self.args: CommonArguments = args
+        self.logging_level = logging_level
+        self.delete_on_exit: bool = delete_on_exit
 
-    def __enter__(self) -> Path:
+    def __enter__(self) -> Tuple[Path, logging.Logger]:
         self.args_file: Path | None = self.args.save()
-        return self.args_file
+        self.logger: logging.Logger = nlpbook.new_logger_file(name=f"main.{self.args.env.running_file.stem}",
+                                                              filepath=self.args.output.dir_path / self.args.env.logging_file,
+                                                              filemode="w",
+                                                              level=self.logging_level, )
+        return self.args_file, self.logger
 
     def __exit__(self, *exc_info):
-        if self.args_file:
+        if self.delete_on_exit and self.args_file:
             self.args_file.unlink(missing_ok=True)
 
 

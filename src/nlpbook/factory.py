@@ -7,10 +7,10 @@ from chrisbase.time import now
 from flask import Flask, request, jsonify, render_template
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
-from nlpbook.arguments import TrainerArguments, TesterArguments, ServerArguments
+from nlpbook.arguments import TrainerArguments, TesterArguments, CommonArguments
 
 
-def setup_csv_out(args: ServerArguments, version=None) -> ServerArguments:
+def setup_csv_out(args: CommonArguments, version=None) -> CommonArguments:
     if not version:
         version = now(f'{args.tag}-{args.job.name}-%m%d.%H%M')
     csv_out: CSVLogger = CSVLogger(args.model.finetuning_home, args.data.name, version)

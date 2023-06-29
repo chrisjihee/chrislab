@@ -3,24 +3,24 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+import lightning as L
+import lightning.pytorch as pl
 import torch
 from flask import Flask
 from torch import Tensor
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
+from transformers import PreTrainedTokenizerFast, AutoTokenizer, AutoConfig, AutoModelForTokenClassification, BertForTokenClassification, CharSpan
+from transformers.modeling_outputs import TokenClassifierOutput
 from typer import Typer
 
-import lightning as L
-import lightning.pytorch as pl
 import nlpbook
 from chrisbase.io import JobTimer, pop_keys, err_hr, out_hr
 from chrislab.common.util import time_tqdm_cls, mute_tqdm_cls
-from nlpbook import new_set_logger, save_checkpoint, TERM_IN_NAME_FORMAT
+from nlpbook import save_checkpoint, TERM_IN_NAME_FORMAT
 from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
 from nlpbook.metrics import accuracy, NER_CharMacroF1, NER_EntityMacroF1, klue_ner_char_macro_f1, klue_ner_entity_macro_f1
 from nlpbook.ner.corpus import NERCorpus, NERDataset, ner_encoded_examples_to_batch, NEREncodedExample
 from nlpbook.ner.task import NERTask
-from transformers import PreTrainedTokenizerFast, AutoTokenizer, AutoConfig, AutoModelForTokenClassification, BertForTokenClassification, CharSpan
-from transformers.modeling_outputs import TokenClassifierOutput
 
 app = Typer()
 logger = logging.getLogger("chrislab")
@@ -91,7 +91,7 @@ def fabric_train(args_file: Path | str):
 
 
 def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: torch.nn.Module,
-                      optimizer: torch.optim.Optimizer, scheduler: torch.optim.lr_scheduler.LRScheduler,
+                      optimizer: torch.optim.Optimizer, scheduler: torch.optim.lr_scheduler._LRScheduler,
                       train_dataloader: DataLoader, valid_dataloader: DataLoader, valid_dataset: NERDataset):
     time_tqdm = time_tqdm_cls(bar_size=20, desc_size=8, file=sys.stdout)
     mute_tqdm = mute_tqdm_cls()
