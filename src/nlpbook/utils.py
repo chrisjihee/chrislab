@@ -9,7 +9,6 @@ import requests
 import tqdm
 from transformers import HfArgumentParser
 
-from chrisbase.io import sys_stdout
 from .arguments import TrainerArguments, TesterArguments
 
 REMOTE_DATA_MAP = {
@@ -216,38 +215,16 @@ def download_pretrained_model(args, config_only=False):
         raise ValueError(f"not valid model name({pretrained_model_name}), cannot download resources")
 
 
-def set_seed(args: TrainerArguments, logger=logger):
+def set_seed(args: TrainerArguments):
+    import lightning.fabric.utilities.seed
+    lightning.fabric.utilities.seed.log = args.env.msg_logger
     if args.learning.seed is not None:
         from transformers import set_seed
         set_seed(args.learning.seed)
         from lightning.pytorch import seed_everything
         seed_everything(args.learning.seed)
     else:
-        logger.warning("not fixed seed")
-
-
-def new_logger(name="chrislab", stream=sys_stdout, level=logging.INFO, fmt="%(levelname)s\t%(name)s\t%(message)s") -> logging.Logger:
-    stream_handler = logging.StreamHandler(stream=stream)
-    stream_handler.setFormatter(logging.Formatter(fmt=fmt))
-    new_logger = logging.getLogger(name)
-    new_logger.addHandler(stream_handler)
-    new_logger.setLevel(level)
-    return new_logger
-
-
-def new_logger_file(name="chrislab", filepath="running.log", filemode="a",
-                    stream=sys_stdout, level=logging.INFO, fmt="%(levelname)s\t%(name)s\t%(message)s") -> logging.Logger:
-    stream_handler = logging.StreamHandler(stream=stream)
-    file_handler = logging.FileHandler(filename=filepath, mode=filemode, encoding="utf-8")
-
-    stream_handler.setFormatter(logging.Formatter(fmt=fmt))
-    file_handler.setFormatter(logging.Formatter(fmt=fmt))
-
-    new_logger = logging.getLogger(name)
-    new_logger.addHandler(stream_handler)
-    new_logger.addHandler(file_handler)
-    new_logger.setLevel(level)
-    return new_logger
+        args.env.msg_logger.warning("not fixed seed")
 
 
 def load_arguments(argument_class, json_file_path=None):
@@ -268,7 +245,7 @@ def save_checkpoint(fabric, args, metric_values, model, optimizer,
     terms = [m.group(1) for m in TERM_IN_NAME_FORMAT.finditer(args.model.finetuning_name)]
     terms = {term: metric_values[term] for term in terms}
     checkpoint_stem = args.model.finetuning_name.format(**terms)
-    checkpoint_path: Path = (args.output.dir_path / "model.out").with_stem(checkpoint_stem).with_suffix(".ckpt")
+    checkpoint_path: Path = (args.env.output_home / "model.out").with_stem(checkpoint_stem).with_suffix(".ckpt")
 
     sorted_checkpoints.append((metric_values[sorting_metric], checkpoint_path))
     sorted_checkpoints.sort(key=lambda x: x[0], reverse=sorting_reverse)
