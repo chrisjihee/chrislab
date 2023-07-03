@@ -11,9 +11,9 @@ import torch
 from filelock import FileLock
 from torch.utils.data.dataset import Dataset
 from tqdm import tqdm
+from transformers import PreTrainedTokenizer
 
 from nlpbook.qa import QATrainArguments
-from transformers import PreTrainedTokenizer
 
 logger = logging.getLogger("chrislab")
 

@@ -1,22 +1,10 @@
-from pathlib import Path
-
 import lightning.pytorch as pl
 import torch
-from chrisbase.io import merge_dicts
-from chrisbase.time import now
 from flask import Flask, request, jsonify, render_template
-from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
-from nlpbook.arguments import TrainerArguments, TesterArguments, CommonArguments
 
-
-def setup_csv_out(args: CommonArguments, version=None) -> CommonArguments:
-    if not version:
-        version = now(f'{args.tag}-{args.job.name}-%m%d.%H%M')
-    csv_out: CSVLogger = CSVLogger(args.model.finetuning_home, args.data.name, version)
-    args.output.dir_path = Path(csv_out.log_dir)
-    args.output.csv_out = csv_out
-    return args
+from chrisbase.io import merge_dicts
+from nlpbook.arguments import TrainerArguments, TesterArguments
 
 
 class LoggingCallback(pl.Callback):
@@ -37,14 +25,14 @@ class LoggingCallback(pl.Callback):
 def make_trainer(args: TrainerArguments) -> pl.Trainer:
     logging_callback = LoggingCallback()
     checkpoint_callback = ModelCheckpoint(
-        dirpath=args.output.dir_path,
+        dirpath=args.env.output_home,
         filename=args.model.finetuning_name,
         save_top_k=args.learning.num_keeping,
         monitor=args.learning.keeping_by.split()[1],
         mode=args.learning.keeping_by.split()[0],
     )
     trainer = pl.Trainer(
-        logger=args.output.csv_out,
+        logger=args.env.csv_logger,
         devices=args.hardware.devices,
         strategy=args.hardware.strategy,
         precision=args.hardware.precision,
@@ -61,7 +49,7 @@ def make_trainer(args: TrainerArguments) -> pl.Trainer:
 
 def make_tester(args: TesterArguments) -> pl.Trainer:
     tester = pl.Trainer(
-        logger=args.output.csv_out,
+        logger=args.env.csv_logger,
         devices=args.hardware.devices,
         strategy=args.hardware.strategy,
         precision=args.hardware.precision,

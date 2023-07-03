@@ -1,17 +1,16 @@
 import logging
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, ClassVar, Dict
+from typing import List, Optional, Dict
 
 import torch
 from dataclasses_json import DataClassJsonMixin
 from torch.utils.data.dataset import Dataset
-
-from chrisbase.io import make_parent_dir, files, merge_dicts, out_hr, sys_stderr
-from nlpbook.arguments import TesterArguments
-from transformers import PreTrainedTokenizerFast, BatchEncoding, CharSpan
+from transformers import PreTrainedTokenizerFast, BatchEncoding
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
+
+from chrisbase.io import out_hr
+from nlpbook.arguments import TesterArguments
 
 logger = logging.getLogger("chrislab")
 

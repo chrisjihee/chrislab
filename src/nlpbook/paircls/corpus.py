@@ -1,8 +1,8 @@
-import os
 import json
 import logging
-from nlpbook.cls.corpus import ClassificationExample
+import os
 
+from nlpbook.cls.corpus import ClassificationExample
 
 logger = logging.getLogger("chrislab")
 
@@ -39,7 +39,6 @@ class KlueNLICorpus:
     @property
     def num_labels(self):
         return len(self.get_labels())
-
 
 
 class KorNLICorpus:

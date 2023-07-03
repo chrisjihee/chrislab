@@ -68,7 +68,7 @@ def train(args_file: Path | str):
         )
         err_hr(c='-')
 
-        with RuntimeChecking(nlpbook.setup_csv_out(args)):
+        with RuntimeChecking(args.setup_csv_logger()):
             torch.set_float32_matmul_precision('high')
             trainer: pl.Trainer = nlpbook.make_trainer(args)
             trainer.fit(ClassificationTask(model, args, trainer),
@@ -84,7 +84,7 @@ def test(args_file: Path | str):
     args: TesterArguments = TesterArguments.from_json(args_file.read_text()).show()
 
     with JobTimer(f"chrialab.nlpbook.cls test {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
-        checkpoint_path = args.output.dir_path / args.model.finetuning_name
+        checkpoint_path = args.env.output_home / args.model.finetuning_name
         assert checkpoint_path.exists(), f"No checkpoint file: {checkpoint_path}"
         logger.info(f"Using finetuned checkpoint file at {checkpoint_path}")
         err_hr(c='-')
@@ -119,7 +119,7 @@ def test(args_file: Path | str):
         )
         err_hr(c='-')
 
-        with RuntimeChecking(nlpbook.setup_csv_out(args)):
+        with RuntimeChecking(args.setup_csv_logger()):
             torch.set_float32_matmul_precision('high')
             tester: pl.Trainer = nlpbook.make_tester(args)
             tester.test(ClassificationTask(model, args, tester),
@@ -135,7 +135,7 @@ def serve(args_file: Path | str):
     args: ServerArguments = ServerArguments.from_json(args_file.read_text()).show()
 
     with JobTimer(f"chrialab.nlpbook serve_cls {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
-        checkpoint_path = args.output.dir_path / args.model.finetuning_name
+        checkpoint_path = args.env.output_home / args.model.finetuning_name
         assert checkpoint_path.exists(), f"No downstream model file: {checkpoint_path}"
         checkpoint: dict = torch.load(checkpoint_path, map_location=torch.device("cpu"))
         logger.info(f"Using finetuned model file at {checkpoint_path}")
@@ -176,7 +176,7 @@ def serve(args_file: Path | str):
                 'negative_width': f"{negative_prob * 100}%",
             }
 
-        with RuntimeChecking(nlpbook.setup_csv_out(args)):
+        with RuntimeChecking(args.setup_csv_logger()):
             server: Flask = nlpbook.make_server(inference_fn,
                                                 template_file="serve_cls.html",
                                                 ngrok_home=args.env.working_path)

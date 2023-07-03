@@ -81,9 +81,9 @@ def fabric_train(args_file: Path | str):
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
 
         # Fabric
-        with RuntimeChecking(args.setup_csv_out()):
+        with RuntimeChecking(args.setup_csv_logger()):
             torch.set_float32_matmul_precision('high')
-            fabric = L.Fabric(loggers=args.output.csv_out)
+            fabric = L.Fabric(loggers=args.env.csv_logger)
             fabric.setup(model, optimizer)
             train_dataloader, valid_dataloader = fabric.setup_dataloaders(train_dataloader, valid_dataloader)
             train_with_fabric(fabric, args, model, optimizer, scheduler, train_dataloader, valid_dataloader, valid_dataset)
@@ -227,7 +227,7 @@ def train(args_file: Path | str):
         )
         err_hr(c='-')
 
-        with RuntimeChecking(nlpbook.setup_csv_out(args)):
+        with RuntimeChecking(args.setup_csv_logger()):
             torch.set_float32_matmul_precision('high')
             trainer: pl.Trainer = nlpbook.make_trainer(args)
             trainer.fit(NERTask(model=model, args=args, trainer=trainer, val_dataset=val_dataset,
@@ -244,7 +244,7 @@ def test(args_file: Path | str):
     args = TesterArguments.from_json(args_file.read_text()).show()
 
     with JobTimer(f"chrialab.nlpbook.ner test {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
-        checkpoint_path = args.output.dir_path / args.model.finetuning_name
+        checkpoint_path = args.env.output_home / args.model.finetuning_name
         assert checkpoint_path.exists(), f"No checkpoint file: {checkpoint_path}"
         logger.info(f"Using finetuned checkpoint file at {checkpoint_path}")
         err_hr(c='-')
@@ -273,13 +273,12 @@ def test(args_file: Path | str):
             config=pretrained_model_config
         )
         err_hr(c='-')
-
-        with RuntimeChecking(nlpbook.setup_csv_out(args)):
-            torch.set_float32_matmul_precision('high')
-            tester: pl.Trainer = nlpbook.make_tester(args)
-            tester.test(NERTask(model, args, tester),
-                        dataloaders=test_dataloader,
-                        ckpt_path=checkpoint_path)
+    with RuntimeChecking(args.setup_csv_logger()):
+        torch.set_float32_matmul_precision('high')
+        tester: pl.Trainer = nlpbook.make_tester(args)
+        tester.test(NERTask(model, args, tester),
+                    dataloaders=test_dataloader,
+                    ckpt_path=checkpoint_path)
 
 
 @app.command()
@@ -290,7 +289,7 @@ def serve(args_file: Path | str):
     args: ServerArguments = ServerArguments.from_json(args_file.read_text()).show()
 
     with JobTimer(f"chrialab.nlpbook serve_ner {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
-        checkpoint_path = args.output.dir_path / args.model.finetuning_name
+        checkpoint_path = args.env.output_home / args.model.finetuning_name
         assert checkpoint_path.exists(), f"No checkpoint file: {checkpoint_path}"
         checkpoint: dict = torch.load(checkpoint_path, map_location=torch.device("cpu"))
         logger.info(f"Using finetuned checkpoint file at {checkpoint_path}")
@@ -298,7 +297,7 @@ def serve(args_file: Path | str):
 
         tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained, use_fast=True)
         assert isinstance(tokenizer, PreTrainedTokenizerFast), f"Our code support only PreTrainedTokenizerFast, but used {type(tokenizer)}"
-        label_map_path: Path = args.output.dir_path / "label_map.txt"
+        label_map_path: Path = args.env.output_home / "label_map.txt"
         assert label_map_path.exists(), f"No downstream label file: {label_map_path}"
         labels = label_map_path.read_text().splitlines(keepends=False)
         id_to_label = {idx: label for idx, label in enumerate(labels)}
@@ -339,7 +338,7 @@ def serve(args_file: Path | str):
                 'result': result,
             }
 
-        with RuntimeChecking(nlpbook.setup_csv_out(args)):
+        with RuntimeChecking(args.setup_csv_logger()):
             server: Flask = nlpbook.make_server(inference_fn,
                                                 template_file="serve_ner.html",
                                                 ngrok_home=args.env.working_path)

@@ -1,4 +1,3 @@
-import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -7,13 +6,11 @@ from typing import List, Optional, ClassVar, Dict
 import torch
 from dataclasses_json import DataClassJsonMixin
 from torch.utils.data.dataset import Dataset
-
-from chrisbase.io import make_parent_dir, files, merge_dicts, out_hr
-from nlpbook.arguments import TesterArguments
 from transformers import PreTrainedTokenizerFast, BatchEncoding, CharSpan
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
 
-logger = logging.getLogger("chrislab")
+from chrisbase.io import make_parent_dir, files, merge_dicts, hr
+from nlpbook.arguments import TesterArguments
 
 
 @dataclass
@@ -81,15 +78,15 @@ class NERCorpus:
         with data_path.open(encoding="utf-8") as inp:
             for line in inp.readlines():
                 examples.append(NERRawExample.from_json(line))
-        logger.info(f"Loaded {len(examples)} examples from {data_path}")
+        self.args.env.msg_logger.info(f"Loaded {len(examples)} examples from {data_path}")
         return examples
 
     def get_labels(self) -> List[str]:
-        label_map_path = make_parent_dir(self.args.output.dir_path / "label_map.txt")
+        label_map_path = make_parent_dir(self.args.env.output_home / "label_map.txt")
         if not label_map_path.exists():
             ner_tags = []
             train_data_path = self.args.data.home / self.args.data.name / self.args.data.files.train
-            logger.info(f"Extracting labels from {train_data_path}")
+            self.args.env.msg_logger.info(f"Extracting labels from {train_data_path}")
             with train_data_path.open(encoding="utf-8") as inp:
                 for line in inp.readlines():
                     for x in NERRawExample.from_json(line).entity_list:
@@ -98,7 +95,7 @@ class NERCorpus:
             b_tags = [f"B-{ner_tag}" for ner_tag in ner_tags]
             i_tags = [f"I-{ner_tag}" for ner_tag in ner_tags]
             labels = ["O"] + b_tags + i_tags
-            logger.info(f"Saved {len(labels)} labels to {label_map_path}")
+            self.args.env.msg_logger.info(f"Saved {len(labels)} labels to {label_map_path}")
             with label_map_path.open("w", encoding="utf-8") as f:
                 f.writelines([x + "\n" for x in labels])
         else:
@@ -125,30 +122,26 @@ def _convert_to_encoded_examples(
 ) -> List[NEREncodedExample]:
     label_to_id: Dict[str, int] = {label: i for i, label in enumerate(label_list)}
     id_to_label: Dict[int, str] = {i: label for i, label in enumerate(label_list)}
-    if args.env.off_debugging:
-        print(f"label_to_id = {label_to_id}")
-        print(f"id_to_label = {id_to_label}")
+    args.env.msg_logger.debug(f"label_to_id = {label_to_id}")
+    args.env.msg_logger.debug(f"id_to_label = {id_to_label}")
 
     encoded_examples: List[NEREncodedExample] = []
     for idx, raw_example in enumerate(raw_examples):
         raw_example: NERRawExample = raw_example
         offset_to_label: Dict[int, str] = raw_example.get_offset_label_dict()
-        if args.env.off_tracing:
-            out_hr()
-            print(f"offset_to_label = {offset_to_label}")
+        args.env.msg_logger.debug(hr())
+        args.env.msg_logger.debug(f"offset_to_label = {offset_to_label}")
         encoded: BatchEncoding = tokenizer.encode_plus(raw_example.origin,
                                                        max_length=args.model.max_seq_length,
                                                        truncation=TruncationStrategy.LONGEST_FIRST,
                                                        padding=PaddingStrategy.MAX_LENGTH)
         encoded_tokens: List[str] = encoded.tokens()
-        if args.env.off_debugging:
-            out_hr()
-            print(f"encoded.tokens()           = {encoded.tokens()}")
-            for key in encoded.keys():
-                print(f"encoded[{key:14s}]    = {encoded[key]}")
+        args.env.msg_logger.debug(hr())
+        args.env.msg_logger.debug(f"encoded.tokens()           = {encoded.tokens()}")
+        for key in encoded.keys():
+            args.env.msg_logger.debug(f"encoded[{key:14s}]    = {encoded[key]}")
 
-        if args.env.off_tracing:
-            out_hr()
+        args.env.msg_logger.debug(hr())
         label_list: List[str] = []
         for token_id in range(args.model.max_seq_length):
             token_repr: str = encoded_tokens[token_id]
@@ -156,37 +149,33 @@ def _convert_to_encoded_examples(
             if token_span:
                 token_label = _decide_span_label(token_span, offset_to_label)
                 label_list.append(token_label)
-                if args.env.off_tracing:
-                    token_sstr = raw_example.origin[token_span.start:token_span.end]
-                    print('\t'.join(map(str, [token_id, token_repr, token_span, token_sstr, token_label])))
+                token_sstr = raw_example.origin[token_span.start:token_span.end]
+                args.env.msg_logger.debug('\t'.join(map(str, [token_id, token_repr, token_span, token_sstr, token_label])))
             else:
                 label_list.append('O')
-                if args.env.off_tracing:
-                    print('\t'.join(map(str, [token_id, token_repr, token_span])))
+                args.env.msg_logger.debug('\t'.join(map(str, [token_id, token_repr, token_span])))
         label_ids: List[int] = [label_to_id[label] for label in label_list]
         encoded_example = NEREncodedExample(idx=idx, raw=raw_example, encoded=encoded, label_ids=label_ids)
         encoded_examples.append(encoded_example)
-        if args.env.off_debugging:
-            out_hr()
-            print(f"label_list                = {label_list}")
-            print(f"label_ids                 = {label_ids}")
-            out_hr()
-            print(f"encoded_example.idx       = {encoded_example.idx}")
-            print(f"encoded_example.raw       = {encoded_example.raw}")
-            print(f"encoded_example.encoded   = {encoded_example.encoded}")
-            print(f"encoded_example.label_ids = {encoded_example.label_ids}")
+        args.env.msg_logger.debug(hr())
+        args.env.msg_logger.debug(f"label_list                = {label_list}")
+        args.env.msg_logger.debug(f"label_ids                 = {label_ids}")
+        args.env.msg_logger.debug(hr())
+        args.env.msg_logger.debug(f"encoded_example.idx       = {encoded_example.idx}")
+        args.env.msg_logger.debug(f"encoded_example.raw       = {encoded_example.raw}")
+        args.env.msg_logger.debug(f"encoded_example.encoded   = {encoded_example.encoded}")
+        args.env.msg_logger.debug(f"encoded_example.label_ids = {encoded_example.label_ids}")
 
-    if args.env.off_debugging:
-        out_hr()
+    args.env.msg_logger.debug(hr())
     for encoded_example in encoded_examples[:args.data.show_examples]:
-        logger.info("  === [Example %d] ===" % encoded_example.idx)
-        logger.info("  = sentence   : %s" % encoded_example.raw.origin)
-        logger.info("  = characters : %s" % " | ".join(f"{x}/{y}" for x, y in encoded_example.raw.character_list))
-        logger.info("  = tokens     : %s" % " ".join(encoded_example.encoded.tokens()))
-        logger.info("  = labels     : %s" % " ".join([id_to_label[x] for x in encoded_example.label_ids]))
-        logger.info("  === ")
+        args.env.msg_logger.info("  === [Example %d] ===" % encoded_example.idx)
+        args.env.msg_logger.info("  = sentence   : %s" % encoded_example.raw.origin)
+        args.env.msg_logger.info("  = characters : %s" % " | ".join(f"{x}/{y}" for x, y in encoded_example.raw.character_list))
+        args.env.msg_logger.info("  = tokens     : %s" % " ".join(encoded_example.encoded.tokens()))
+        args.env.msg_logger.info("  = labels     : %s" % " ".join([id_to_label[x] for x in encoded_example.label_ids]))
+        args.env.msg_logger.info("  === ")
 
-    logger.info(f"Converted {len(raw_examples)} raw examples to {len(encoded_examples)} encoded examples")
+    args.env.msg_logger.info(f"Converted {len(raw_examples)} raw examples to {len(encoded_examples)} encoded examples")
     return encoded_examples
 
 
@@ -201,7 +190,7 @@ class NERDataset(Dataset):
         assert data_file_dict[split], f"No data_file for '{split}' split: {args.data.files}"
         text_data_path: Path = Path(args.data.home) / args.data.name / data_file_dict[split]
         assert text_data_path.exists() and text_data_path.is_file(), f"No data_text_path: {text_data_path}"
-        logger.info(f"Creating features from dataset file at {text_data_path}")
+        args.env.msg_logger.info(f"Creating features from dataset file at {text_data_path}")
         examples: List[NERRawExample] = self.corpus.read_raw_examples(text_data_path)
         self.label_list: List[str] = self.corpus.get_labels()
         self._label_to_id: Dict[str, int] = {label: i for i, label in enumerate(self.label_list)}
