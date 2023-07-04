@@ -45,6 +45,10 @@ class ProjectEnv(TypedData):
     msg_format: str = field(default="%(asctime)s %(levelname)s %(message)s")
     csv_logger: CSVLogger | None = field(init=False, default=None)
 
+    def set(self, name: str = None):
+        self.job_name = name
+        return self
+
     def __post_init__(self):
         assert self.project, "Project name must be provided"
         self.hostname = get_hostname()
