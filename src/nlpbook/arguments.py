@@ -30,7 +30,7 @@ class TypedData(DataClassJsonMixin):
 @dataclass
 class ProjectEnv(TypedData):
     project: str = field()
-    jobname: str = field()
+    job_name: str = field()
     hostname: str = field(init=False)
     hostaddr: str = field(init=False)
     python_path: Path = field(init=False)
@@ -41,6 +41,7 @@ class ProjectEnv(TypedData):
     logging_file: Path = field(default="message.out")
     argument_file: Path = field(default="arguments.json")
     msg_level: int = field(default=logging.INFO)
+    msg_format: str = field(default="%(asctime)s %(levelname)s %(message)s")
     msg_logger: Logger | None = field(init=False, default=None)
     csv_logger: CSVLogger | None = field(init=False, default=None)
 
@@ -198,16 +199,15 @@ class CommonArguments(ArgumentGroupData):
 
     def setup_msg_logger(self):
         self.env.msg_logger = make_dual_logger(name=f"main.{self.env.running_file.stem}",
-                                               filepath=self.env.output_home / self.env.logging_file,
-                                               filemode="w",
-                                               level=self.env.msg_level)
+                                               filepath=self.env.output_home / self.env.logging_file, filemode="w",
+                                               level=self.env.msg_level, fmt=self.env.msg_format)
         return self
 
     def setup_csv_logger(self, version=None):
         if not version:
             version = now('%m%d.%H%M%S')
         self.env.csv_logger = CSVLogger(self.model.finetuning_home, name=self.data.name,
-                                        version=f'{self.tag}-{self.env.jobname}-{version}',
+                                        version=f'{self.tag}-{self.env.job_name}-{version}',
                                         flush_logs_every_n_steps=1)
         self.env.output_home = Path(self.env.csv_logger.log_dir)
         return self
@@ -220,8 +220,9 @@ class CommonArguments(ArgumentGroupData):
         make_parent_dir(args_file).write_text(args_json, encoding="utf-8")
         return args_file
 
-    def info_arguments(self, title="Configured Arguments:"):
-        self.env.msg_logger.info("\n".join([title, hr(c='-'), str_table(self.dataframe()), hr(c='-')]))
+    def info_arguments(self, title=None):
+        for line in "\n".join(x for x in [title, hr(c='-'), str_table(self.dataframe()), hr(c='-')] if x).splitlines():
+            self.env.msg_logger.info(line)
         return self
 
     def dataframe(self, columns=None):
