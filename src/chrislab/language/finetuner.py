@@ -358,7 +358,7 @@ class MyFinetuner(Fabric):
         return self.optimizer.param_groups[0]['lr']
 
     def load_tokenizer(self, verbose=True) -> None:
-        with JobTimer(verbose=verbose, mute_logger="transformers.tokenization_utils_base"):
+        with JobTimer(verbose=verbose, mute_loggers="transformers.tokenization_utils_base"):
             if self.state.pretrained.type == 'morp':
                 self.tokenizer = KorbertTokenizer.from_pretrained(self.state.pretrained.path, max_len=self.state.max_sequence_length, use_fast=False, do_lower_case=False, tokenize_chinese_chars=False)
             elif self.state.pretrained.type == 'bbpe':
