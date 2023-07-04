@@ -7,9 +7,11 @@ from typing import List, Tuple
 
 import requests
 import tqdm
-from transformers import HfArgumentParser
 
+from transformers import HfArgumentParser
 from .arguments import TrainerArguments, TesterArguments
+
+logger = logging.getLogger(__name__)
 
 REMOTE_DATA_MAP = {
     "nsmc": {
@@ -75,7 +77,6 @@ REMOTE_MODEL_MAP = {
     },
 }
 GOOGLE_DRIVE_URL = "https://docs.google.com/uc?export=download"
-logger = logging.getLogger("chrislab")
 TERM_IN_NAME_FORMAT = re.compile(re.escape("{") + "(.+?)(:.+?)?" + re.escape("}"))
 
 
@@ -216,15 +217,15 @@ def download_pretrained_model(args, config_only=False):
 
 
 def set_seed(args: TrainerArguments):
-    import lightning.fabric.utilities.seed
-    lightning.fabric.utilities.seed.log = args.env.msg_logger
     if args.learning.seed is not None:
         from transformers import set_seed
         set_seed(args.learning.seed)
+        import lightning.fabric.utilities.seed
+        lightning.fabric.utilities.seed.log = logging.getLogger(lightning.fabric.utilities.seed.log.name.replace("lightning.", "lightning,"))
         from lightning.pytorch import seed_everything
         seed_everything(args.learning.seed)
     else:
-        args.env.msg_logger.warning("not fixed seed")
+        logger.warning("not fixed seed")
 
 
 def load_arguments(argument_class, json_file_path=None):

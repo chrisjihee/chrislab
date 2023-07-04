@@ -4,19 +4,20 @@ import os
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime
-from logging import Logger
 from pathlib import Path
 from typing import List
 
 import pandas as pd
 from dataclasses_json import DataClassJsonMixin
+
+from chrisbase.io import files, make_dir, make_parent_dir, hr, str_table, out_hr, out_table, get_hostname, get_hostaddr, running_file, first_or, cwd, configure_dual_logger
+from chrisbase.time import now, str_delta
+from chrisbase.util import to_dataframe
 from lightning.fabric.accelerators import Accelerator
 from lightning.fabric.strategies import Strategy
 from lightning.pytorch.loggers import CSVLogger
 
-from chrisbase.io import files, make_dir, make_parent_dir, hr, str_table, out_hr, out_table, get_hostname, get_hostaddr, running_file, first_or, cwd, make_dual_logger
-from chrisbase.time import now, str_delta
-from chrisbase.util import to_dataframe
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -30,19 +31,18 @@ class TypedData(DataClassJsonMixin):
 @dataclass
 class ProjectEnv(TypedData):
     project: str = field()
-    job_name: str = field()
+    job_name: str = field(default=None)
     hostname: str = field(init=False)
     hostaddr: str = field(init=False)
     python_path: Path = field(init=False)
     working_path: Path = field(init=False)
     running_file: Path = field(init=False)
     command_args: List[str] = field(init=False)
-    output_home: Path | None = field(init=False, default=None)
-    logging_file: Path = field(default="message.out")
-    argument_file: Path = field(default="arguments.json")
+    output_home: str | Path = field(default="output")
+    logging_file: str | Path = field(default="message.out")
+    argument_file: str | Path = field(default="arguments.json")
     msg_level: int = field(default=logging.INFO)
     msg_format: str = field(default="%(asctime)s %(levelname)s %(message)s")
-    msg_logger: Logger | None = field(init=False, default=None)
     csv_logger: CSVLogger | None = field(init=False, default=None)
 
     def __post_init__(self):
@@ -56,8 +56,11 @@ class ProjectEnv(TypedData):
         self.working_path = cwd(self.project_path)
         self.running_file = self.running_file.relative_to(self.working_path)
         self.command_args = sys.argv[1:]
+        self.output_home = make_dir(self.output_home)
         self.logging_file = Path(self.logging_file)
         self.argument_file = Path(self.argument_file)
+        configure_dual_logger(filename=self.output_home / self.logging_file, filemode="w",
+                              level=self.msg_level, fmt=self.msg_format)
 
 
 @dataclass
@@ -192,16 +195,9 @@ class CommonArguments(ArgumentGroupData):
         if self.data and self.model:
             self.env.output_home = make_dir(self.model.finetuning_home / self.data.name)
         elif self.data:
-            self.env.output_home = make_dir("output") / self.data.home
-        else:
-            self.env.output_home = make_dir("output")
-        self.setup_msg_logger()
-
-    def setup_msg_logger(self):
-        self.env.msg_logger = make_dual_logger(name=f"main.{self.env.running_file.stem}",
-                                               filepath=self.env.output_home / self.env.logging_file, filemode="w",
-                                               level=self.env.msg_level, fmt=self.env.msg_format)
-        return self
+            self.env.output_home = make_dir(self.env.output_home / self.data.home)
+        configure_dual_logger(filename=self.env.output_home / self.env.logging_file, filemode="w",
+                              level=self.env.msg_level, fmt=self.env.msg_format)
 
     def setup_csv_logger(self, version=None):
         if not version:
@@ -221,8 +217,8 @@ class CommonArguments(ArgumentGroupData):
         return args_file
 
     def info_arguments(self, title=None):
-        for line in "\n".join(x for x in [title, hr(c='-'), str_table(self.dataframe()), hr(c='-')] if x).splitlines():
-            self.env.msg_logger.info(line)
+        for line in "\n".join(str(x) for x in [title, hr(c='-'), str_table(self.dataframe()), hr(c='-')] if x).splitlines():
+            logger.info(line)
         return self
 
     def dataframe(self, columns=None):

@@ -23,7 +23,7 @@ from nlpbook.ner.corpus import NERCorpus, NERDataset, ner_encoded_examples_to_ba
 from nlpbook.ner.task import NERTask
 
 app = Typer()
-logger = logging.getLogger("chrislab")
+logger = logging.getLogger(__name__)
 
 metric_tools_for_NER = {
     "F1c": NER_CharMacroF1,
