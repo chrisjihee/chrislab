@@ -76,7 +76,7 @@ def fabric_train(args_file: Path | str):
         err_hr(c='-')
 
         # Optimizer
-        optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning.speed)
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning.lr)
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
 
         # Fabric
@@ -99,10 +99,10 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: DPTransfo
                       train_dataloader: DataLoader, valid_dataloader: DataLoader, valid_dataset: DPDataset):
     time_tqdm = time_tqdm_cls(bar_size=20, desc_size=8, file=sys.stdout)
     mute_tqdm = mute_tqdm_cls()
-    val_interval: float = args.learning.validating_on * len(train_dataloader) if args.learning.validating_on <= 1.0 else args.learning.validating_on
+    val_interval: float = args.learning.validate_on * len(train_dataloader) if args.learning.validate_on <= 1.0 else args.learning.validate_on
     sorted_checkpoints: List[Tuple[float, Path]] = []
-    sorting_reverse: bool = not args.learning.keeping_by.split()[0].lower().startswith("min")
-    sorting_metric: str = args.learning.keeping_by.split()[-1]
+    sorting_reverse: bool = not args.learning.keep_by.split()[0].lower().startswith("min")
+    sorting_metric: str = args.learning.keep_by.split()[-1]
     metric_values: Dict[str, Any] = {}
     args.output.global_step = 0
     args.output.global_epoch = 0.0
@@ -171,7 +171,7 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: DPTransfo
             model.eval()
             if batch_idx + 1 == len(train_dataloader) or (batch_idx + 1) % val_interval < 1:
                 validate(fabric, args, model, valid_dataloader, valid_dataset,
-                         metric_values=metric_values, print_result=args.learning.validating_fmt is not None)
+                         metric_values=metric_values, print_result=args.learning.validate_fmt is not None)
                 sorted_checkpoints = save_checkpoint(fabric, args, metric_values, model, optimizer,
                                                      sorted_checkpoints, sorting_reverse, sorting_metric)
             fabric.log_dict(step=args.output.global_step, metrics=metric_values)
@@ -246,6 +246,6 @@ def validate(fabric: L.Fabric, args: TrainerArguments, model: DPTransformer,
         metric_values[f"val_{k}"] = metric_tool.compute()
 
     if print_result:
-        terms = [m.group(1) for m in term_pattern.finditer(args.learning.validating_fmt)]
+        terms = [m.group(1) for m in term_pattern.finditer(args.learning.validate_fmt)]
         terms = {term: metric_values[term] for term in terms}
-        fabric.print(' | ' + args.learning.validating_fmt.format(**terms))
+        fabric.print(' | ' + args.learning.validate_fmt.format(**terms))

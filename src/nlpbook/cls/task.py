@@ -20,7 +20,7 @@ class ClassificationTask(LightningModule):
         self.train_loss = -1.0
 
     def configure_optimizers(self):
-        optimizer = AdamW(self.parameters(), lr=self.args.learning.speed)
+        optimizer = AdamW(self.parameters(), lr=self.args.learning.lr)
         scheduler = ExponentialLR(optimizer, gamma=0.9)
         return {
             'optimizer': optimizer,

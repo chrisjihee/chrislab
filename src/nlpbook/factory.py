@@ -26,10 +26,10 @@ def make_trainer(args: TrainerArguments) -> pl.Trainer:
     logging_callback = LoggingCallback()
     checkpoint_callback = ModelCheckpoint(
         dirpath=args.env.output_home,
-        filename=args.model.finetuning_name,
-        save_top_k=args.learning.num_keeping,
-        monitor=args.learning.keeping_by.split()[1],
-        mode=args.learning.keeping_by.split()[0],
+        filename=args.model.name,
+        save_top_k=args.learning.num_keep,
+        monitor=args.learning.keep_by.split()[1],
+        mode=args.learning.keep_by.split()[0],
     )
     trainer = pl.Trainer(
         logger=args.env.csv_logger,
@@ -40,7 +40,7 @@ def make_trainer(args: TrainerArguments) -> pl.Trainer:
         deterministic=torch.cuda.is_available() and args.learning.seed is not None,
         # enable_progress_bar=False,
         num_sanity_val_steps=0,
-        val_check_interval=args.learning.validating_on,
+        val_check_interval=args.learning.validate_on,
         max_epochs=args.learning.epochs,
         callbacks=[logging_callback, checkpoint_callback],
     )

@@ -84,7 +84,7 @@ def test(args_file: Path | str):
     args: TesterArguments = TesterArguments.from_json(args_file.read_text()).show()
 
     with JobTimer(f"chrialab.nlpbook.cls test {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
-        checkpoint_path = args.env.output_home / args.model.finetuning_name
+        checkpoint_path = args.env.output_home / args.model.name
         assert checkpoint_path.exists(), f"No checkpoint file: {checkpoint_path}"
         logger.info(f"Using finetuned checkpoint file at {checkpoint_path}")
         err_hr(c='-')
@@ -135,7 +135,7 @@ def serve(args_file: Path | str):
     args: ServerArguments = ServerArguments.from_json(args_file.read_text()).show()
 
     with JobTimer(f"chrialab.nlpbook serve_cls {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
-        checkpoint_path = args.env.output_home / args.model.finetuning_name
+        checkpoint_path = args.env.output_home / args.model.name
         assert checkpoint_path.exists(), f"No downstream model file: {checkpoint_path}"
         checkpoint: dict = torch.load(checkpoint_path, map_location=torch.device("cpu"))
         logger.info(f"Using finetuned model file at {checkpoint_path}")
@@ -157,7 +157,7 @@ def serve(args_file: Path | str):
         def inference_fn(sentence):
             inputs = tokenizer(
                 [sentence],
-                max_length=args.model.max_seq_length,
+                max_length=args.model.seq_len,
                 padding="max_length",
                 truncation=True,
             )

@@ -62,7 +62,7 @@ class DataOption(OptionData):
     files: DataFiles | None = field(default=None)
     caching: bool = field(default=False)
     redownload: bool = field(default=False)
-    show_examples: int = field(default=3)
+    num_show: int = field(default=3)
 
     def __post_init__(self):
         if self.home:
@@ -72,12 +72,12 @@ class DataOption(OptionData):
 @dataclass
 class ModelOption(OptionData):
     pretrained: str | Path = field()
-    finetuning_home: str | Path = field()
-    finetuning_name: str | Path | None = field(default=None)  # filename or filename format of downstream model
-    max_seq_length: int = field(default=128)  # maximum total input sequence length after tokenization
+    home: str | Path = field()
+    name: str | Path | None = field(default=None)  # filename or filename format of downstream model
+    seq_len: int = field(default=128)  # maximum total input sequence length after tokenization
 
     def __post_init__(self):
-        self.finetuning_home = Path(self.finetuning_home)
+        self.home = Path(self.home)
 
 
 @dataclass
@@ -100,16 +100,16 @@ class HardwareOption(OptionData):
 
 @dataclass
 class LearningOption(OptionData):
-    validating_fmt: str | None = field(default=None)
-    validating_on: int | float = field(default=1.0)
-    num_keeping: int = field(default=5)
-    keeping_by: str = field(default="min val_loss")
+    validate_fmt: str | None = field(default=None)
+    validate_on: int | float = field(default=1.0)
+    keep_by: str = field(default="min val_loss")
+    num_keep: int = field(default=5)
     epochs: int = field(default=1)
-    speed: float = field(default=5e-5)
+    lr: float = field(default=5e-5)
     seed: int | None = field(default=None)  # random seed
 
     def __post_init__(self):
-        self.validating_on = math.fabs(self.validating_on)
+        self.validate_on = math.fabs(self.validate_on)
 
 
 @dataclass
@@ -156,7 +156,7 @@ class ProjectEnv(TypedData):
     logging_file: str | Path = field(default="message.out")
     argument_file: str | Path = field(default="arguments.json")
     msg_level: int = field(default=logging.INFO)
-    msg_format: str = field(default="%(asctime)s %(levelname)s %(message)s")
+    msg_format: str = field(default=logging.BASIC_FORMAT)
     date_format: str = field(default="[%m.%d %H:%M:%S]")
     csv_logger: CSVLogger | None = field(init=False, default=None)
 
@@ -204,7 +204,7 @@ class CommonArguments(ArgumentGroupData):
 
         self.env.output_home = self.env.output_home or Path("output")
         if self.data and self.model:
-            self.env.output_home = self.model.finetuning_home / self.data.name
+            self.env.output_home = self.model.home / self.data.name
         elif self.data:
             self.env.output_home = self.env.output_home / self.data.home
         configure_dual_logger(level=self.env.msg_level, fmt=self.env.msg_format, datefmt=self.env.date_format,
@@ -213,7 +213,7 @@ class CommonArguments(ArgumentGroupData):
     def reconfigure_output(self, version=None):
         if not version:
             version = now('%m%d.%H%M%S')
-        self.env.csv_logger = CSVLogger(self.model.finetuning_home, name=self.data.name,
+        self.env.csv_logger = CSVLogger(self.model.home, name=self.data.name,
                                         version=f'{self.tag}-{self.env.job_name}-{version}',
                                         flush_logs_every_n_steps=1)
 
@@ -264,15 +264,15 @@ class ServerArguments(CommonArguments):
     def __post_init__(self):
         super().__post_init__()
         if self.tag in ("serve", "test"):
-            assert self.model.finetuning_home.exists() and self.model.finetuning_home.is_dir(), \
-                f"No finetuning home: {self.model.finetuning_home}"
-            if not self.model.finetuning_name:
+            assert self.model.home.exists() and self.model.home.is_dir(), \
+                f"No finetuning home: {self.model.home}"
+            if not self.model.name:
                 ckpt_files: List[Path] = files(self.env.output_home / "**/*.ckpt")
-                assert ckpt_files, f"No checkpoint file in {self.model.finetuning_home}"
+                assert ckpt_files, f"No checkpoint file in {self.model.home}"
                 ckpt_files = sorted([x for x in ckpt_files if "temp" not in str(x) and "tmp" not in str(x)], key=str)
-                self.model.finetuning_name = ckpt_files[-1].relative_to(self.env.output_home)
-            assert (self.env.output_home / self.model.finetuning_name).exists() and (self.env.output_home / self.model.finetuning_name).is_file(), \
-                f"No checkpoint file: {self.env.output_home / self.model.finetuning_name}"
+                self.model.name = ckpt_files[-1].relative_to(self.env.output_home)
+            assert (self.env.output_home / self.model.name).exists() and (self.env.output_home / self.model.name).is_file(), \
+                f"No checkpoint file: {self.env.output_home / self.model.name}"
 
 
 @dataclass

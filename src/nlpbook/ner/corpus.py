@@ -135,7 +135,7 @@ def _convert_to_encoded_examples(
         logger.debug(hr())
         logger.debug(f"offset_to_label = {offset_to_label}")
         encoded: BatchEncoding = tokenizer.encode_plus(raw_example.origin,
-                                                       max_length=args.model.max_seq_length,
+                                                       max_length=args.model.seq_len,
                                                        truncation=TruncationStrategy.LONGEST_FIRST,
                                                        padding=PaddingStrategy.MAX_LENGTH)
         encoded_tokens: List[str] = encoded.tokens()
@@ -146,7 +146,7 @@ def _convert_to_encoded_examples(
 
         logger.debug(hr())
         label_list: List[str] = []
-        for token_id in range(args.model.max_seq_length):
+        for token_id in range(args.model.seq_len):
             token_repr: str = encoded_tokens[token_id]
             token_span: CharSpan = encoded.token_to_chars(token_id)
             if token_span:
@@ -170,7 +170,7 @@ def _convert_to_encoded_examples(
         logger.debug(f"encoded_example.label_ids = {encoded_example.label_ids}")
 
     logger.debug(hr())
-    for encoded_example in encoded_examples[:args.data.show_examples]:
+    for encoded_example in encoded_examples[:args.data.num_show]:
         logger.info("  === [Example %d] ===" % encoded_example.idx)
         logger.info("  = sentence   : %s" % encoded_example.raw.origin)
         logger.info("  = characters : %s" % " | ".join(f"{x}/{y}" for x, y in encoded_example.raw.character_list))

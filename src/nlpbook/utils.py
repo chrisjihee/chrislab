@@ -241,17 +241,17 @@ def load_arguments(argument_class, json_file_path=None):
 def save_checkpoint(fabric, args, metric_values, model, optimizer,
                     sorted_checkpoints: List[Tuple[float, Path]], sorting_reverse, sorting_metric):
     checkpoint_state = {"model": model, "optimizer": optimizer, "args": args}
-    terms = [m.group(1) for m in TERM_IN_NAME_FORMAT.finditer(args.model.finetuning_name)]
+    terms = [m.group(1) for m in TERM_IN_NAME_FORMAT.finditer(args.model.name)]
     terms = {term: metric_values[term] for term in terms}
-    checkpoint_stem = args.model.finetuning_name.format(**terms)
+    checkpoint_stem = args.model.name.format(**terms)
     checkpoint_path: Path = (args.env.output_home / "model.out").with_stem(checkpoint_stem).with_suffix(".ckpt")
 
     sorted_checkpoints.append((metric_values[sorting_metric], checkpoint_path))
     sorted_checkpoints.sort(key=lambda x: x[0], reverse=sorting_reverse)
-    for _, path in sorted_checkpoints[args.learning.num_keeping:]:
+    for _, path in sorted_checkpoints[args.learning.num_keep:]:
         path.unlink(missing_ok=True)
-    sorted_checkpoints = [(value, path) for value, path in sorted_checkpoints[:args.learning.num_keeping] if path.exists()]
-    if len(sorted_checkpoints) < args.learning.num_keeping:
+    sorted_checkpoints = [(value, path) for value, path in sorted_checkpoints[:args.learning.num_keep] if path.exists()]
+    if len(sorted_checkpoints) < args.learning.num_keep:
         fabric.save(checkpoint_path, checkpoint_state)
         sorted_checkpoints.append((metric_values[sorting_metric], checkpoint_path))
         sorted_checkpoints.sort(key=lambda x: x[0], reverse=sorting_reverse)

@@ -65,7 +65,7 @@ class NERTask(LightningModule):
         return self.trainer.lightning_module.global_step / self.total_steps
 
     def configure_optimizers(self):
-        optimizer = AdamW(self.parameters(), lr=self.args.learning.speed)
+        optimizer = AdamW(self.parameters(), lr=self.args.learning.lr)
         scheduler = ExponentialLR(optimizer, gamma=0.9)
         return {
             'optimizer': optimizer,
@@ -96,12 +96,12 @@ class NERTask(LightningModule):
         preds: torch.Tensor = outputs.logits.argmax(dim=-1)
         acc: torch.Tensor = accuracy(preds, labels, ignore_index=0)
 
-        self.log(prog_bar=True, logger=False, on_epoch=True, name="global_step", value=self._global_step() * 1.0)
-        self.log(prog_bar=True, logger=False, on_epoch=True, name="trained_rate", value=self._trained_rate())
-        self.log(prog_bar=True, logger=False, on_epoch=True, name="train_loss", value=self.train_loss)
-        self.log(prog_bar=True, logger=False, on_epoch=True, name="train_acc", value=self.train_acc)
-        self.log(prog_bar=True, logger=False, on_epoch=True, name="val_loss", value=outputs.loss)
-        self.log(prog_bar=True, logger=False, on_epoch=True, name="val_acc", value=acc)
+        self.log(sync_dist=True, prog_bar=True, logger=False, on_epoch=True, name="global_step", value=self._global_step() * 1.0)
+        self.log(sync_dist=True, prog_bar=True, logger=False, on_epoch=True, name="trained_rate", value=self._trained_rate())
+        self.log(sync_dist=True, prog_bar=True, logger=False, on_epoch=True, name="train_loss", value=self.train_loss)
+        self.log(sync_dist=True, prog_bar=True, logger=False, on_epoch=True, name="train_acc", value=self.train_acc)
+        self.log(sync_dist=True, prog_bar=True, logger=False, on_epoch=True, name="val_loss", value=outputs.loss)
+        self.log(sync_dist=True, prog_bar=True, logger=False, on_epoch=True, name="val_acc", value=acc)
 
         dict_of_token_pred_ids: Dict[int, List[int]] = {}
         dict_of_char_label_ids: Dict[int, List[int]] = {}
@@ -111,7 +111,7 @@ class NERTask(LightningModule):
             encoded_example: NEREncodedExample = self.val_dataset[example_id]
             offset_to_label: Dict[int, str] = encoded_example.raw.get_offset_label_dict()
             all_char_pair_tags: List[Tuple[str | None, str | None]] = [(None, None)] * len(encoded_example.raw.character_list)
-            for token_id in range(self.args.model.max_seq_length):
+            for token_id in range(self.args.model.seq_len):
                 token_span: CharSpan = encoded_example.encoded.token_to_chars(token_id)
                 if token_span:
                     char_pred_tags = label_to_char_labels(token_pred_tags[token_id], token_span.end - token_span.start)
@@ -163,14 +163,14 @@ class NERTask(LightningModule):
         assert len(self._validation_char_pred_ids) == len(self._validation_char_label_ids)
         chr_f1 = klue_ner_char_macro_f1(preds=self._validation_char_pred_ids, labels=self._validation_char_label_ids, label_list=self._labels)
         ent_f1 = klue_ner_entity_macro_f1(preds=self._validation_char_pred_ids, labels=self._validation_char_label_ids, label_list=self._labels)
-        self.log(prog_bar=True, logger=True, on_epoch=True, name="val_F1c", value=chr_f1)
-        self.log(prog_bar=True, logger=True, on_epoch=True, name="val_F1e", value=ent_f1)
+        self.log(sync_dist=True, prog_bar=True, logger=True, on_epoch=True, name="val_F1c", value=chr_f1)
+        self.log(sync_dist=True, prog_bar=True, logger=True, on_epoch=True, name="val_F1e", value=ent_f1)
 
     def test_step(self, batch, batch_idx) -> torch.Tensor:
         outputs: TokenClassifierOutput = self.model(**batch)
         labels: torch.Tensor = batch["labels"]
         preds: torch.Tensor = outputs.logits.argmax(dim=-1)
         acc: torch.Tensor = accuracy(preds, labels, ignore_index=0)
-        self.log(prog_bar=False, logger=True, on_epoch=True, name="test_loss", value=outputs.loss)
-        self.log(prog_bar=False, logger=True, on_epoch=True, name="test_acc", value=acc)
+        self.log(sync_dist=True, prog_bar=False, logger=True, on_epoch=True, name="test_loss", value=outputs.loss)
+        self.log(sync_dist=True, prog_bar=False, logger=True, on_epoch=True, name="test_acc", value=acc)
         return outputs.loss

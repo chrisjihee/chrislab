@@ -258,7 +258,7 @@ def _convert_to_encoded_examples(
         if SENT_ID != raw_example.sent_id:
             SENT_ID = raw_example.sent_id
             encoded: BatchEncoding = tokenizer.encode_plus(" ".join(token_list),
-                                                           max_length=args.model.max_seq_length,
+                                                           max_length=args.model.seq_len,
                                                            truncation=TruncationStrategy.LONGEST_FIRST,
                                                            padding=PaddingStrategy.MAX_LENGTH)
             if args.env.off_debugging:
@@ -290,18 +290,18 @@ def _convert_to_encoded_examples(
             head_ids.append(-1)
             dep_ids.append(-1)
             pos_ids.append(-1)  # --> SEP token
-            if len(bpe_head_mask) > args.model.max_seq_length:
-                bpe_head_mask = bpe_head_mask[:args.model.max_seq_length]
-                bpe_tail_mask = bpe_tail_mask[:args.model.max_seq_length]
-                head_ids = head_ids[:args.model.max_seq_length]
-                dep_ids = dep_ids[:args.model.max_seq_length]
-                pos_ids = pos_ids[:args.model.max_seq_length]
+            if len(bpe_head_mask) > args.model.seq_len:
+                bpe_head_mask = bpe_head_mask[:args.model.seq_len]
+                bpe_tail_mask = bpe_tail_mask[:args.model.seq_len]
+                head_ids = head_ids[:args.model.seq_len]
+                dep_ids = dep_ids[:args.model.seq_len]
+                pos_ids = pos_ids[:args.model.seq_len]
             else:
-                bpe_head_mask.extend([0] * (args.model.max_seq_length - len(bpe_head_mask)))
-                bpe_tail_mask.extend([0] * (args.model.max_seq_length - len(bpe_tail_mask)))
-                head_ids.extend([-1] * (args.model.max_seq_length - len(head_ids)))
-                dep_ids.extend([-1] * (args.model.max_seq_length - len(dep_ids)))
-                pos_ids.extend([-1] * (args.model.max_seq_length - len(pos_ids)))
+                bpe_head_mask.extend([0] * (args.model.seq_len - len(bpe_head_mask)))
+                bpe_tail_mask.extend([0] * (args.model.seq_len - len(bpe_tail_mask)))
+                head_ids.extend([-1] * (args.model.seq_len - len(head_ids)))
+                dep_ids.extend([-1] * (args.model.seq_len - len(dep_ids)))
+                pos_ids.extend([-1] * (args.model.seq_len - len(pos_ids)))
 
             encoded_example = DPEncodedExample(
                 idx=prev_SENT_ID,
@@ -336,7 +336,7 @@ def _convert_to_encoded_examples(
         prev_SENT_ID = SENT_ID
 
     encoded: BatchEncoding = tokenizer.encode_plus(" ".join(token_list),
-                                                   max_length=args.model.max_seq_length,
+                                                   max_length=args.model.seq_len,
                                                    truncation=TruncationStrategy.LONGEST_FIRST,
                                                    padding=PaddingStrategy.MAX_LENGTH)
     if args.env.off_debugging:
@@ -368,11 +368,11 @@ def _convert_to_encoded_examples(
     head_ids.append(-1)
     dep_ids.append(-1)
     pos_ids.append(-1)  # --> SEP token
-    bpe_head_mask.extend([0] * (args.model.max_seq_length - len(bpe_head_mask)))
-    bpe_tail_mask.extend([0] * (args.model.max_seq_length - len(bpe_tail_mask)))
-    head_ids.extend([-1] * (args.model.max_seq_length - len(head_ids)))
-    dep_ids.extend([-1] * (args.model.max_seq_length - len(dep_ids)))
-    pos_ids.extend([-1] * (args.model.max_seq_length - len(pos_ids)))
+    bpe_head_mask.extend([0] * (args.model.seq_len - len(bpe_head_mask)))
+    bpe_tail_mask.extend([0] * (args.model.seq_len - len(bpe_tail_mask)))
+    head_ids.extend([-1] * (args.model.seq_len - len(head_ids)))
+    dep_ids.extend([-1] * (args.model.seq_len - len(dep_ids)))
+    pos_ids.extend([-1] * (args.model.seq_len - len(pos_ids)))
 
     encoded_example = DPEncodedExample(
         idx=prev_SENT_ID,
@@ -396,7 +396,7 @@ def _convert_to_encoded_examples(
 
     if args.env.off_debugging:
         out_hr()
-    for encoded_example in encoded_examples[:args.data.show_examples]:
+    for encoded_example in encoded_examples[:args.data.num_show]:
         logger.info("  === [Example %s] ===" % encoded_example.idx)
         logger.info("  = sentence      : %s" % encoded_example.raw.text)
         logger.info("  = tokens        : %s" % " ".join(encoded_example.encoded.tokens()))

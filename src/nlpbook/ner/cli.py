@@ -77,7 +77,7 @@ def fabric_train(args_file: Path | str):
         err_hr(c='-')
 
         # Optimizer
-        optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning.speed)
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning.lr)
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
 
         # Fabric
@@ -94,10 +94,10 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: torch.nn.
                       train_dataloader: DataLoader, valid_dataloader: DataLoader, valid_dataset: NERDataset):
     time_tqdm = time_tqdm_cls(bar_size=20, desc_size=8, file=sys.stdout)
     mute_tqdm = mute_tqdm_cls()
-    val_interval: float = args.learning.validating_on * len(train_dataloader) if args.learning.validating_on <= 1.0 else args.learning.validating_on
+    val_interval: float = args.learning.validate_on * len(train_dataloader) if args.learning.validate_on <= 1.0 else args.learning.validate_on
     sorted_checkpoints: List[Tuple[float, Path]] = []
-    sorting_reverse: bool = not args.learning.keeping_by.split()[0].lower().startswith("min")
-    sorting_metric: str = args.learning.keeping_by.split()[-1]
+    sorting_reverse: bool = not args.learning.keep_by.split()[0].lower().startswith("min")
+    sorting_metric: str = args.learning.keep_by.split()[-1]
     metrics: Dict[str, Any] = {}
     args.output.global_step = 0
     args.output.global_epoch = 0.0
@@ -126,7 +126,7 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: torch.nn.
             optimizer.zero_grad()
             model.eval()
             if batch_idx + 1 == len(train_dataloader) or (batch_idx + 1) % val_interval < 1:
-                validate(fabric, args, model, valid_dataloader, valid_dataset, metrics=metrics, print_result=args.learning.validating_fmt is not None)
+                validate(fabric, args, model, valid_dataloader, valid_dataset, metrics=metrics, print_result=args.learning.validate_fmt is not None)
                 sorted_checkpoints = save_checkpoint(fabric, args, metrics, model, optimizer,
                                                      sorted_checkpoints, sorting_reverse, sorting_metric)
             fabric.log_dict(step=args.output.global_step, metrics=metrics)
@@ -163,7 +163,7 @@ def validate(fabric: L.Fabric, args: TrainerArguments, model: torch.nn.Module,
             encoded_example: NEREncodedExample = valid_dataset[example_id]
             offset_to_label: Dict[int, str] = encoded_example.raw.get_offset_label_dict()
             char_label_pairs: List[Tuple[str | None, str | None]] = [(None, None)] * len(encoded_example.raw.character_list)
-            for token_id in range(args.model.max_seq_length):
+            for token_id in range(args.model.seq_len):
                 token_span: CharSpan = encoded_example.encoded.token_to_chars(token_id)
                 if token_span:
                     char_pred_tags = label_to_char_labels(pred_labels[token_id], token_span.end - token_span.start)
@@ -180,9 +180,9 @@ def validate(fabric: L.Fabric, args: TrainerArguments, model: torch.nn.Module,
     metrics["val_F1c"] = klue_ner_char_macro_f1(preds=char_preds, labels=char_labels, label_list=valid_dataset.get_labels())
     metrics["val_F1e"] = klue_ner_entity_macro_f1(preds=char_preds, labels=char_labels, label_list=valid_dataset.get_labels())
     if print_result:
-        terms = [m.group(1) for m in TERM_IN_NAME_FORMAT.finditer(args.learning.validating_fmt)]
+        terms = [m.group(1) for m in TERM_IN_NAME_FORMAT.finditer(args.learning.validate_fmt)]
         terms = {term: metrics[term] for term in terms}
-        fabric.print(' | ' + args.learning.validating_fmt.format(**terms))
+        fabric.print(' | ' + args.learning.validate_fmt.format(**terms))
 
 
 @app.command()
@@ -244,7 +244,7 @@ def test(args_file: Path | str):
     args = TesterArguments.from_json(args_file.read_text()).show()
 
     with JobTimer(f"chrialab.nlpbook.ner test {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
-        checkpoint_path = args.env.output_home / args.model.finetuning_name
+        checkpoint_path = args.env.output_home / args.model.name
         assert checkpoint_path.exists(), f"No checkpoint file: {checkpoint_path}"
         logger.info(f"Using finetuned checkpoint file at {checkpoint_path}")
         err_hr(c='-')
@@ -289,7 +289,7 @@ def serve(args_file: Path | str):
     args: ServerArguments = ServerArguments.from_json(args_file.read_text()).show()
 
     with JobTimer(f"chrialab.nlpbook serve_ner {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
-        checkpoint_path = args.env.output_home / args.model.finetuning_name
+        checkpoint_path = args.env.output_home / args.model.name
         assert checkpoint_path.exists(), f"No checkpoint file: {checkpoint_path}"
         checkpoint: dict = torch.load(checkpoint_path, map_location=torch.device("cpu"))
         logger.info(f"Using finetuned checkpoint file at {checkpoint_path}")
@@ -314,7 +314,7 @@ def serve(args_file: Path | str):
         def inference_fn(sentence):
             inputs = tokenizer(
                 [sentence],
-                max_length=args.model.max_seq_length,
+                max_length=args.model.seq_len,
                 padding="max_length",
                 truncation=True,
             )
