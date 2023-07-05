@@ -1,3 +1,4 @@
+import logging
 from typing import List, Dict, Tuple
 
 import torch
@@ -5,13 +6,15 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import ExponentialLR
 
 import lightning.pytorch as pl
-from chrisbase.io import out_hr
+from chrisbase.io import hr
 from lightning.pytorch import LightningModule
 from nlpbook.arguments import TesterArguments, TrainerArguments
 from nlpbook.metrics import accuracy, klue_ner_char_macro_f1, klue_ner_entity_macro_f1
 from nlpbook.ner import NERDataset, NEREncodedExample
 from transformers import PreTrainedModel, CharSpan
 from transformers.modeling_outputs import TokenClassifierOutput
+
+logger = logging.getLogger(__name__)
 
 
 def label_to_char_labels(label, num_char):
@@ -80,14 +83,13 @@ class NERTask(LightningModule):
         return outputs.loss
 
     def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
-        if self.args.env.on_debugging:
-            print()
-            print(f"[validation_step] batch_idx: {batch_idx}, global_step: {self._global_step()}")
-            for key in batch.keys():
-                if isinstance(batch[key], torch.Tensor):
-                    print(f"  - batch[{key:14s}]     = {batch[key].shape} | {batch[key].tolist()}")
-                else:
-                    print(f"  - batch[{key:14s}]     = ({len(batch[key])}) | {batch[key]}")
+        logger.debug('')
+        logger.debug(f"[validation_step] batch_idx: {batch_idx}, global_step: {self._global_step()}")
+        for key in batch.keys():
+            if isinstance(batch[key], torch.Tensor):
+                logger.debug(f"  - batch[{key:14s}]     = {batch[key].shape} | {batch[key].tolist()}")
+            else:
+                logger.debug(f"  - batch[{key:14s}]     = ({len(batch[key])}) | {batch[key]}")
         example_ids: List[int] = batch.pop("example_ids").tolist()
         outputs: TokenClassifierOutput = self.model(**batch)
         labels: torch.Tensor = batch["labels"]
@@ -122,8 +124,7 @@ class NERTask(LightningModule):
             dict_of_char_label_ids[example_id] = valid_char_label_ids
             dict_of_char_pred_ids[example_id] = valid_char_pred_ids
 
-        if self.args.env.on_tracing:
-            out_hr()
+        logger.debug(hr())
         flatlist_of_char_pred_ids: List[int] = []
         flatlist_of_char_label_ids: List[int] = []
         for encoded_example in [self.val_dataset[i] for i in example_ids]:
@@ -132,23 +133,22 @@ class NERTask(LightningModule):
             char_pred_ids = dict_of_char_pred_ids[encoded_example.idx]
             flatlist_of_char_pred_ids.extend(char_pred_ids)
             flatlist_of_char_label_ids.extend(char_label_ids)
-            if self.args.env.on_tracing:
-                print(f"  - encoded_example.idx                = {encoded_example.idx}")
-                print(f"  - encoded_example.raw.entity_list    = ({len(encoded_example.raw.entity_list)}) {encoded_example.raw.entity_list}")
-                print(f"  - encoded_example.raw.origin         = ({len(encoded_example.raw.origin)}) {encoded_example.raw.origin}")
-                print(f"  - encoded_example.raw.character_list = ({len(encoded_example.raw.character_list)}) {' | '.join(f'{x}/{y}' for x, y in encoded_example.raw.character_list)}")
-                print(f"  - encoded_example.encoded.tokens()   = ({len(encoded_example.encoded.tokens())}) {' '.join(encoded_example.encoded.tokens())}")
-                current_repr = lambda x: f"{self.id_to_label(x):5s}"
-                print(f"  - encoded_example.label_ids          = ({len(encoded_example.label_ids)}) {' '.join(map(str, map(current_repr, encoded_example.label_ids)))}")
-                print(f"  - encoded_example.token_pred_ids     = ({len(token_pred_ids)}) {' '.join(map(str, map(current_repr, token_pred_ids)))}")
-                print(f"  - encoded_example.char_label_ids     = ({len(char_label_ids)}) {' '.join(map(str, map(current_repr, char_label_ids)))}")
-                print(f"  - encoded_example.char_pred_ids      = ({len(char_pred_ids)}) {' '.join(map(str, map(current_repr, char_pred_ids)))}")
-                out_hr('-')
 
-        if self.args.env.on_debugging:
-            current_repr = lambda x: f"{x:02d}"
-            print(f"  - flatlist_of_char_label_ids = ({len(flatlist_of_char_label_ids)}) {' '.join(map(str, map(current_repr, flatlist_of_char_label_ids)))}")
-            print(f"  - flatlist_of_char_pred_ids  = ({len(flatlist_of_char_pred_ids)}) {' '.join(map(str, map(current_repr, flatlist_of_char_pred_ids)))}")
+            logger.debug(f"  - encoded_example.idx                = {encoded_example.idx}")
+            logger.debug(f"  - encoded_example.raw.entity_list    = ({len(encoded_example.raw.entity_list)}) {encoded_example.raw.entity_list}")
+            logger.debug(f"  - encoded_example.raw.origin         = ({len(encoded_example.raw.origin)}) {encoded_example.raw.origin}")
+            logger.debug(f"  - encoded_example.raw.character_list = ({len(encoded_example.raw.character_list)}) {' | '.join(f'{x}/{y}' for x, y in encoded_example.raw.character_list)}")
+            logger.debug(f"  - encoded_example.encoded.tokens()   = ({len(encoded_example.encoded.tokens())}) {' '.join(encoded_example.encoded.tokens())}")
+            current_repr = lambda x: f"{self.id_to_label(x):5s}"
+            logger.debug(f"  - encoded_example.label_ids          = ({len(encoded_example.label_ids)}) {' '.join(map(str, map(current_repr, encoded_example.label_ids)))}")
+            logger.debug(f"  - encoded_example.token_pred_ids     = ({len(token_pred_ids)}) {' '.join(map(str, map(current_repr, token_pred_ids)))}")
+            logger.debug(f"  - encoded_example.char_label_ids     = ({len(char_label_ids)}) {' '.join(map(str, map(current_repr, char_label_ids)))}")
+            logger.debug(f"  - encoded_example.char_pred_ids      = ({len(char_pred_ids)}) {' '.join(map(str, map(current_repr, char_pred_ids)))}")
+            logger.debug(hr('-'))
+
+        current_repr = lambda x: f"{x:02d}"
+        logger.debug(f"  - flatlist_of_char_label_ids = ({len(flatlist_of_char_label_ids)}) {' '.join(map(str, map(current_repr, flatlist_of_char_label_ids)))}")
+        logger.debug(f"  - flatlist_of_char_pred_ids  = ({len(flatlist_of_char_pred_ids)}) {' '.join(map(str, map(current_repr, flatlist_of_char_pred_ids)))}")
         assert len(flatlist_of_char_label_ids) == len(flatlist_of_char_pred_ids)
         self._validation_char_pred_ids.extend(flatlist_of_char_pred_ids)
         self._validation_char_label_ids.extend(flatlist_of_char_label_ids)

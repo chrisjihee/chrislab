@@ -180,7 +180,7 @@ class ProjectEnv(TypedData):
         if self.output_home:
             self.output_home = Path(self.output_home)
             configure_dual_logger(level=self.msg_level, fmt=self.msg_format, datefmt=self.date_format,
-                                  filename=self.output_home / self.logging_file, filemode="a")
+                                  filename=self.output_home / self.logging_file)
         else:
             configure_unit_logger(level=self.msg_level, fmt=self.msg_format, datefmt=self.date_format,
                                   stream=sys.stdout)
@@ -207,17 +207,22 @@ class CommonArguments(ArgumentGroupData):
             self.env.output_home = self.model.finetuning_home / self.data.name
         elif self.data:
             self.env.output_home = self.env.output_home / self.data.home
-        assert self.env.output_home, "There must be an output home"
         configure_dual_logger(level=self.env.msg_level, fmt=self.env.msg_format, datefmt=self.env.date_format,
-                              filename=self.env.output_home / self.env.logging_file, filemode="w")
+                              filename=self.env.output_home / self.env.logging_file)
 
-    def setup_csv_logger(self, version=None):
+    def reconfigure_output(self, version=None):
         if not version:
             version = now('%m%d.%H%M%S')
         self.env.csv_logger = CSVLogger(self.model.finetuning_home, name=self.data.name,
                                         version=f'{self.tag}-{self.env.job_name}-{version}',
                                         flush_logs_every_n_steps=1)
+
+        existing_file = self.env.output_home / self.env.logging_file
+        existing_content = existing_file.read_text() if existing_file.exists() else None
         self.env.output_home = Path(self.env.csv_logger.log_dir)
+        configure_dual_logger(level=self.env.msg_level, fmt=self.env.msg_format, datefmt=self.env.date_format,
+                              filename=self.env.output_home / self.env.logging_file, existing_content=existing_content)
+        existing_file.unlink(missing_ok=True)
         return self
 
     def save_arguments(self, to: Path | str = None) -> Path | None:
@@ -228,8 +233,9 @@ class CommonArguments(ArgumentGroupData):
         make_parent_dir(args_file).write_text(args_json, encoding="utf-8")
         return args_file
 
-    def info_arguments(self, title=None):
-        for line in "\n".join(str(x) for x in [title, hr(c='-'), str_table(self.dataframe()), hr(c='-')] if x).splitlines():
+    def info_arguments(self):
+        table = str_table(self.dataframe(), tablefmt="presto")  # "plain", "presto"
+        for line in table.splitlines() + [hr(c='-')]:
             logger.info(line)
         return self
 

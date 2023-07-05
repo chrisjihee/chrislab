@@ -68,7 +68,7 @@ def train(args_file: Path | str):
         )
         err_hr(c='-')
 
-        with RuntimeChecking(args.setup_csv_logger()):
+        with RuntimeChecking(args.reconfigure_output()):
             torch.set_float32_matmul_precision('high')
             trainer: pl.Trainer = nlpbook.make_trainer(args)
             trainer.fit(ClassificationTask(model, args, trainer),
@@ -119,7 +119,7 @@ def test(args_file: Path | str):
         )
         err_hr(c='-')
 
-        with RuntimeChecking(args.setup_csv_logger()):
+        with RuntimeChecking(args.reconfigure_output()):
             torch.set_float32_matmul_precision('high')
             tester: pl.Trainer = nlpbook.make_tester(args)
             tester.test(ClassificationTask(model, args, tester),
@@ -176,7 +176,7 @@ def serve(args_file: Path | str):
                 'negative_width': f"{negative_prob * 100}%",
             }
 
-        with RuntimeChecking(args.setup_csv_logger()):
+        with RuntimeChecking(args.reconfigure_output()):
             server: Flask = nlpbook.make_server(inference_fn,
                                                 template_file="serve_cls.html",
                                                 ngrok_home=args.env.working_path)
