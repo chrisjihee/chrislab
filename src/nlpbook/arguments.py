@@ -10,7 +10,7 @@ from typing import List
 import pandas as pd
 from dataclasses_json import DataClassJsonMixin
 
-from chrisbase.io import files, make_dir, make_parent_dir, hr, str_table, out_hr, out_table, get_hostname, get_hostaddr, running_file, first_or, cwd, configure_dual_logger
+from chrisbase.io import files, make_parent_dir, hr, str_table, out_hr, out_table, get_hostname, get_hostaddr, running_file, first_or, cwd, configure_dual_logger, configure_unit_logger
 from chrisbase.time import now, str_delta
 from chrisbase.util import to_dataframe
 from lightning.fabric.accelerators import Accelerator
@@ -26,45 +26,6 @@ class TypedData(DataClassJsonMixin):
 
     def __post_init__(self):
         self.data_type = self.__class__.__name__
-
-
-@dataclass
-class ProjectEnv(TypedData):
-    project: str = field()
-    job_name: str = field(default=None)
-    hostname: str = field(init=False)
-    hostaddr: str = field(init=False)
-    python_path: Path = field(init=False)
-    working_path: Path = field(init=False)
-    running_file: Path = field(init=False)
-    command_args: List[str] = field(init=False)
-    output_home: str | Path = field(default="output")
-    logging_file: str | Path = field(default="message.out")
-    argument_file: str | Path = field(default="arguments.json")
-    msg_level: int = field(default=logging.INFO)
-    msg_format: str = field(default="%(asctime)s %(levelname)s %(message)s")
-    csv_logger: CSVLogger | None = field(init=False, default=None)
-
-    def set(self, name: str = None):
-        self.job_name = name
-        return self
-
-    def __post_init__(self):
-        assert self.project, "Project name must be provided"
-        self.hostname = get_hostname()
-        self.hostaddr = get_hostaddr()
-        self.python_path = Path(sys.executable)
-        self.running_file = running_file()
-        self.project_path = first_or([x for x in self.running_file.parents if x.name.startswith(self.project)])
-        assert self.project_path, f"Could not find project path for {self.project} in {', '.join([str(x) for x in self.running_file.parents])}"
-        self.working_path = cwd(self.project_path)
-        self.running_file = self.running_file.relative_to(self.working_path)
-        self.command_args = sys.argv[1:]
-        self.output_home = make_dir(self.output_home)
-        self.logging_file = Path(self.logging_file)
-        self.argument_file = Path(self.argument_file)
-        configure_dual_logger(filename=self.output_home / self.logging_file, filemode="w",
-                              level=self.msg_level, fmt=self.msg_format)
 
 
 @dataclass
@@ -182,6 +143,50 @@ class ProgressChecker(ResultData):
 
 
 @dataclass
+class ProjectEnv(TypedData):
+    project: str = field()
+    job_name: str = field(default=None)
+    hostname: str = field(init=False)
+    hostaddr: str = field(init=False)
+    python_path: Path = field(init=False)
+    working_path: Path = field(init=False)
+    running_file: Path = field(init=False)
+    command_args: List[str] = field(init=False)
+    output_home: str | Path | None = field(default=None)
+    logging_file: str | Path = field(default="message.out")
+    argument_file: str | Path = field(default="arguments.json")
+    msg_level: int = field(default=logging.INFO)
+    msg_format: str = field(default="%(asctime)s %(levelname)s %(message)s")
+    date_format: str = field(default="[%m.%d %H:%M:%S]")
+    csv_logger: CSVLogger | None = field(init=False, default=None)
+
+    def set(self, name: str = None):
+        self.job_name = name
+        return self
+
+    def __post_init__(self):
+        assert self.project, "Project name must be provided"
+        self.hostname = get_hostname()
+        self.hostaddr = get_hostaddr()
+        self.python_path = Path(sys.executable)
+        self.running_file = running_file()
+        self.project_path = first_or([x for x in self.running_file.parents if x.name.startswith(self.project)])
+        assert self.project_path, f"Could not find project path for {self.project} in {', '.join([str(x) for x in self.running_file.parents])}"
+        self.working_path = cwd(self.project_path)
+        self.running_file = self.running_file.relative_to(self.working_path)
+        self.command_args = sys.argv[1:]
+        self.logging_file = Path(self.logging_file)
+        self.argument_file = Path(self.argument_file)
+        if self.output_home:
+            self.output_home = Path(self.output_home)
+            configure_dual_logger(level=self.msg_level, fmt=self.msg_format, datefmt=self.date_format,
+                                  filename=self.output_home / self.logging_file, filemode="a")
+        else:
+            configure_unit_logger(level=self.msg_level, fmt=self.msg_format, datefmt=self.date_format,
+                                  stream=sys.stdout)
+
+
+@dataclass
 class CommonArguments(ArgumentGroupData):
     tag = "common"
     env: ProjectEnv = field()
@@ -196,12 +201,15 @@ class CommonArguments(ArgumentGroupData):
             self.env.logging_file = self.env.logging_file.with_stem(f"{self.env.logging_file.stem}-{self.tag}")
         if not self.env.argument_file.stem.endswith(self.tag):
             self.env.argument_file = self.env.argument_file.with_stem(f"{self.env.argument_file.stem}-{self.tag}")
+
+        self.env.output_home = self.env.output_home or Path("output")
         if self.data and self.model:
-            self.env.output_home = make_dir(self.model.finetuning_home / self.data.name)
+            self.env.output_home = self.model.finetuning_home / self.data.name
         elif self.data:
-            self.env.output_home = make_dir(self.env.output_home / self.data.home)
-        configure_dual_logger(filename=self.env.output_home / self.env.logging_file, filemode="w",
-                              level=self.env.msg_level, fmt=self.env.msg_format)
+            self.env.output_home = self.env.output_home / self.data.home
+        assert self.env.output_home, "There must be an output home"
+        configure_dual_logger(level=self.env.msg_level, fmt=self.env.msg_format, datefmt=self.env.date_format,
+                              filename=self.env.output_home / self.env.logging_file, filemode="w")
 
     def setup_csv_logger(self, version=None):
         if not version:
