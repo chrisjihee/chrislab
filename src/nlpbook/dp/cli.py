@@ -20,7 +20,7 @@ from nlpbook.dp.model import DPTransformer
 from nlpbook.metrics import DPResult
 
 app = Typer()
-logger = logging.getLogger("chrislab")
+logger = logging.getLogger(__name__)
 term_pattern = re.compile(re.escape("{") + "(.+?)(:.+?)?" + re.escape("}"))
 
 

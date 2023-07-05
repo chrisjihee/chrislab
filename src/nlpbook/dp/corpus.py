@@ -12,7 +12,7 @@ from transformers.tokenization_utils_base import PaddingStrategy, TruncationStra
 from chrisbase.io import out_hr
 from nlpbook.arguments import TesterArguments
 
-logger = logging.getLogger("chrislab")
+logger = logging.getLogger(__name__)
 
 
 @dataclass

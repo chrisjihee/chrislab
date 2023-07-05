@@ -220,8 +220,6 @@ def set_seed(args: TrainerArguments):
     if args.learning.seed is not None:
         from transformers import set_seed
         set_seed(args.learning.seed)
-        # import lightning.fabric.utilities.seed
-        # lightning.fabric.utilities.seed.log = logging.getLogger(lightning.fabric.utilities.seed.log.name.replace("lightning.", "lightning,"))
         from lightning.pytorch import seed_everything
         seed_everything(args.learning.seed)
     else:

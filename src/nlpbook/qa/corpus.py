@@ -15,7 +15,7 @@ from transformers import PreTrainedTokenizer
 
 from nlpbook.qa import QATrainArguments
 
-logger = logging.getLogger("chrislab")
+logger = logging.getLogger(__name__)
 
 
 @dataclass

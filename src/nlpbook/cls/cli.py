@@ -17,7 +17,7 @@ from transformers.modeling_outputs import SequenceClassifierOutput
 from typer import Typer
 
 app = Typer()
-logger = logging.getLogger("chrislab")
+logger = logging.getLogger(__name__)
 
 
 @app.command()
