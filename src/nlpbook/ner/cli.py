@@ -3,16 +3,14 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-import lightning as L
-import lightning.pytorch as pl
 import torch
 from flask import Flask
 from torch import Tensor
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
-from transformers import PreTrainedTokenizerFast, AutoTokenizer, AutoConfig, AutoModelForTokenClassification, BertForTokenClassification, CharSpan
-from transformers.modeling_outputs import TokenClassifierOutput
 from typer import Typer
 
+import lightning as L
+import lightning.pytorch as pl
 import nlpbook
 from chrisbase.io import JobTimer, pop_keys, err_hr, out_hr
 from chrislab.common.util import time_tqdm_cls, mute_tqdm_cls
@@ -21,6 +19,8 @@ from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments
 from nlpbook.metrics import accuracy, NER_CharMacroF1, NER_EntityMacroF1, klue_ner_char_macro_f1, klue_ner_entity_macro_f1
 from nlpbook.ner.corpus import NERCorpus, NERDataset, ner_encoded_examples_to_batch, NEREncodedExample
 from nlpbook.ner.task import NERTask
+from transformers import PreTrainedTokenizerFast, AutoTokenizer, AutoConfig, AutoModelForTokenClassification, BertForTokenClassification, CharSpan
+from transformers.modeling_outputs import TokenClassifierOutput
 
 app = Typer()
 logger = logging.getLogger(__name__)
@@ -52,7 +52,7 @@ def fabric_train(args_file: Path | str):
                                       drop_last=True)
         logger.info(f"Created train_dataset providing {len(train_dataset)} examples")
         logger.info(f"Created train_dataloader loading {len(train_dataloader)} batches")
-        args.output.epoch_per_step = 1 / len(train_dataloader)
+        args.prog.epoch_per_step = 1 / len(train_dataloader)
         err_hr(c='-')
         valid_dataset = NERDataset("valid", args=args, corpus=corpus, tokenizer=tokenizer)
         valid_dataloader = DataLoader(valid_dataset,
@@ -99,25 +99,25 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: torch.nn.
     sorting_reverse: bool = not args.learning.keep_by.split()[0].lower().startswith("min")
     sorting_metric: str = args.learning.keep_by.split()[-1]
     metrics: Dict[str, Any] = {}
-    args.output.global_step = 0
-    args.output.global_epoch = 0.0
+    args.prog.global_step = 0
+    args.prog.global_epoch = 0.0
     for epoch in range(args.learning.epochs):
         epoch_info = f"(Epoch {epoch + 1:02d})"
-        metrics["epoch"] = round(args.output.global_epoch, 4)
-        metrics["trained_rate"] = round(args.output.global_epoch, 4) / args.learning.epochs
+        metrics["epoch"] = round(args.prog.global_epoch, 4)
+        metrics["trained_rate"] = round(args.prog.global_epoch, 4) / args.learning.epochs
         metrics["lr"] = optimizer.param_groups[0]['lr']
         epoch_tqdm = time_tqdm if fabric.is_global_zero else mute_tqdm
         for batch_idx, batch in enumerate(epoch_tqdm(train_dataloader, position=fabric.global_rank, pre=epoch_info,
                                                      desc=f"training", unit=f"x{train_dataloader.batch_size}")):
-            args.output.global_step += 1
-            args.output.global_epoch += args.output.epoch_per_step
+            args.prog.global_step += 1
+            args.prog.global_epoch += args.prog.epoch_per_step
             batch: Dict[str, torch.Tensor] = pop_keys(batch, "example_ids")
             outputs: TokenClassifierOutput = model(**batch)
             labels: torch.Tensor = batch["labels"]
             preds: torch.Tensor = outputs.logits.argmax(dim=-1)
             acc: torch.Tensor = accuracy(preds, labels, ignore_index=0)
-            metrics["epoch"] = round(args.output.global_epoch, 4)
-            metrics["trained_rate"] = round(args.output.global_epoch, 4) / args.learning.epochs
+            metrics["epoch"] = round(args.prog.global_epoch, 4)
+            metrics["trained_rate"] = round(args.prog.global_epoch, 4) / args.learning.epochs
             metrics["loss"] = outputs.loss.item()
             metrics["acc"] = acc.item()
             fabric.backward(outputs.loss)
@@ -129,7 +129,7 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: torch.nn.
                 validate(fabric, args, model, valid_dataloader, valid_dataset, metrics=metrics, print_result=args.learning.validate_fmt is not None)
                 sorted_checkpoints = save_checkpoint(fabric, args, metrics, model, optimizer,
                                                      sorted_checkpoints, sorting_reverse, sorting_metric)
-            fabric.log_dict(step=args.output.global_step, metrics=metrics)
+            fabric.log_dict(step=args.prog.global_step, metrics=metrics)
             model.train()
         scheduler.step()
         metrics["lr"] = optimizer.param_groups[0]['lr']

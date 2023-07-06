@@ -76,7 +76,8 @@ class NERCorpus:
     def __init__(self, args: TesterArguments):
         self.args = args
 
-    def read_raw_examples(self, data_path: Path) -> List[NERRawExample]:
+    @staticmethod
+    def read_raw_examples(data_path: Path) -> List[NERRawExample]:
         examples = []
         with data_path.open(encoding="utf-8") as inp:
             for line in inp.readlines():
@@ -169,7 +170,7 @@ def _convert_to_encoded_examples(
         logger.debug(f"encoded_example.encoded   = {encoded_example.encoded}")
         logger.debug(f"encoded_example.label_ids = {encoded_example.label_ids}")
 
-    logger.debug(hr())
+    logger.info(hr())
     for encoded_example in encoded_examples[:args.data.num_show]:
         logger.info("  === [Example %d] ===" % encoded_example.idx)
         logger.info("  = sentence   : %s" % encoded_example.raw.origin)
@@ -194,7 +195,7 @@ class NERDataset(Dataset):
         text_data_path: Path = Path(args.data.home) / args.data.name / data_file_dict[split]
         assert text_data_path.exists() and text_data_path.is_file(), f"No data_text_path: {text_data_path}"
         logger.info(f"Creating features from dataset file at {text_data_path}")
-        examples: List[NERRawExample] = self.corpus.read_raw_examples(text_data_path)
+        examples: List[NERRawExample] = NERCorpus.read_raw_examples(text_data_path)
         self.label_list: List[str] = self.corpus.get_labels()
         self._label_to_id: Dict[str, int] = {label: i for i, label in enumerate(self.label_list)}
         self._id_to_label: Dict[int, str] = {i: label for i, label in enumerate(self.label_list)}

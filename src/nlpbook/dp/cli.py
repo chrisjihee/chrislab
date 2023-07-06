@@ -4,13 +4,12 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-import lightning as L
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
-from transformers import PreTrainedTokenizerFast, AutoTokenizer, AutoConfig, AutoModel, BertConfig, BertModel, RobertaConfig, RobertaModel, PreTrainedModel, PretrainedConfig
 from typer import Typer
 
+import lightning as L
 from chrisbase.io import JobTimer, pop_keys, err_hr
 from chrislab.common.util import time_tqdm_cls, mute_tqdm_cls
 from nlpbook import save_checkpoint
@@ -18,6 +17,7 @@ from nlpbook.arguments import TrainerArguments, RuntimeChecking
 from nlpbook.dp.corpus import DPCorpus, DPDataset
 from nlpbook.dp.model import DPTransformer
 from nlpbook.metrics import DPResult
+from transformers import PreTrainedTokenizerFast, AutoTokenizer, AutoConfig, AutoModel, BertConfig, BertModel, RobertaConfig, RobertaModel, PreTrainedModel, PretrainedConfig
 
 app = Typer()
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ def fabric_train(args_file: Path | str):
                                       )
         logger.info(f"Created train_dataset providing {len(train_dataset)} examples")
         logger.info(f"Created train_dataloader loading {len(train_dataloader)} batches")
-        args.output.epoch_per_step = 1 / len(train_dataloader)
+        args.prog.epoch_per_step = 1 / len(train_dataloader)
         err_hr(c='-')
         valid_dataset = DPDataset("valid", args=args, corpus=corpus, tokenizer=tokenizer)
         valid_dataloader = DataLoader(valid_dataset,
@@ -104,19 +104,19 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: DPTransfo
     sorting_reverse: bool = not args.learning.keep_by.split()[0].lower().startswith("min")
     sorting_metric: str = args.learning.keep_by.split()[-1]
     metric_values: Dict[str, Any] = {}
-    args.output.global_step = 0
-    args.output.global_epoch = 0.0
+    args.prog.global_step = 0
+    args.prog.global_epoch = 0.0
     for epoch in range(args.learning.epochs):
         epoch_info = f"(Epoch {epoch + 1:02d})"
-        metric_values["epoch"] = round(args.output.global_epoch, 4)
-        metric_values["trained_rate"] = round(args.output.global_epoch, 4) / args.learning.epochs
+        metric_values["epoch"] = round(args.prog.global_epoch, 4)
+        metric_values["trained_rate"] = round(args.prog.global_epoch, 4) / args.learning.epochs
         metric_values["lr"] = optimizer.param_groups[0]['lr']
         epoch_tqdm = time_tqdm if fabric.is_global_zero else mute_tqdm
         assert len(train_dataloader) > 0
         for batch_idx, batch in enumerate(epoch_tqdm(train_dataloader, position=fabric.global_rank, pre=epoch_info, desc="training", unit="batch")):
             model.train()
-            args.output.global_step += 1
-            args.output.global_epoch += args.output.epoch_per_step
+            args.prog.global_step += 1
+            args.prog.global_epoch += args.prog.epoch_per_step
             batch: Dict[str, torch.Tensor] = pop_keys(batch, "example_ids")
             inputs = {"input_ids": batch["input_ids"], "attention_mask": batch["attention_mask"]}
 
@@ -159,8 +159,8 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: DPTransfo
             loss_type = -loss_type.sum() / num
             loss = loss_arc + loss_type
 
-            metric_values["epoch"] = round(args.output.global_epoch, 4)
-            metric_values["trained_rate"] = round(args.output.global_epoch, 4) / args.learning.epochs
+            metric_values["epoch"] = round(args.prog.global_epoch, 4)
+            metric_values["trained_rate"] = round(args.prog.global_epoch, 4) / args.learning.epochs
             metric_values["loss"] = loss.item()
 
             fabric.backward(loss)
@@ -174,7 +174,7 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: DPTransfo
                          metric_values=metric_values, print_result=args.learning.validate_fmt is not None)
                 sorted_checkpoints = save_checkpoint(fabric, args, metric_values, model, optimizer,
                                                      sorted_checkpoints, sorting_reverse, sorting_metric)
-            fabric.log_dict(step=args.output.global_step, metrics=metric_values)
+            fabric.log_dict(step=args.prog.global_step, metrics=metric_values)
 
 
 @torch.no_grad()

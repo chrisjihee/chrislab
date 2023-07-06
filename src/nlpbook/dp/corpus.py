@@ -6,11 +6,11 @@ from typing import List, Optional, Dict
 import torch
 from dataclasses_json import DataClassJsonMixin
 from torch.utils.data.dataset import Dataset
+
+from chrisbase.io import hr
+from nlpbook.arguments import TesterArguments
 from transformers import PreTrainedTokenizerFast, BatchEncoding
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
-
-from chrisbase.io import out_hr
-from nlpbook.arguments import TesterArguments
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +130,8 @@ class DPCorpus:
             "NA",
         ]
 
-    def read_raw_examples(self, data_path: Path) -> List[DPRawExample]:
+    @staticmethod
+    def read_raw_examples(data_path: Path) -> List[DPRawExample]:
         sent_id = -1
         examples = []
         with data_path.open(encoding="utf-8") as inp:
@@ -238,11 +239,10 @@ def _convert_to_encoded_examples(
     dep_label_to_id = {label: i for i, label in enumerate(dep_label_list)}
     id_to_pos_label = {i: label for i, label in enumerate(pos_label_list)}
     id_to_dep_label = {i: label for i, label in enumerate(dep_label_list)}
-    if args.env.off_debugging:
-        print(f"pos_label_to_id = {pos_label_to_id}")
-        print(f"dep_label_to_id = {dep_label_to_id}")
-        print(f"id_to_pos_label = {id_to_pos_label}")
-        print(f"id_to_dep_label = {id_to_dep_label}")
+    logger.debug(f"pos_label_to_id = {pos_label_to_id}")
+    logger.debug(f"dep_label_to_id = {dep_label_to_id}")
+    logger.debug(f"id_to_pos_label = {id_to_pos_label}")
+    logger.debug(f"id_to_dep_label = {id_to_dep_label}")
 
     SENT_ID = 0
     token_list: List[str] = []
@@ -261,11 +261,10 @@ def _convert_to_encoded_examples(
                                                            max_length=args.model.seq_len,
                                                            truncation=TruncationStrategy.LONGEST_FIRST,
                                                            padding=PaddingStrategy.MAX_LENGTH)
-            if args.env.off_debugging:
-                out_hr()
-                print(f"encoded.tokens()        = {encoded.tokens()}")
-                for key in encoded.keys():
-                    print(f"encoded[{key:14s}] = {encoded[key]}")
+            logger.debug(hr())
+            logger.debug(f"encoded.tokens()        = {encoded.tokens()}")
+            for key in encoded.keys():
+                logger.debug(f"encoded[{key:14s}] = {encoded[key]}")
 
             # TODO: 추후 encoded.word_to_tokens() 함수를 활용한 코드로 변경!
             bpe_head_mask = [0]
@@ -314,14 +313,13 @@ def _convert_to_encoded_examples(
                 pos_ids=pos_ids,
             )
             encoded_examples.append(encoded_example)
-            if args.env.off_debugging:
-                out_hr()
-                print(f"bpe_head_mask           = {bpe_head_mask}")
-                print(f"bpe_tail_mask           = {bpe_tail_mask}")
-                print(f"head_ids                = {head_ids}")
-                print(f"dep_ids                 = {dep_ids}")
-                print(f"pos_ids                 = {pos_ids}")
-                print()
+            logger.debug(hr())
+            logger.debug(f"bpe_head_mask           = {bpe_head_mask}")
+            logger.debug(f"bpe_tail_mask           = {bpe_tail_mask}")
+            logger.debug(f"head_ids                = {head_ids}")
+            logger.debug(f"dep_ids                 = {dep_ids}")
+            logger.debug(f"pos_ids                 = {pos_ids}")
+            logger.debug("")
 
             token_list = []
             head_list = []
@@ -339,11 +337,10 @@ def _convert_to_encoded_examples(
                                                    max_length=args.model.seq_len,
                                                    truncation=TruncationStrategy.LONGEST_FIRST,
                                                    padding=PaddingStrategy.MAX_LENGTH)
-    if args.env.off_debugging:
-        out_hr()
-        print(f"encoded.tokens()        = {encoded.tokens()}")
-        for key in encoded.keys():
-            print(f"encoded[{key:14s}] = {encoded[key]}")
+    logger.debug(hr())
+    logger.debug(f"encoded.tokens()        = {encoded.tokens()}")
+    for key in encoded.keys():
+        logger.debug(f"encoded[{key:14s}] = {encoded[key]}")
 
     # TODO: 추후 encoded.word_to_tokens() 함수를 활용한 코드로 변경!
     bpe_head_mask = [0]
@@ -385,17 +382,15 @@ def _convert_to_encoded_examples(
         pos_ids=pos_ids,
     )
     encoded_examples.append(encoded_example)
-    if args.env.off_debugging:
-        out_hr()
-        print(f"bpe_head_mask           = {bpe_head_mask}")
-        print(f"bpe_tail_mask           = {bpe_tail_mask}")
-        print(f"head_ids                = {head_ids}")
-        print(f"dep_ids                 = {dep_ids}")
-        print(f"pos_ids                 = {pos_ids}")
-        print()
+    logger.debug(hr())
+    logger.debug(f"bpe_head_mask           = {bpe_head_mask}")
+    logger.debug(f"bpe_tail_mask           = {bpe_tail_mask}")
+    logger.debug(f"head_ids                = {head_ids}")
+    logger.debug(f"dep_ids                 = {dep_ids}")
+    logger.debug(f"pos_ids                 = {pos_ids}")
+    logger.debug("")
 
-    if args.env.off_debugging:
-        out_hr()
+    logger.info(hr())
     for encoded_example in encoded_examples[:args.data.num_show]:
         logger.info("  === [Example %s] ===" % encoded_example.idx)
         logger.info("  = sentence      : %s" % encoded_example.raw.text)
