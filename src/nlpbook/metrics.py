@@ -6,7 +6,6 @@ import torch
 from seqeval import metrics as se_metrics
 from seqeval import scheme as se_scheme
 from sklearn import metrics as sk_metrics
-from torchmetrics import Metric
 
 
 def accuracy(preds, labels, ignore_index=None):
@@ -22,26 +21,21 @@ def accuracy(preds, labels, ignore_index=None):
     return correct.to(dtype=torch.float) / total.to(dtype=torch.float)
 
 
-class BasicMetricTool(Metric):
+class BasicMetricTool(torch.nn.Module):
     """Base class for metrics."""
 
     def __init__(
             self,
             metric_fn: Callable,
-            compute_on_step: bool = True,
-            dist_sync_on_step: bool = False,
-            process_group: Optional[Any] = None,
-            dist_sync_fn: Optional[Callable] = None,
     ) -> None:
-        super().__init__(
-            compute_on_step=compute_on_step,
-            dist_sync_on_step=dist_sync_on_step,
-            process_group=process_group,
-            dist_sync_fn=dist_sync_fn,
-        )
-        self.add_state("preds", default=[], dist_reduce_fx=None)
-        self.add_state("targets", default=[], dist_reduce_fx=None)
+        super().__init__()
+        self.preds = []
+        self.targets = []
         self.metric_fn = metric_fn
+
+    def reset(self) -> None:
+        self.preds = []
+        self.targets = []
 
     def update(self, preds: torch.Tensor, targets: torch.Tensor) -> None:
         self.preds.append(preds)
@@ -59,7 +53,6 @@ class BasicMetricTool(Metric):
             targets = targets.cpu().numpy()
 
         score = self.metric_fn(preds, targets)
-        score = torch.tensor(score).to(self.device)
         return score
 
 
@@ -69,23 +62,12 @@ class LabelMetricTool(BasicMetricTool):
     def __init__(
             self,
             metric_fn: Callable,
-            compute_on_step: bool = True,
-            dist_sync_on_step: bool = False,
-            process_group: Optional[Any] = None,
-            dist_sync_fn: Optional[Callable] = None,
     ) -> None:
-        super().__init__(
-            metric_fn=metric_fn,
-            compute_on_step=compute_on_step,
-            dist_sync_on_step=dist_sync_on_step,
-            process_group=process_group,
-            dist_sync_fn=dist_sync_fn,
-        )
+        super().__init__(metric_fn=metric_fn)
         self.label_info = None
 
     def update(self, preds: torch.Tensor, targets: torch.Tensor, label_info: Optional[Any] = None) -> None:
-        self.preds.append(preds)
-        self.targets.append(targets)
+        super().update(preds, targets)
         if self.label_info is None:
             self.label_info = label_info
 
@@ -101,7 +83,6 @@ class LabelMetricTool(BasicMetricTool):
             targets = targets.cpu().numpy()
 
         score = self.metric_fn(preds, targets, self.label_info)
-        score = torch.tensor(score).to(self.device)
         return score
 
 

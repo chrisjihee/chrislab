@@ -7,7 +7,6 @@ import torch.nn.functional as F
 from torch.nn.parameter import Parameter
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-from nlpbook import TrainerArguments
 from nlpbook.dp.corpus import DPCorpus
 from nlpbook.metrics import DP_UASMacroF1, DP_UASMicroF1, DP_LASMacroF1, DP_LASMicroF1
 from transformers import PreTrainedModel
@@ -21,9 +20,8 @@ metric_tools_for_DP = {
 }
 
 
-class DPTransformer(nn.Module):
+class ModelForDependencyParsing(nn.Module):
     def __init__(self,
-                 args: TrainerArguments,
                  corpus: DPCorpus,
                  pretrained_model: PreTrainedModel,
                  ):

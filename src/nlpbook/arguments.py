@@ -10,6 +10,8 @@ from typing import List
 import pandas as pd
 from dataclasses_json import DataClassJsonMixin
 
+import lightning.pytorch
+import transformers
 from chrisbase.io import files, make_parent_dir, hr, str_table, out_hr, out_table, get_hostname, get_hostaddr, running_file, first_or, cwd, configure_dual_logger, configure_unit_logger
 from chrisbase.time import now, str_delta
 from chrisbase.util import to_dataframe
@@ -216,7 +218,6 @@ class CommonArguments(ArgumentGroupData):
         self.env.csv_logger = CSVLogger(self.model.home, name=self.data.name,
                                         version=f'{self.tag}-{self.env.job_name}-{version}',
                                         flush_logs_every_n_steps=1)
-
         existing_file = self.env.output_home / self.env.logging_file
         existing_content = existing_file.read_text() if existing_file.exists() else None
         self.env.output_home = Path(self.env.csv_logger.log_dir)
@@ -239,7 +240,7 @@ class CommonArguments(ArgumentGroupData):
             logger.info(line)
         return self
 
-    def dataframe(self, columns=None):
+    def dataframe(self, columns=None) -> pd.DataFrame:
         if not columns:
             columns = [self.data_type, "value"]
         return pd.concat([
@@ -250,7 +251,7 @@ class CommonArguments(ArgumentGroupData):
             to_dataframe(columns=columns, raw=self.model, data_prefix="model"),
         ]).reset_index(drop=True)
 
-    def show(self):
+    def show(self):  # TODO: Remove someday
         out_hr(c='-')
         out_table(self.dataframe())
         out_hr(c='-')
@@ -280,7 +281,7 @@ class TesterArguments(ServerArguments):
     tag = "test"
     hardware: HardwareOption = field(default=HardwareOption(), metadata={"help": "device information"})
 
-    def dataframe(self, columns=None):
+    def dataframe(self, columns=None) -> pd.DataFrame:
         if not columns:
             columns = [self.data_type, "value"]
         return pd.concat([
@@ -294,13 +295,20 @@ class TrainerArguments(TesterArguments):
     tag = "train"
     learning: LearningOption = field(default=LearningOption())
 
-    def dataframe(self, columns=None):
+    def dataframe(self, columns=None) -> pd.DataFrame:
         if not columns:
             columns = [self.data_type, "value"]
         return pd.concat([
             super().dataframe(columns=columns),
-            to_dataframe(columns=columns, raw=self.learning, data_prefix="training"),
+            to_dataframe(columns=columns, raw=self.learning, data_prefix="learning"),
         ]).reset_index(drop=True)
+
+    def set_seed(self) -> None:
+        if self.learning.seed is not None:
+            transformers.set_seed(self.learning.seed)
+            lightning.pytorch.seed_everything(self.learning.seed)
+        else:
+            logger.warning("not fixed seed")
 
 
 class ArgumentsUsing:

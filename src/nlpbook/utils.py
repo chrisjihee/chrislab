@@ -216,7 +216,7 @@ def download_pretrained_model(args, config_only=False):
         raise ValueError(f"not valid model name({pretrained_model_name}), cannot download resources")
 
 
-def set_seed(args: TrainerArguments):
+def set_seed(args: TrainerArguments):  # TODO: Remove someday
     if args.learning.seed is not None:
         from transformers import set_seed
         set_seed(args.learning.seed)

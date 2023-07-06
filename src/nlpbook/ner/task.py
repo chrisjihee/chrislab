@@ -26,12 +26,12 @@ def label_to_char_labels(label, num_char):
 
 
 class NERTask(LightningModule):
-    def __init__(self, model: PreTrainedModel,
+    def __init__(self,
                  args: TesterArguments | TrainerArguments,
+                 model: PreTrainedModel,
                  trainer: pl.Trainer,
                  val_dataset: NERDataset,
-                 total_steps: int,
-                 ):
+                 total_steps: int):
         super().__init__()
         self.model: PreTrainedModel = model
         self.args: TesterArguments | TrainerArguments = args

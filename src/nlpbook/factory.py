@@ -1,29 +1,12 @@
-import lightning.pytorch as pl
 import torch
 from flask import Flask, request, jsonify, render_template
-from lightning.pytorch.callbacks import ModelCheckpoint
 
-from chrisbase.io import merge_dicts
+import lightning.pytorch as pl
+from lightning.pytorch.callbacks import ModelCheckpoint
 from nlpbook.arguments import TrainerArguments, TesterArguments
 
 
-class LoggingCallback(pl.Callback):
-    def on_validation_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
-        metrics = merge_dicts(
-            {
-                "step": 0,
-                "current_epoch": pl_module.current_epoch,
-                "global_rank": pl_module.global_rank,
-                "global_step": pl_module.global_step,
-                "learning_rate": trainer.optimizers[0].param_groups[0]["lr"],
-            },
-            trainer.callback_metrics,
-        )
-        pl_module.logger.log_metrics(metrics)
-
-
 def make_trainer(args: TrainerArguments) -> pl.Trainer:
-    logging_callback = LoggingCallback()
     checkpoint_callback = ModelCheckpoint(
         dirpath=args.env.output_home,
         filename=args.model.name,
@@ -38,11 +21,12 @@ def make_trainer(args: TrainerArguments) -> pl.Trainer:
         precision=args.hardware.precision,
         accelerator=args.hardware.accelerator,
         deterministic=torch.cuda.is_available() and args.learning.seed is not None,
+        log_every_n_steps=1,
         # enable_progress_bar=False,
         num_sanity_val_steps=0,
         val_check_interval=args.learning.validate_on,
         max_epochs=args.learning.epochs,
-        callbacks=[logging_callback, checkpoint_callback],
+        callbacks=[checkpoint_callback],
     )
     return trainer
 

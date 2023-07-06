@@ -125,7 +125,7 @@ class ClassificationDataset(Dataset):
                 logger.info(f"Loading features from cached file at {cache_data_path} [took {time.time() - start:.3f} s]")
             else:
                 assert text_data_path.exists() and text_data_path.is_file(), f"No data_text_path: {text_data_path}"
-                logger.info(f"Creating features from dataset file at {text_data_path}")
+                logger.info(f"Creating features from {text_data_path}")
                 examples = self.corpus.get_examples(text_data_path)
                 self.features = convert_examples_to_features_fn(examples, tokenizer, args, label_list=self.corpus.get_labels())
                 start = time.time()

@@ -42,7 +42,7 @@ def fabric_train(args_file: Path | str):
         # Data
         tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained, use_fast=True)
         assert isinstance(tokenizer, PreTrainedTokenizerFast), f"Our code support only PreTrainedTokenizerFast, but used {type(tokenizer)}"
-        corpus = NERCorpus(args)
+        corpus = NERCorpus(args=args)
         train_dataset = NERDataset("train", args=args, corpus=corpus, tokenizer=tokenizer)
         train_dataloader = DataLoader(train_dataset,
                                       sampler=RandomSampler(train_dataset, replacement=False),

@@ -377,7 +377,7 @@ class QADataset(Dataset):
                     args.downstream_corpus_root_dir,
                     args.downstream_corpus_name.lower(),
                 )
-                logger.info(f"Creating features from {mode} dataset file at {corpus_fpath}")
+                logger.info(f"Creating features from {corpus_fpath}")
                 examples = self.corpus.get_examples(corpus_fpath, mode)
                 self.features = convert_examples_to_features_fn(examples, tokenizer, args)
                 start = time.time()

@@ -15,7 +15,7 @@ from chrislab.common.util import time_tqdm_cls, mute_tqdm_cls
 from nlpbook import save_checkpoint
 from nlpbook.arguments import TrainerArguments, RuntimeChecking
 from nlpbook.dp.corpus import DPCorpus, DPDataset
-from nlpbook.dp.model import DPTransformer
+from nlpbook.dp.model import ModelForDependencyParsing
 from nlpbook.metrics import DPResult
 from transformers import PreTrainedTokenizerFast, AutoTokenizer, AutoConfig, AutoModel, BertConfig, BertModel, RobertaConfig, RobertaModel, PreTrainedModel, PretrainedConfig
 
@@ -42,7 +42,7 @@ def fabric_train(args_file: Path | str):
                                       sampler=RandomSampler(train_dataset, replacement=False),
                                       num_workers=args.hardware.cpu_workers,
                                       batch_size=args.hardware.batch_size,
-                                      collate_fn=corpus.dp_encoded_examples_to_batch,
+                                      collate_fn=corpus.encoded_examples_to_batch,
                                       # drop_last=True,
                                       drop_last=False,  # TODO: temporary
                                       )
@@ -55,7 +55,7 @@ def fabric_train(args_file: Path | str):
                                       sampler=SequentialSampler(valid_dataset),
                                       num_workers=args.hardware.cpu_workers,
                                       batch_size=args.hardware.batch_size,
-                                      collate_fn=corpus.dp_encoded_examples_to_batch,
+                                      collate_fn=corpus.encoded_examples_to_batch,
                                       # drop_last=True,
                                       drop_last=False,  # TODO: temporary
                                       )
@@ -72,7 +72,7 @@ def fabric_train(args_file: Path | str):
             args.model.pretrained,
             config=pretrained_model_config
         )
-        model = DPTransformer(args, corpus, pretrained_model)
+        model = ModelForDependencyParsing(args, corpus, pretrained_model)
         err_hr(c='-')
 
         # Optimizer
@@ -94,7 +94,7 @@ def fabric_train(args_file: Path | str):
             train_with_fabric(fabric, args, model, optimizer, scheduler, train_dataloader, valid_dataloader, valid_dataset)
 
 
-def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: DPTransformer,
+def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: ModelForDependencyParsing,
                       optimizer: torch.optim.Optimizer, scheduler: torch.optim.lr_scheduler.LRScheduler,
                       train_dataloader: DataLoader, valid_dataloader: DataLoader, valid_dataset: DPDataset):
     time_tqdm = time_tqdm_cls(bar_size=20, desc_size=8, file=sys.stdout)
@@ -178,7 +178,7 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: DPTransfo
 
 
 @torch.no_grad()
-def validate(fabric: L.Fabric, args: TrainerArguments, model: DPTransformer,
+def validate(fabric: L.Fabric, args: TrainerArguments, model: ModelForDependencyParsing,
              valid_dataloader: DataLoader, valid_dataset: DPDataset,
              metric_values: Dict[str, Any], print_result: bool = True):
     metric_values["val_loss"] = torch.zeros(len(valid_dataloader))
