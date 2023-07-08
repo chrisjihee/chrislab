@@ -1,12 +1,12 @@
 import torch
 from flask import Flask, request, jsonify, render_template
+from pytorch_lightning import Trainer
+from pytorch_lightning.callbacks import ModelCheckpoint
 
-import lightning.pytorch as pl
-from lightning.pytorch.callbacks import ModelCheckpoint
 from nlpbook.arguments import TrainerArguments, TesterArguments
 
 
-def make_trainer(args: TrainerArguments) -> pl.Trainer:
+def make_trainer(args: TrainerArguments) -> Trainer:
     checkpoint_callback = ModelCheckpoint(
         dirpath=args.env.output_home,
         filename=args.model.name,
@@ -14,7 +14,7 @@ def make_trainer(args: TrainerArguments) -> pl.Trainer:
         monitor=args.learning.save_by.split()[1],
         mode=args.learning.save_by.split()[0],
     )
-    trainer = pl.Trainer(
+    trainer = Trainer(
         logger=args.env.csv_logger,
         devices=args.hardware.devices,
         strategy=args.hardware.strategy,
@@ -31,8 +31,8 @@ def make_trainer(args: TrainerArguments) -> pl.Trainer:
     return trainer
 
 
-def make_tester(args: TesterArguments) -> pl.Trainer:
-    tester = pl.Trainer(
+def make_tester(args: TesterArguments) -> Trainer:
+    tester = Trainer(
         logger=args.env.csv_logger,
         devices=args.hardware.devices,
         strategy=args.hardware.strategy,

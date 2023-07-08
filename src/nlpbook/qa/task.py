@@ -1,9 +1,10 @@
-from lightning.pytorch import LightningModule
-from nlpbook.metrics import accuracy
-from nlpbook.qa import QATrainArguments
+from pytorch_lightning import LightningModule
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import ExponentialLR
 from transformers import PreTrainedModel
+
+from nlpbook.metrics import accuracy
+from nlpbook.qa import QATrainArguments
 
 
 class QATask(LightningModule):

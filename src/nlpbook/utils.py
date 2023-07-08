@@ -7,8 +7,8 @@ from typing import List, Tuple
 
 import requests
 import tqdm
-
 from transformers import HfArgumentParser
+
 from .arguments import TrainerArguments, TesterArguments
 
 logger = logging.getLogger(__name__)
@@ -220,7 +220,7 @@ def set_seed(args: TrainerArguments):  # TODO: Remove someday
     if args.learning.seed is not None:
         from transformers import set_seed
         set_seed(args.learning.seed)
-        from lightning.pytorch import seed_everything
+        from pytorch_lightning import seed_everything
         seed_everything(args.learning.seed)
     else:
         logger.warning("not fixed seed")

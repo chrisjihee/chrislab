@@ -1,17 +1,17 @@
-import lightning.pytorch as pl
-from lightning.pytorch import LightningModule
-from nlpbook.arguments import TrainerArguments, TesterArguments
-from nlpbook.metrics import accuracy
+from pytorch_lightning import LightningModule, Trainer
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import ExponentialLR
 from transformers import PreTrainedModel
 from transformers.modeling_outputs import SequenceClassifierOutput
 
+from nlpbook.arguments import TrainerArguments, TesterArguments
+from nlpbook.metrics import accuracy
+
 
 class ClassificationTask(LightningModule):
     def __init__(self, model: PreTrainedModel,
                  args: TrainerArguments | TesterArguments,
-                 trainer: pl.Trainer):
+                 trainer: Trainer):
         super().__init__()
         self.model = model
         self.args = args

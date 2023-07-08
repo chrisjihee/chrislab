@@ -8,16 +8,16 @@ from pathlib import Path
 from typing import List
 
 import pandas as pd
-from dataclasses_json import DataClassJsonMixin
-
-import lightning.pytorch
+import pytorch_lightning
 import transformers
+from dataclasses_json import DataClassJsonMixin
+from pytorch_lightning.accelerators import Accelerator
+from pytorch_lightning.loggers import CSVLogger
+from pytorch_lightning.strategies import Strategy
+
 from chrisbase.io import files, make_parent_dir, hr, str_table, out_hr, out_table, get_hostname, get_hostaddr, running_file, first_or, cwd, configure_dual_logger, configure_unit_logger
 from chrisbase.time import now, str_delta
 from chrisbase.util import to_dataframe
-from lightning.fabric.accelerators import Accelerator
-from lightning.fabric.strategies import Strategy
-from lightning.pytorch.loggers import CSVLogger
 
 logger = logging.getLogger(__name__)
 
@@ -307,7 +307,7 @@ class TrainerArguments(TesterArguments):
     def set_seed(self) -> None:
         if self.learning.seed is not None:
             transformers.set_seed(self.learning.seed)
-            lightning.pytorch.seed_everything(self.learning.seed)
+            pytorch_lightning.seed_everything(self.learning.seed)
         else:
             logger.warning("not fixed seed")
 

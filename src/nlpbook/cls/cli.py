@@ -1,20 +1,21 @@
 import logging
 from pathlib import Path
 
-import lightning.pytorch as pl
-import nlpbook
 import torch
 from Korpora import Korpora
-from chrisbase.io import JobTimer, err_hr
 from flask import Flask
-from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
-from nlpbook.cls.corpus import NsmcCorpus, ClassificationDataset
-from nlpbook.cls.task import ClassificationTask
+from pytorch_lightning import Trainer
 from torch.utils.data import DataLoader, RandomSampler
 from torch.utils.data import SequentialSampler
 from transformers import BertConfig, BertForSequenceClassification, BertTokenizer
 from transformers.modeling_outputs import SequenceClassifierOutput
 from typer import Typer
+
+import nlpbook
+from chrisbase.io import JobTimer, err_hr
+from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
+from nlpbook.cls.corpus import NsmcCorpus, ClassificationDataset
+from nlpbook.cls.task import ClassificationTask
 
 app = Typer()
 logger = logging.getLogger(__name__)
@@ -70,7 +71,7 @@ def train(args_file: Path | str):
 
         with RuntimeChecking(args.reconfigure_output()):
             torch.set_float32_matmul_precision('high')
-            trainer: pl.Trainer = nlpbook.make_trainer(args)
+            trainer: Trainer = nlpbook.make_trainer(args)
             trainer.fit(ClassificationTask(model, args, trainer),
                         train_dataloaders=train_dataloader,
                         val_dataloaders=val_dataloader)
@@ -121,7 +122,7 @@ def test(args_file: Path | str):
 
         with RuntimeChecking(args.reconfigure_output()):
             torch.set_float32_matmul_precision('high')
-            tester: pl.Trainer = nlpbook.make_tester(args)
+            tester: Trainer = nlpbook.make_tester(args)
             tester.test(ClassificationTask(model, args, tester),
                         dataloaders=test_dataloader,
                         ckpt_path=checkpoint_path)

@@ -3,24 +3,23 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+import lightning as L
 import torch
 from flask import Flask
 from torch import Tensor
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
+from transformers import PreTrainedTokenizerFast, AutoTokenizer, AutoConfig, AutoModelForTokenClassification, BertForTokenClassification, CharSpan
+from transformers.modeling_outputs import TokenClassifierOutput
 from typer import Typer
 
-import lightning as L
-import lightning.pytorch as pl
 import nlpbook
 from chrisbase.io import JobTimer, pop_keys, err_hr, out_hr
 from chrislab.common.util import time_tqdm_cls, mute_tqdm_cls
 from nlpbook import save_checkpoint, TERM_IN_NAME_FORMAT
 from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
 from nlpbook.metrics import accuracy, NER_CharMacroF1, NER_EntityMacroF1, klue_ner_char_macro_f1, klue_ner_entity_macro_f1
-from nlpbook.ner.corpus import NERCorpus, NERDataset, ner_encoded_examples_to_batch, NEREncodedExample
+from nlpbook.ner.corpus import NERCorpus, NERDataset, NEREncodedExample
 from nlpbook.ner.task import NERTask
-from transformers import PreTrainedTokenizerFast, AutoTokenizer, AutoConfig, AutoModelForTokenClassification, BertForTokenClassification, CharSpan
-from transformers.modeling_outputs import TokenClassifierOutput
 
 app = Typer()
 logger = logging.getLogger(__name__)
@@ -43,23 +42,23 @@ def fabric_train(args_file: Path | str):
         tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained, use_fast=True)
         assert isinstance(tokenizer, PreTrainedTokenizerFast), f"Our code support only PreTrainedTokenizerFast, but used {type(tokenizer)}"
         corpus = NERCorpus(args=args)
-        train_dataset = NERDataset("train", args=args, corpus=corpus, tokenizer=tokenizer)
+        train_dataset = NERDataset("train", corpus=corpus, tokenizer=tokenizer)
         train_dataloader = DataLoader(train_dataset,
                                       sampler=RandomSampler(train_dataset, replacement=False),
                                       num_workers=args.hardware.cpu_workers,
                                       batch_size=args.hardware.batch_size,
-                                      collate_fn=ner_encoded_examples_to_batch,
+                                      collate_fn=corpus.encoded_examples_to_batch,
                                       drop_last=True)
         logger.info(f"Created train_dataset providing {len(train_dataset)} examples")
         logger.info(f"Created train_dataloader loading {len(train_dataloader)} batches")
         args.prog.epoch_per_step = 1 / len(train_dataloader)
         err_hr(c='-')
-        valid_dataset = NERDataset("valid", args=args, corpus=corpus, tokenizer=tokenizer)
+        valid_dataset = NERDataset("valid", corpus=corpus, tokenizer=tokenizer)
         valid_dataloader = DataLoader(valid_dataset,
                                       sampler=SequentialSampler(valid_dataset),
                                       num_workers=args.hardware.cpu_workers,
                                       batch_size=args.hardware.batch_size,
-                                      collate_fn=ner_encoded_examples_to_batch,
+                                      collate_fn=corpus.encoded_examples_to_batch,
                                       drop_last=True)
         logger.info(f"Created valid_dataset providing {len(valid_dataset)} examples")
         logger.info(f"Created valid_dataloader loading {len(valid_dataloader)} batches")
@@ -201,19 +200,19 @@ def train(args_file: Path | str):
         corpus = NERCorpus(args)
         tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained, use_fast=True)
         assert isinstance(tokenizer, PreTrainedTokenizerFast), f"Our code support only PreTrainedTokenizerFast, but used {type(tokenizer)}"
-        train_dataset = NERDataset("train", args=args, corpus=corpus, tokenizer=tokenizer)
+        train_dataset = NERDataset("train", corpus=corpus, tokenizer=tokenizer)
         train_dataloader = DataLoader(train_dataset, sampler=RandomSampler(train_dataset, replacement=False),
                                       num_workers=args.hardware.cpu_workers,
                                       batch_size=args.hardware.batch_size,
-                                      collate_fn=ner_encoded_examples_to_batch,
+                                      collate_fn=corpus.encoded_examples_to_batch,
                                       drop_last=False)
         err_hr(c='-')
 
-        val_dataset = NERDataset("valid", args=args, corpus=corpus, tokenizer=tokenizer)
+        val_dataset = NERDataset("valid", corpus=corpus, tokenizer=tokenizer)
         val_dataloader = DataLoader(val_dataset, sampler=SequentialSampler(val_dataset),
                                     num_workers=args.hardware.cpu_workers,
                                     batch_size=args.hardware.batch_size,
-                                    collate_fn=ner_encoded_examples_to_batch,
+                                    collate_fn=corpus.encoded_examples_to_batch,
                                     drop_last=False)
         err_hr(c='-')
 
@@ -255,7 +254,7 @@ def test(args_file: Path | str):
         corpus = NERCorpus(args)
         tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained, use_fast=True)
         assert isinstance(tokenizer, PreTrainedTokenizerFast), f"Our code support only PreTrainedTokenizerFast, but used {type(tokenizer)}"
-        test_dataset = NERDataset("test", args=args, corpus=corpus, tokenizer=tokenizer)
+        test_dataset = NERDataset("test", corpus=corpus, tokenizer=tokenizer)
         test_dataloader = DataLoader(test_dataset,
                                      batch_size=args.hardware.batch_size,
                                      num_workers=args.hardware.cpu_workers,

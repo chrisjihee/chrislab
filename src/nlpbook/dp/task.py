@@ -3,11 +3,10 @@ from typing import Dict, List
 
 import torch
 import torch.nn.functional as F
+from pytorch_lightning import LightningModule, Trainer
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import ExponentialLR
 
-import lightning.pytorch as pl
-from lightning.pytorch import LightningModule
 from nlpbook.arguments import TesterArguments, TrainerArguments
 from nlpbook.dp import ModelForDependencyParsing
 from nlpbook.metrics import DPResult
@@ -19,11 +18,11 @@ class DPTask(LightningModule):
     def __init__(self,
                  args: TesterArguments | TrainerArguments,
                  model: ModelForDependencyParsing,
-                 trainer: pl.Trainer):
+                 trainer: Trainer):
         super().__init__()
         self.args: TesterArguments | TrainerArguments = args
         self.model: ModelForDependencyParsing = model
-        self.trainer: pl.Trainer = trainer
+        self.trainer: Trainer = trainer
 
         # initialize setting
         self._log_kwargs = {

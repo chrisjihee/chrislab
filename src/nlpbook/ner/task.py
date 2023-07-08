@@ -2,17 +2,16 @@ import logging
 from typing import List, Dict, Tuple
 
 import torch
+from pytorch_lightning import LightningModule, Trainer
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import ExponentialLR
+from transformers import PreTrainedModel, CharSpan
+from transformers.modeling_outputs import TokenClassifierOutput
 
-import lightning.pytorch as pl
 from chrisbase.io import hr
-from lightning.pytorch import LightningModule
 from nlpbook.arguments import TesterArguments, TrainerArguments
 from nlpbook.metrics import accuracy, klue_ner_char_macro_f1, klue_ner_entity_macro_f1
 from nlpbook.ner import NERDataset, NEREncodedExample
-from transformers import PreTrainedModel, CharSpan
-from transformers.modeling_outputs import TokenClassifierOutput
 
 logger = logging.getLogger(__name__)
 
@@ -29,13 +28,13 @@ class NERTask(LightningModule):
     def __init__(self,
                  args: TesterArguments | TrainerArguments,
                  model: PreTrainedModel,
-                 trainer: pl.Trainer,
+                 trainer: Trainer,
                  val_dataset: NERDataset,
                  total_steps: int):
         super().__init__()
         self.model: PreTrainedModel = model
         self.args: TesterArguments | TrainerArguments = args
-        self.trainer: pl.Trainer = trainer
+        self.trainer: Trainer = trainer
 
         self.val_dataset: NERDataset = val_dataset
         self._validation_char_pred_ids = None
