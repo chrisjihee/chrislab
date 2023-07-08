@@ -274,7 +274,7 @@ class DPCorpus:
         logger.debug("")
 
         logger.info(hr())
-        for encoded_example in encoded_examples[:self.args.data.num_show]:
+        for encoded_example in encoded_examples[:self.args.data.num_check]:
             logger.info("  === [Example %s] ===" % encoded_example.idx)
             logger.info("  = sentence      : %s" % encoded_example.raw.text)
             logger.info("  = tokens        : %s" % " ".join(encoded_example.encoded.tokens()))

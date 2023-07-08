@@ -10,9 +10,9 @@ def make_trainer(args: TrainerArguments) -> pl.Trainer:
     checkpoint_callback = ModelCheckpoint(
         dirpath=args.env.output_home,
         filename=args.model.name,
-        save_top_k=args.learning.num_keep,
-        monitor=args.learning.keep_by.split()[1],
-        mode=args.learning.keep_by.split()[0],
+        save_top_k=args.learning.num_save,
+        monitor=args.learning.save_by.split()[1],
+        mode=args.learning.save_by.split()[0],
     )
     trainer = pl.Trainer(
         logger=args.env.csv_logger,

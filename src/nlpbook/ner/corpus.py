@@ -163,7 +163,7 @@ class NERCorpus:
             logger.debug(f"encoded_example.label_ids = {encoded_example.label_ids}")
 
         logger.info(hr())
-        for encoded_example in encoded_examples[:self.args.data.num_show]:
+        for encoded_example in encoded_examples[:self.args.data.num_check]:
             logger.info("  === [Example %d] ===" % encoded_example.idx)
             logger.info("  = sentence   : %s" % encoded_example.raw.origin)
             logger.info("  = characters : %s" % " | ".join(f"{x}/{y}" for x, y in encoded_example.raw.character_list))

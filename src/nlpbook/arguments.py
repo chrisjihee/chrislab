@@ -64,7 +64,7 @@ class DataOption(OptionData):
     files: DataFiles | None = field(default=None)
     caching: bool = field(default=False)
     redownload: bool = field(default=False)
-    num_show: int = field(default=3)
+    num_check: int = field(default=3)
 
     def __post_init__(self):
         if self.home:
@@ -104,8 +104,8 @@ class HardwareOption(OptionData):
 class LearningOption(OptionData):
     validate_fmt: str | None = field(default=None)
     validate_on: int | float = field(default=1.0)
-    keep_by: str = field(default="min val_loss")
-    num_keep: int = field(default=5)
+    save_by: str = field(default="min val_loss")
+    num_save: int = field(default=5)
     epochs: int = field(default=1)
     lr: float = field(default=5e-5)
     seed: int | None = field(default=None)  # random seed
@@ -157,6 +157,7 @@ class ProjectEnv(TypedData):
     output_home: str | Path | None = field(default=None)
     logging_file: str | Path = field(default="message.out")
     argument_file: str | Path = field(default="arguments.json")
+    debugging: bool = field(default=False)
     msg_level: int = field(default=logging.INFO)
     msg_format: str = field(default=logging.BASIC_FORMAT)
     date_format: str = field(default="[%m.%d %H:%M:%S]")

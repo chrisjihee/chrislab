@@ -248,10 +248,10 @@ def save_checkpoint(fabric, args, metric_values, model, optimizer,
 
     sorted_checkpoints.append((metric_values[sorting_metric], checkpoint_path))
     sorted_checkpoints.sort(key=lambda x: x[0], reverse=sorting_reverse)
-    for _, path in sorted_checkpoints[args.learning.num_keep:]:
+    for _, path in sorted_checkpoints[args.learning.num_save:]:
         path.unlink(missing_ok=True)
-    sorted_checkpoints = [(value, path) for value, path in sorted_checkpoints[:args.learning.num_keep] if path.exists()]
-    if len(sorted_checkpoints) < args.learning.num_keep:
+    sorted_checkpoints = [(value, path) for value, path in sorted_checkpoints[:args.learning.num_save] if path.exists()]
+    if len(sorted_checkpoints) < args.learning.num_save:
         fabric.save(checkpoint_path, checkpoint_state)
         sorted_checkpoints.append((metric_values[sorting_metric], checkpoint_path))
         sorted_checkpoints.sort(key=lambda x: x[0], reverse=sorting_reverse)
