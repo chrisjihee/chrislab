@@ -3,6 +3,7 @@ from typing import Any, Optional, List, Callable
 
 import numpy as np
 import torch
+import torchmetrics
 from seqeval import metrics as se_metrics
 from seqeval import scheme as se_scheme
 from sklearn import metrics as sk_metrics
@@ -21,7 +22,7 @@ def accuracy(preds, labels, ignore_index=None):
     return correct.to(dtype=torch.float) / total.to(dtype=torch.float)
 
 
-class BasicMetricTool(torch.nn.Module):
+class BasicMetricTool(torchmetrics.Metric):
     """Base class for metrics."""
 
     def __init__(
