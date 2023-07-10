@@ -10,12 +10,13 @@ from typing import List
 import pandas as pd
 import pytorch_lightning
 import transformers
+import typer
 from dataclasses_json import DataClassJsonMixin
 from pytorch_lightning.accelerators import Accelerator
 from pytorch_lightning.loggers import CSVLogger
 from pytorch_lightning.strategies import Strategy
 
-from chrisbase.io import files, make_parent_dir, hr, str_table, out_hr, out_table, get_hostname, get_hostaddr, running_file, first_or, cwd, configure_dual_logger, configure_unit_logger
+from chrisbase.io import files, make_parent_dir, hr, str_table, out_hr, out_table, get_hostname, get_hostaddr, running_file, first_or, cwd, configure_dual_logger, configure_unit_logger, LoggingFormat
 from chrisbase.time import now, str_delta
 from chrisbase.util import to_dataframe
 
@@ -310,6 +311,90 @@ class TrainerArguments(TesterArguments):
             pytorch_lightning.seed_everything(self.learning.seed)
         else:
             logger.warning("not fixed seed")
+
+    @staticmethod
+    def from_args(
+            # env
+            project: str = None,
+            job_name: str = None,
+            debugging: bool = False,
+            # data
+            data_home: str = "data",
+            data_name: str = None,
+            train_file: str = None,
+            valid_file: str = None,
+            test_file: str = None,
+            num_check: int = 2,
+            # model
+            pretrained: str = "pretrained-com/KLUE-RoBERTa",
+            model_home: str = "finetuning",
+            model_name: str = None,
+            seq_len: int = 128,
+            # hardware
+            accelerator: str = "gpu",
+            precision: str = "32-true",
+            strategy: str = "auto",
+            device: List[int] = (0,),
+            batch_size: int = 100,
+            # learning
+            validate_fmt: str = None,
+            validate_on: float = 0.1,
+            num_save: int = 1,
+            save_by: str = None,
+            epochs: int = 1,
+            lr: float = 5e-5,
+            seed: int = 7,
+    ) -> "TrainerArguments":
+        pretrained = Path(pretrained)
+        return TrainerArguments(
+            env=ProjectEnv(
+                project=project,
+                job_name=job_name if job_name else pretrained.name,
+                debugging=debugging,
+                msg_level=logging.DEBUG if debugging else logging.INFO,
+                msg_format=LoggingFormat.DEBUG if debugging else LoggingFormat.CHECK,
+            ),
+            data=DataOption(
+                home=data_home,
+                name=data_name,
+                files=DataFiles(
+                    train=train_file,
+                    valid=valid_file,
+                    test=test_file,
+                ),
+                num_check=num_check,
+            ),
+            model=ModelOption(
+                pretrained=pretrained,
+                home=model_home,
+                name=model_name,
+                seq_len=seq_len,
+            ),
+            hardware=HardwareOption(
+                accelerator=accelerator,
+                precision=precision,
+                strategy=strategy,
+                devices=device,
+                batch_size=batch_size,
+            ),
+            learning=LearningOption(
+                validate_fmt=validate_fmt,
+                validate_on=validate_on,
+                num_save=num_save,
+                save_by=save_by,
+                epochs=epochs,
+                lr=lr,
+                seed=seed,
+            ),
+        )
+
+
+class AppTyper(typer.Typer):
+    def __init__(self):
+        super().__init__(
+            add_completion=False,
+            pretty_exceptions_enable=False,
+        )
 
 
 class ArgumentsUsing:
