@@ -3,7 +3,6 @@ from typing import Any, Optional, List, Callable
 
 import numpy as np
 import torch
-import torchmetrics
 from seqeval import metrics as se_metrics
 from seqeval import scheme as se_scheme
 from sklearn import metrics as sk_metrics
@@ -22,7 +21,7 @@ def accuracy(preds, labels, ignore_index=None):
     return correct.to(dtype=torch.float) / total.to(dtype=torch.float)
 
 
-class BasicMetricTool(torchmetrics.Metric):
+class BasicMetricTool(torch.nn.Module):
     """Base class for metrics."""
 
     def __init__(
@@ -38,11 +37,11 @@ class BasicMetricTool(torchmetrics.Metric):
         self.preds = []
         self.targets = []
 
-    def update(self, preds: torch.Tensor, targets: torch.Tensor) -> None:
+    def update(self, preds, targets) -> None:
         self.preds.append(preds)
         self.targets.append(targets)
 
-    def compute(self) -> Any:
+    def compute(self) -> torch.Tensor | float | int:
         preds = self.preds
         targets = self.targets
 
@@ -67,12 +66,12 @@ class LabelMetricTool(BasicMetricTool):
         super().__init__(metric_fn=metric_fn)
         self.label_info = None
 
-    def update(self, preds: torch.Tensor, targets: torch.Tensor, label_info: Optional[Any] = None) -> None:
+    def update(self, preds, targets, label_info: Optional[Any] = None) -> None:
         super().update(preds, targets)
         if self.label_info is None:
             self.label_info = label_info
 
-    def compute(self) -> Any:
+    def compute(self) -> torch.Tensor | float | int:
         preds = self.preds
         targets = self.targets
 
@@ -98,7 +97,7 @@ class DPResult:
  - types={self.types.tolist()})"""
 
 
-def klue_ner_entity_macro_f1(preds: List[int], labels: List[int], label_list: List[str]) -> Any:
+def klue_ner_entity_macro_f1(preds: np.ndarray, labels: np.ndarray, label_list: List[str]) -> Any:
     """KLUE-NER entity-level macro F1 (except O tag)"""
     preds = np.array(preds).flatten().tolist()
     labels = np.array(labels).flatten().tolist()
@@ -114,7 +113,7 @@ def klue_ner_entity_macro_f1(preds: List[int], labels: List[int], label_list: Li
     return entity_macro_f1 * 100.0
 
 
-def klue_ner_char_macro_f1(preds: List[int], labels: List[int], label_list: List[str]) -> Any:
+def klue_ner_char_macro_f1(preds: np.ndarray, labels: np.ndarray, label_list: List[str]) -> Any:
     """KLUE-NER character level macro f1 (except O tag)"""
     label_indices = list(range(len(label_list)))
     preds = np.array(preds).flatten().tolist()
@@ -126,7 +125,6 @@ def klue_dp_uas_macro_f1(preds: List[List[DPResult]], labels: List[List[DPResult
     """KLUE-DP UAS macro f1. (UAS : head correct / LAS : head + type correct)"""
     head_preds = list()
     head_labels = list()
-
     for pred, label in zip(preds[0], labels[0]):
         head_preds += pred.heads.cpu().flatten().tolist()
         head_labels += label.heads.cpu().flatten().tolist()
@@ -142,7 +140,6 @@ def klue_dp_uas_micro_f1(preds: List[List[DPResult]], labels: List[List[DPResult
     """KLUE-DP UAS micro f1. (UAS : head correct / LAS : head + type correct)"""
     head_preds = list()
     head_labels = list()
-
     for pred, label in zip(preds[0], labels[0]):
         head_preds += pred.heads.cpu().flatten().tolist()
         head_labels += label.heads.cpu().flatten().tolist()
@@ -235,9 +232,9 @@ def klue_dp_las_micro_f1(preds: List[List[DPResult]], labels: List[List[DPResult
     return sk_metrics.f1_score(type_labels.tolist(), type_preds.tolist(), average="micro") * 100.0
 
 
-DP_UASMacroF1 = BasicMetricTool(klue_dp_uas_macro_f1)
-DP_UASMicroF1 = BasicMetricTool(klue_dp_uas_micro_f1)
-DP_LASMacroF1 = BasicMetricTool(klue_dp_las_macro_f1)
-DP_LASMicroF1 = BasicMetricTool(klue_dp_las_micro_f1)
-NER_CharMacroF1 = LabelMetricTool(klue_ner_char_macro_f1)
-NER_EntityMacroF1 = LabelMetricTool(klue_ner_entity_macro_f1)
+DP_UAS_MacroF1 = BasicMetricTool(klue_dp_uas_macro_f1)
+DP_UAS_MicroF1 = BasicMetricTool(klue_dp_uas_micro_f1)
+DP_LAS_MacroF1 = BasicMetricTool(klue_dp_las_macro_f1)
+DP_LAS_MicroF1 = BasicMetricTool(klue_dp_las_micro_f1)
+NER_Char_MacroF1 = LabelMetricTool(klue_ner_char_macro_f1)
+NER_Entity_MacroF1 = LabelMetricTool(klue_ner_entity_macro_f1)

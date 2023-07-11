@@ -17,17 +17,12 @@ from chrisbase.io import JobTimer, pop_keys, err_hr, out_hr
 from chrislab.common.util import time_tqdm_cls, mute_tqdm_cls
 from nlpbook import save_checkpoint, TERM_IN_NAME_FORMAT
 from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
-from nlpbook.metrics import accuracy, NER_CharMacroF1, NER_EntityMacroF1, klue_ner_char_macro_f1, klue_ner_entity_macro_f1
+from nlpbook.metrics import accuracy, klue_ner_char_macro_f1, klue_ner_entity_macro_f1
 from nlpbook.ner.corpus import NERCorpus, NERDataset, NEREncodedExample
 from nlpbook.ner.task import NERTask
 
 app = Typer()
 logger = logging.getLogger(__name__)
-
-metric_tools_for_NER = {
-    "F1c": NER_CharMacroF1,
-    "F1e": NER_EntityMacroF1,
-}
 
 
 @app.command()
@@ -229,7 +224,7 @@ def train(args_file: Path | str):
         with RuntimeChecking(args.reconfigure_output()):
             torch.set_float32_matmul_precision('high')
             trainer: pl.Trainer = nlpbook.make_trainer(args)
-            trainer.fit(NERTask(model=model, args=args, trainer=trainer, val_dataset=val_dataset,
+            trainer.fit(NERTask(model=model, args=args, trainer=trainer, valid_dataset=val_dataset,
                                 total_steps=len(train_dataloader) * args.learning.epochs),
                         train_dataloaders=train_dataloader,
                         val_dataloaders=val_dataloader)

@@ -4,12 +4,13 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+import lightning as L
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
+from transformers import PreTrainedTokenizerFast, AutoTokenizer, AutoConfig, AutoModel, BertConfig, BertModel, RobertaConfig, RobertaModel, PreTrainedModel, PretrainedConfig
 from typer import Typer
 
-import lightning as L
 from chrisbase.io import JobTimer, pop_keys, err_hr
 from chrislab.common.util import time_tqdm_cls, mute_tqdm_cls
 from nlpbook import save_checkpoint
@@ -17,7 +18,6 @@ from nlpbook.arguments import TrainerArguments, RuntimeChecking
 from nlpbook.dp.corpus import DPCorpus, DPDataset
 from nlpbook.dp.model import ModelForDependencyParsing
 from nlpbook.metrics import DPResult
-from transformers import PreTrainedTokenizerFast, AutoTokenizer, AutoConfig, AutoModel, BertConfig, BertModel, RobertaConfig, RobertaModel, PreTrainedModel, PretrainedConfig
 
 app = Typer()
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ def fabric_train(args_file: Path | str):
         tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained, use_fast=True)
         assert isinstance(tokenizer, PreTrainedTokenizerFast), f"Our code support only PreTrainedTokenizerFast, but used {type(tokenizer)}"
         corpus = DPCorpus(args)
-        train_dataset = DPDataset("train", args=args, corpus=corpus, tokenizer=tokenizer)
+        train_dataset = DPDataset("train", corpus=corpus, tokenizer=tokenizer)
         train_dataloader = DataLoader(train_dataset,
                                       # sampler=SequentialSampler(train_dataset),  # TODO: temporary
                                       sampler=RandomSampler(train_dataset, replacement=False),
@@ -50,7 +50,7 @@ def fabric_train(args_file: Path | str):
         logger.info(f"Created train_dataloader loading {len(train_dataloader)} batches")
         args.prog.epoch_per_step = 1 / len(train_dataloader)
         err_hr(c='-')
-        valid_dataset = DPDataset("valid", args=args, corpus=corpus, tokenizer=tokenizer)
+        valid_dataset = DPDataset("valid", corpus=corpus, tokenizer=tokenizer)
         valid_dataloader = DataLoader(valid_dataset,
                                       sampler=SequentialSampler(valid_dataset),
                                       num_workers=args.hardware.cpu_workers,

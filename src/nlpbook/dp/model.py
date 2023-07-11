@@ -8,25 +8,15 @@ from torch.nn.parameter import Parameter
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 from nlpbook.dp.corpus import DPCorpus
-from nlpbook.metrics import DP_UASMacroF1, DP_UASMicroF1, DP_LASMacroF1, DP_LASMicroF1
 from transformers import PreTrainedModel
 from transformers.modeling_outputs import BaseModelOutputWithPoolingAndCrossAttentions
-
-metric_tools_for_DP = {
-    "UASa": DP_UASMacroF1,
-    "UASi": DP_UASMicroF1,
-    "LASa": DP_LASMacroF1,
-    "LASi": DP_LASMicroF1,
-}
 
 
 class ModelForDependencyParsing(nn.Module):
     def __init__(self,
                  corpus: DPCorpus,
-                 pretrained_model: PreTrainedModel,
-                 ):
+                 pretrained_model: PreTrainedModel):
         super().__init__()
-        self.metric_tools = nn.ModuleDict(metric_tools_for_DP)
         self.encoder_layers = 1  # Number of layers of encoder
         self.decoder_layers = 1  # Number of layers of decoder
         self.hidden_size = 768  # Number of hidden units in LSTM
