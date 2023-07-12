@@ -10,7 +10,7 @@ from transformers.modeling_outputs import TokenClassifierOutput
 
 from chrisbase.io import hr
 from nlpbook.arguments import TesterArguments, TrainerArguments
-from nlpbook.metrics import accuracy, LabelMetricTool, NER_Char_MacroF1, NER_Entity_MacroF1
+from nlpbook.metrics import LabelMetricTool, accuracy, NER_Char_MacroF1, NER_Entity_MacroF1
 from nlpbook.ner import NERDataset, NEREncodedExample
 
 logger = logging.getLogger(__name__)
@@ -47,11 +47,11 @@ class NERTask(LightningModule):
         self._valid_accuracies: List[torch.Tensor] = []
         self._train_accuracies: List[torch.Tensor] = []
 
-    def _global_step(self) -> int:
-        return self.trainer.lightning_module.global_step
+    def _global_step(self) -> float:
+        return self.trainer.lightning_module.global_step * 1.0
 
     def _global_epoch(self) -> float:
-        return self.trainer.lightning_module.global_step / self.epoch_steps
+        return self._global_step() / self.epoch_steps
 
     def _learning_rate(self) -> float:
         return self.trainer.optimizers[0].param_groups[0]["lr"]
@@ -68,12 +68,12 @@ class NERTask(LightningModule):
     def _valid_accuracy(self) -> torch.Tensor:
         return torch.tensor(self._valid_accuracies).mean()
 
-    def _valid_metric(self, metric_tool: LabelMetricTool) -> torch.Tensor | float | int:
+    def _valid_metric(self, metric_tool: LabelMetricTool) -> torch.Tensor | float:
         metric_tool.reset()
         metric_tool.update(self._valid_preds, self._valid_labels, self._labels)
         return metric_tool.compute()
 
-    def _log_value(self, name: str, value: torch.Tensor | float | int):
+    def _log_value(self, name: str, value: torch.Tensor | float):
         self.log(name, value, batch_size=self.args.hardware.batch_size, sync_dist=True, prog_bar=True, logger=True)
 
     def configure_optimizers(self):
@@ -190,23 +190,22 @@ class NERTask(LightningModule):
         self._train_losses.clear()
         self._train_accuracies.clear()
 
+    def on_validation_epoch_start(self) -> None:
+        self._valid_preds.clear()
+        self._valid_labels.clear()
+        self._valid_losses.clear()
+        self._valid_accuracies.clear()
+
     def on_train_batch_end(self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
         self._train_losses.append(outputs["loss"])
         self._train_accuracies.append(outputs["acc"])
-        self._log_value("step", self._global_step())
-        self._log_value("epoch", self._global_epoch())
-        self._log_value("epoch_r", self._global_epoch())
+        self._log_value("step_f", self._global_step())
+        self._log_value("epoch_f", self._global_epoch())
         self._log_value("lr", self._learning_rate())
         self._log_value("loss", outputs["loss"])
         self._log_value("acc", outputs["acc"])
         self._log_value("avg_loss", self._train_loss())
         self._log_value("avg_acc", self._train_accuracy())
-
-    def on_validation_epoch_start(self):
-        self._valid_preds.clear()
-        self._valid_labels.clear()
-        self._valid_losses.clear()
-        self._valid_accuracies.clear()
 
     def on_validation_batch_end(self, outputs: Dict[str, torch.Tensor | List[int]], batch: Dict[str, torch.Tensor], batch_idx: int, dataloader_idx: int = 0) -> None:
         self._valid_preds.extend(outputs["preds"])
@@ -214,13 +213,12 @@ class NERTask(LightningModule):
         self._valid_losses.append(outputs["loss"])
         self._valid_accuracies.append(outputs["acc"])
 
-    def on_validation_epoch_end(self):
+    def on_validation_epoch_end(self) -> None:
         assert self._valid_preds
         assert self._valid_labels
         assert len(self._valid_preds) == len(self._valid_labels)
-        self._log_value("step", self._global_step())
-        self._log_value("epoch", self._global_epoch())
-        self._log_value("epoch_r", self._global_epoch())
+        self._log_value("step_f", self._global_step())
+        self._log_value("epoch_f", self._global_epoch())
         self._log_value("lr", self._learning_rate())
         self._log_value("avg_loss", self._train_loss())
         self._log_value("avg_acc", self._train_accuracy())

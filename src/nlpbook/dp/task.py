@@ -40,11 +40,11 @@ class DPTask(LightningModule):
         self._valid_losses: List[torch.Tensor] = []
         self._train_losses: List[torch.Tensor] = []
 
-    def _global_step(self) -> int:
-        return self.trainer.lightning_module.global_step
+    def _global_step(self) -> float:
+        return self.trainer.lightning_module.global_step * 1.0
 
     def _global_epoch(self) -> float:
-        return self.trainer.lightning_module.global_step / self.epoch_steps
+        return self._global_step() / self.epoch_steps
 
     def _learning_rate(self) -> float:
         return self.trainer.optimizers[0].param_groups[0]["lr"]
@@ -55,12 +55,12 @@ class DPTask(LightningModule):
     def _valid_loss(self) -> torch.Tensor:
         return torch.tensor(self._valid_losses).mean()
 
-    def _valid_metric(self, metric_tool: BasicMetricTool) -> torch.Tensor | float | int:
+    def _valid_metric(self, metric_tool: BasicMetricTool) -> torch.Tensor | float:
         metric_tool.reset()
         metric_tool.update(self._valid_preds, self._valid_labels)
         return metric_tool.compute()
 
-    def _log_value(self, name: str, value: torch.Tensor | float | int):
+    def _log_value(self, name: str, value: torch.Tensor | float):
         self.log(name, value, batch_size=self.args.hardware.batch_size, sync_dist=True, prog_bar=True, logger=True)
 
     def configure_optimizers(self):
@@ -175,19 +175,18 @@ class DPTask(LightningModule):
     def on_train_epoch_start(self) -> None:
         self._train_losses.clear()
 
-    def on_train_batch_end(self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
-        self._train_losses.append(outputs["loss"])
-        self._log_value("step", self._global_step())
-        self._log_value("epoch", self._global_epoch())
-        self._log_value("epoch_r", self._global_epoch())
-        self._log_value("lr", self._learning_rate())
-        self._log_value("loss", outputs["loss"])
-        self._log_value("avg_loss", self._train_loss())
-
     def on_validation_epoch_start(self) -> None:
         self._valid_preds.clear()
         self._valid_labels.clear()
         self._valid_losses.clear()
+
+    def on_train_batch_end(self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
+        self._train_losses.append(outputs["loss"])
+        self._log_value("step_f", self._global_step())
+        self._log_value("epoch_f", self._global_epoch())
+        self._log_value("lr", self._learning_rate())
+        self._log_value("loss", outputs["loss"])
+        self._log_value("avg_loss", self._train_loss())
 
     def on_validation_batch_end(self, outputs: Dict[str, torch.Tensor | DPResult], batch: Dict[str, torch.Tensor], batch_idx: int, dataloader_idx: int = 0) -> None:
         self._valid_preds.append(outputs["preds"])
@@ -198,9 +197,8 @@ class DPTask(LightningModule):
         assert self._valid_preds
         assert self._valid_labels
         assert len(self._valid_preds) == len(self._valid_labels)
-        self._log_value("step", self._global_step())
-        self._log_value("epoch", self._global_epoch())
-        self._log_value("epoch_r", self._global_epoch())
+        self._log_value("step_f", self._global_step())
+        self._log_value("epoch_f", self._global_epoch())
         self._log_value("lr", self._learning_rate())
         self._log_value("avg_loss", self._train_loss())
         self._log_value("val_loss", self._valid_loss())
