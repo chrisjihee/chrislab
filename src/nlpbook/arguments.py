@@ -9,7 +9,6 @@ from typing import List
 import pandas as pd
 import pytorch_lightning
 import transformers
-import typer
 from dataclasses_json import DataClassJsonMixin
 from pytorch_lightning.accelerators import Accelerator
 from pytorch_lightning.loggers import CSVLogger
@@ -333,14 +332,6 @@ class TrainerArguments(TesterArguments):
                 lr=lr,
                 seed=seed,
             ),
-        )
-
-
-class AppTyper(typer.Typer):
-    def __init__(self):
-        super().__init__(
-            add_completion=False,
-            pretty_exceptions_enable=False,
         )
 
 
