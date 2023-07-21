@@ -2,7 +2,6 @@ import logging
 import math
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import List
 
@@ -14,32 +13,12 @@ from pytorch_lightning.accelerators import Accelerator
 from pytorch_lightning.loggers import CSVLogger
 from pytorch_lightning.strategies import Strategy
 
-from chrisbase.data import TypedData, ProjectEnv
-from chrisbase.io import files, make_parent_dir, hr, str_table, out_hr, out_table, configure_dual_logger, LoggingFormat
-from chrisbase.time import now, str_delta
+from chrisbase.data import ProjectEnv, OptionData, ResultData, CommonArguments
+from chrisbase.io import files, out_hr, out_table, configure_dual_logger, LoggingFormat
+from chrisbase.time import now
 from chrisbase.util import to_dataframe
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class OptionData(TypedData):
-    def __post_init__(self):
-        super().__post_init__()
-
-
-@dataclass
-class ResultData(TypedData):
-    def __post_init__(self):
-        super().__post_init__()
-
-
-@dataclass
-class ArgumentGroupData(TypedData):
-    tag = None
-
-    def __post_init__(self):
-        super().__post_init__()
 
 
 @dataclass
@@ -107,28 +86,6 @@ class LearningOption(OptionData):
 
 
 @dataclass
-class TimeChecker(ResultData):
-    t1 = datetime.now()
-    t2 = datetime.now()
-    started: str | None = field(default=None)
-    settled: str | None = field(default=None)
-    elapsed: str | None = field(default=None)
-
-    def set_started(self):
-        self.started = now()
-        self.settled = None
-        self.elapsed = None
-        self.t1 = datetime.now()
-        return self
-
-    def set_settled(self):
-        self.t2 = datetime.now()
-        self.settled = now()
-        self.elapsed = str_delta(self.t2 - self.t1)
-        return self
-
-
-@dataclass
 class ProgressChecker(ResultData):
     result: dict = field(init=False, default_factory=dict)
     global_step: int = field(init=False, default=0)
@@ -137,10 +94,8 @@ class ProgressChecker(ResultData):
 
 
 @dataclass
-class CommonArguments(ArgumentGroupData):
-    tag = "common"
-    env: ProjectEnv = field()
-    time: TimeChecker = field(default=TimeChecker())
+class MLArguments(CommonArguments):
+    tag = "ML"
     prog: ProgressChecker = field(default=ProgressChecker())
     data: DataOption | None = field(default=None)
     model: ModelOption | None = field(default=None)
@@ -174,20 +129,6 @@ class CommonArguments(ArgumentGroupData):
         existing_file.unlink(missing_ok=True)
         return self
 
-    def save_arguments(self, to: Path | str = None) -> Path | None:
-        if not self.env.output_home:
-            return None
-        args_file = to if to else self.env.output_home / self.env.argument_file
-        args_json = self.to_json(default=str, ensure_ascii=False, indent=2)
-        make_parent_dir(args_file).write_text(args_json, encoding="utf-8")
-        return args_file
-
-    def info_arguments(self):
-        table = str_table(self.dataframe(), tablefmt="presto")  # "plain", "presto"
-        for line in table.splitlines() + [hr(c='-')]:
-            logger.info(line)
-        return self
-
     def dataframe(self, columns=None) -> pd.DataFrame:
         if not columns:
             columns = [self.data_type, "value"]
@@ -207,7 +148,7 @@ class CommonArguments(ArgumentGroupData):
 
 
 @dataclass
-class ServerArguments(CommonArguments):
+class ServerArguments(MLArguments):
     tag = "serve"
 
     def __post_init__(self):
@@ -336,8 +277,8 @@ class TrainerArguments(TesterArguments):
 
 
 class ArgumentsUsing:
-    def __init__(self, args: CommonArguments, delete_on_exit: bool = True):
-        self.args: CommonArguments = args
+    def __init__(self, args: MLArguments, delete_on_exit: bool = True):
+        self.args: MLArguments = args
         self.delete_on_exit: bool = delete_on_exit
 
     def __enter__(self) -> Path:
@@ -350,8 +291,8 @@ class ArgumentsUsing:
 
 
 class RuntimeChecking:
-    def __init__(self, args: CommonArguments):
-        self.args: CommonArguments = args
+    def __init__(self, args: MLArguments):
+        self.args: MLArguments = args
 
     def __enter__(self):
         self.args.time.set_started()
