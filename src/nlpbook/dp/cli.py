@@ -11,10 +11,11 @@ from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from transformers import PreTrainedTokenizerFast, AutoTokenizer, AutoConfig, AutoModel, BertConfig, BertModel, RobertaConfig, RobertaModel, PreTrainedModel, PretrainedConfig
 from typer import Typer
 
+from chrisbase.data import RuntimeChecking
 from chrisbase.io import JobTimer, pop_keys, err_hr
 from chrislab.common.util import time_tqdm_cls, mute_tqdm_cls
 from nlpbook import save_checkpoint
-from nlpbook.arguments import TrainerArguments, RuntimeChecking
+from nlpbook.arguments import TrainerArguments
 from nlpbook.dp.corpus import DPCorpus, DPDataset
 from nlpbook.dp.model import ModelForDependencyParsing
 from nlpbook.metrics import DPResult

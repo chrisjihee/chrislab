@@ -289,15 +289,3 @@ class ArgumentsUsing:
     def __exit__(self, *exc_info):
         if self.delete_on_exit and self.args_file:
             self.args_file.unlink(missing_ok=True)
-
-
-class RuntimeChecking:
-    def __init__(self, args: MLArguments):
-        self.args: MLArguments = args
-
-    def __enter__(self):
-        self.args.time.set_started()
-
-    def __exit__(self, *exc_info):
-        self.args.time.set_settled()
-        self.args.save_arguments(self.args.env.output_home / self.args.env.argument_file)

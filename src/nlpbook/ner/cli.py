@@ -14,10 +14,11 @@ from transformers.modeling_outputs import TokenClassifierOutput
 from typer import Typer
 
 import nlpbook
+from chrisbase.data import RuntimeChecking
 from chrisbase.io import JobTimer, pop_keys, err_hr, out_hr
 from chrislab.common.util import time_tqdm_cls, mute_tqdm_cls
 from nlpbook import save_checkpoint, TERM_IN_NAME_FORMAT
-from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
+from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments
 from nlpbook.metrics import accuracy, klue_ner_char_macro_f1, klue_ner_entity_macro_f1
 from nlpbook.ner.corpus import NERCorpus, NERDataset, NEREncodedExample
 from nlpbook.ner.task import NERTask

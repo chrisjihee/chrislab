@@ -12,8 +12,9 @@ from transformers.modeling_outputs import SequenceClassifierOutput
 from typer import Typer
 
 import nlpbook
+from chrisbase.data import RuntimeChecking
 from chrisbase.io import JobTimer, err_hr
-from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments, RuntimeChecking
+from nlpbook.arguments import TrainerArguments, ServerArguments, TesterArguments
 from nlpbook.cls.corpus import NsmcCorpus, ClassificationDataset
 from nlpbook.cls.task import ClassificationTask
 
