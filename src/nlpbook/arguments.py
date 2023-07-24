@@ -88,6 +88,7 @@ class LearningOption(OptionData):
 @dataclass
 class ProgressChecker(ResultData):
     result: dict = field(init=False, default_factory=dict)
+    csv_logger: CSVLogger = field(init=False, default=None)
     global_step: int = field(init=False, default=0)
     global_epoch: float = field(init=False, default=0.0)
     epoch_per_step: float = field(init=False, default=0.0)
@@ -95,7 +96,7 @@ class ProgressChecker(ResultData):
 
 @dataclass
 class MLArguments(CommonArguments):
-    tag = "ML"
+    tag = None
     prog: ProgressChecker = field(default=ProgressChecker())
     data: DataOption | None = field(default=None)
     model: ModelOption | None = field(default=None)
@@ -115,18 +116,18 @@ class MLArguments(CommonArguments):
         configure_dual_logger(level=self.env.msg_level, fmt=self.env.msg_format, datefmt=self.env.date_format,
                               filename=self.env.output_home / self.env.logging_file)
 
-    def reconfigure_output(self, version=None):
+    def configure_csv_logger(self, version=None):
         if not version:
             version = now('%m%d.%H%M%S')
-        self.env.csv_logger = CSVLogger(self.model.home, name=self.data.name,
-                                        version=f'{self.tag}-{self.env.job_name}-{version}',
-                                        flush_logs_every_n_steps=1)
+        self.prog.csv_logger = CSVLogger(self.model.home, name=self.data.name,
+                                         version=f'{self.tag}-{self.env.job_name}-{version}',
+                                         flush_logs_every_n_steps=1)
         existing_file = self.env.output_home / self.env.logging_file
         existing_content = existing_file.read_text() if existing_file.exists() else None
-        self.env.output_home = Path(self.env.csv_logger.log_dir)
+        existing_file.unlink(missing_ok=True)
+        self.env.output_home = Path(self.prog.csv_logger.log_dir)
         configure_dual_logger(level=self.env.msg_level, fmt=self.env.msg_format, datefmt=self.env.date_format,
                               filename=self.env.output_home / self.env.logging_file, existing_content=existing_content)
-        existing_file.unlink(missing_ok=True)
         return self
 
     def dataframe(self, columns=None) -> pd.DataFrame:
@@ -239,7 +240,7 @@ class TrainerArguments(TesterArguments):
                 job_name=job_name if job_name else pretrained.name,
                 debugging=debugging,
                 msg_level=logging.DEBUG if debugging else logging.INFO,
-                msg_format=LoggingFormat.DEBUG if debugging else LoggingFormat.CHECK,
+                msg_format=LoggingFormat.DEBUG_48 if debugging else LoggingFormat.CHECK_48,
             ),
             data=DataOption(
                 home=data_home,

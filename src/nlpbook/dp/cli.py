@@ -80,14 +80,14 @@ def fabric_train(args_file: Path | str):
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
 
         # Fabric
-        with RuntimeChecking(args.reconfigure_output()):
+        with RuntimeChecking(args.configure_csv_logger()):
             torch.set_float32_matmul_precision('high')
             fabric = L.Fabric(
                 accelerator=args.hardware.accelerator,
                 precision=args.hardware.precision,
                 strategy=args.hardware.strategy,
                 devices=args.hardware.devices,
-                loggers=args.env.csv_logger,
+                loggers=args.prog.csv_logger,
             )
             fabric.setup(model, optimizer)
             train_dataloader, valid_dataloader = fabric.setup_dataloaders(train_dataloader, valid_dataloader)

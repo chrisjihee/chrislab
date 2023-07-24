@@ -15,7 +15,7 @@ def make_trainer(args: TrainerArguments) -> Trainer:
         mode=args.learning.save_by.split()[0],
     )
     trainer = Trainer(
-        logger=args.env.csv_logger,
+        logger=args.prog.csv_logger,
         devices=args.hardware.devices,
         strategy=args.hardware.strategy,
         precision=args.hardware.precision,
@@ -33,7 +33,7 @@ def make_trainer(args: TrainerArguments) -> Trainer:
 
 def make_tester(args: TesterArguments) -> Trainer:
     tester = Trainer(
-        logger=args.env.csv_logger,
+        logger=args.prog.csv_logger,
         devices=args.hardware.devices,
         strategy=args.hardware.strategy,
         precision=args.hardware.precision,

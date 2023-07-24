@@ -76,9 +76,9 @@ def fabric_train(args_file: Path | str):
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
 
         # Fabric
-        with RuntimeChecking(args.reconfigure_output()):
+        with RuntimeChecking(args.configure_csv_logger()):
             torch.set_float32_matmul_precision('high')
-            fabric = L.Fabric(loggers=args.env.csv_logger)
+            fabric = L.Fabric(loggers=args.prog.csv_logger)
             fabric.setup(model, optimizer)
             train_dataloader, valid_dataloader = fabric.setup_dataloaders(train_dataloader, valid_dataloader)
             train_with_fabric(fabric, args, model, optimizer, scheduler, train_dataloader, valid_dataloader, valid_dataset)
@@ -222,7 +222,7 @@ def train(args_file: Path | str):
         )
         err_hr(c='-')
 
-        with RuntimeChecking(args.reconfigure_output()):
+        with RuntimeChecking(args.configure_csv_logger()):
             torch.set_float32_matmul_precision('high')
             trainer: pl.Trainer = nlpbook.make_trainer(args)
             trainer.fit(NERTask(model=model, args=args, trainer=trainer, valid_dataset=val_dataset,
@@ -268,7 +268,7 @@ def test(args_file: Path | str):
             config=pretrained_model_config
         )
         err_hr(c='-')
-    with RuntimeChecking(args.reconfigure_output()):
+    with RuntimeChecking(args.configure_csv_logger()):
         torch.set_float32_matmul_precision('high')
         tester: pl.Trainer = nlpbook.make_tester(args)
         tester.test(NERTask(model, args, tester),
@@ -333,7 +333,7 @@ def serve(args_file: Path | str):
                 'result': result,
             }
 
-        with RuntimeChecking(args.reconfigure_output()):
+        with RuntimeChecking(args.configure_csv_logger()):
             server: Flask = nlpbook.make_server(inference_fn,
                                                 template_file="serve_ner.html",
                                                 ngrok_home=args.env.working_path)
