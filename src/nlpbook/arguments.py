@@ -141,12 +141,6 @@ class MLArguments(CommonArguments):
             to_dataframe(columns=columns, raw=self.model, data_prefix="model"),
         ]).reset_index(drop=True)
 
-    def show(self):  # TODO: Remove someday
-        out_hr(c='-')
-        out_table(self.dataframe())
-        out_hr(c='-')
-        return self
-
 
 @dataclass
 class ServerArguments(MLArguments):
