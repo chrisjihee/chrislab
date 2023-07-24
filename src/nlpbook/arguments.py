@@ -14,7 +14,7 @@ from pytorch_lightning.loggers import CSVLogger
 from pytorch_lightning.strategies import Strategy
 
 from chrisbase.data import ProjectEnv, OptionData, ResultData, CommonArguments
-from chrisbase.io import files, out_hr, out_table, configure_dual_logger, LoggingFormat
+from chrisbase.io import files, configure_dual_logger, LoggingFormat
 from chrisbase.time import now
 from chrisbase.util import to_dataframe
 
@@ -55,7 +55,6 @@ class ModelOption(OptionData):
 
 @dataclass
 class HardwareOption(OptionData):
-    # cpu_workers: int = field(default=0)
     cpu_workers: int = field(default=os.cpu_count())
     accelerator: str | Accelerator = field(default="auto")  # possbile value: "cpu", "gpu", "tpu", "ipu", "hpu", "mps", "auto"
     batch_size: int = field(default=32)
