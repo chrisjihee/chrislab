@@ -275,17 +275,3 @@ class TrainerArguments(TesterArguments):
                 seed=seed,
             ),
         )
-
-
-class ArgumentsUsing:
-    def __init__(self, args: MLArguments, delete_on_exit: bool = True):
-        self.args: MLArguments = args
-        self.delete_on_exit: bool = delete_on_exit
-
-    def __enter__(self) -> Path:
-        self.args_file: Path | None = self.args.save_arguments()
-        return self.args_file
-
-    def __exit__(self, *exc_info):
-        if self.delete_on_exit and self.args_file:
-            self.args_file.unlink(missing_ok=True)
