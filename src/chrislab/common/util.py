@@ -235,7 +235,6 @@ class StageMarker:
 
     def __exit__(self, *exc_info):
         self.mongo.close()
-        return
 
     @classmethod
     def _at_func(cls):
