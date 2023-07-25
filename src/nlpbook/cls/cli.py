@@ -27,7 +27,7 @@ def train(args_file: Path | str):
     nlpbook.set_logger()
     args_file = Path(args_file)
     assert args_file.exists(), f"No args_file: {args_file}"
-    args: TrainerArguments = TrainerArguments.from_json(args_file.read_text()).info_arguments()
+    args: TrainerArguments = TrainerArguments.from_json(args_file.read_text()).info_args()
     nlpbook.set_seed(args)
 
     with JobTimer(f"chrialab.nlpbook.cls train {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
@@ -83,7 +83,7 @@ def test(args_file: Path | str):
     nlpbook.set_logger()
     args_file = Path(args_file)
     assert args_file.exists(), f"No args_file: {args_file}"
-    args: TesterArguments = TesterArguments.from_json(args_file.read_text()).info_arguments()
+    args: TesterArguments = TesterArguments.from_json(args_file.read_text()).info_args()
 
     with JobTimer(f"chrialab.nlpbook.cls test {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
         checkpoint_path = args.env.output_home / args.model.name
@@ -134,7 +134,7 @@ def serve(args_file: Path | str):
     nlpbook.set_logger()
     args_file = Path(args_file)
     assert args_file.exists(), f"No args_file file: {args_file}"
-    args: ServerArguments = ServerArguments.from_json(args_file.read_text()).info_arguments()
+    args: ServerArguments = ServerArguments.from_json(args_file.read_text()).info_args()
 
     with JobTimer(f"chrialab.nlpbook serve_cls {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
         checkpoint_path = args.env.output_home / args.model.name
