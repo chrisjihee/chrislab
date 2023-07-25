@@ -132,7 +132,7 @@ class EmptyTqdm:
     def __enter__(self):
         return self
 
-    def __exit__(self, type_, value, traceback_):
+    def __exit__(self, *exc_info):
         return
 
 
@@ -205,7 +205,7 @@ class MuteDatasetProgress:
         if self.mute:
             datasets.utils.logging.disable_progress_bar()
 
-    def __exit__(self, exc_type=None, exc_val=None, exc_tb=None):
+    def __exit__(self, *exc_info):
         if self.mute:
             datasets.utils.logging.enable_progress_bar()
 
@@ -233,7 +233,7 @@ class StageMarker:
         self.table = self.mongo[self.db_name][self.tab_name]
         return self
 
-    def __exit__(self, type_, value, traceback_) -> None:
+    def __exit__(self, *exc_info):
         self.mongo.close()
         return
 
