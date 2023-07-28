@@ -136,8 +136,8 @@ class MLArguments(CommonArguments):
             to_dataframe(columns=columns, raw=self.env, data_prefix="env"),
             to_dataframe(columns=columns, raw=self.time, data_prefix="time"),
             to_dataframe(columns=columns, raw=self.prog, data_prefix="prog"),
-            to_dataframe(columns=columns, raw=self.data, data_prefix="data"),
-            to_dataframe(columns=columns, raw=self.model, data_prefix="model"),
+            to_dataframe(columns=columns, raw=self.data, data_prefix="data") if self.data else None,
+            to_dataframe(columns=columns, raw=self.model, data_prefix="model") if self.model else None,
         ]).reset_index(drop=True)
 
 
