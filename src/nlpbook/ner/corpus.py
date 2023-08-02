@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 from dataclasses import dataclass, field
@@ -248,7 +249,7 @@ class NERCorpusConverter:
         return NERRawExample(origin, entity_list, character_list) if no_problem else None
 
     @classmethod
-    def convert_kmou_format(cls, infile: str | Path, outfile: str | Path, debug: bool = False):
+    def convert_from_kmou_format(cls, infile: str | Path, outfile: str | Path, debug: bool = False):
         with Path(infile).open(encoding="utf-8") as inp, Path(outfile).open("w", encoding="utf-8") as out:
             for line in inp.readlines():
                 origin, tagged = line.strip().split("\u241E")
@@ -257,7 +258,7 @@ class NERCorpusConverter:
                     out.write(parsed.to_json(ensure_ascii=False) + "\n")
 
     @classmethod
-    def convert_klue_format(cls, infile: str | Path, outfile: str | Path, debug: bool = False):
+    def convert_from_klue_format(cls, infile: str | Path, outfile: str | Path, debug: bool = False):
         with Path(infile) as inp, Path(outfile).open("w", encoding="utf-8") as out:
             raw_text = inp.read_text(encoding="utf-8").strip()
             raw_docs = re.split(r"\n\t?\n", raw_text)
@@ -287,19 +288,38 @@ class NERCorpusConverter:
                                 print(f"  = {a[0]}:{a[1]} <=> {b[0]}:{b[1]}")
                         print(f"  ====================")
 
+    @classmethod
+    def convert_to_seq2seq_format(cls, infile: str | Path, outfile: str | Path, debug: bool = False):
+        # TODO:
+        #  1) 문장 -> 글자별 태그
+        #  2) 문장 -> 문장에서 개체명을 레이블한 결과
+        #  3) 문장 + 오프셋 -> 해당 오프셋 글자에 대한 태그 (학습데이터 많아짐)
+        with Path(infile).open(encoding="utf-8") as inp, Path(outfile).open("w", encoding="utf-8") as out:
+            for line in inp.readlines():
+                example = NERRawExample.from_json(line)
+                seq1 = example.origin
+                seq2 = ' '.join([t for c, t in example.character_list])
+                out.write(f"{seq1}\t{seq2}\n")
+
 
 if __name__ == "__main__":
     class RunOption:
-        run1: bool = True
+        run1: bool = False
         run2: bool = False
+        run3: bool = True
 
 
     if RunOption.run1:
         for path in files("data/kmou-ner-full/*.txt"):
             print(f"[FILE]: {path}")
-            NERCorpusConverter.convert_kmou_format(path, path.with_suffix(".jsonl"), debug=True)
+            NERCorpusConverter.convert_from_kmou_format(path, path.with_suffix(".jsonl"), debug=True)
 
     if RunOption.run2:
         for path in files("data/klue-ner/*.tsv"):
             print(f"[FILE]: {path}")
-            NERCorpusConverter.convert_klue_format(path, path.with_suffix(".jsonl"), debug=True)
+            NERCorpusConverter.convert_from_klue_format(path, path.with_suffix(".jsonl"), debug=True)
+
+    if RunOption.run3:
+        for path in files("data/klue-ner-mini/*.jsonl") + files("data/klue-ner/*.jsonl"):
+            print(f"[FILE]: {path}")
+            NERCorpusConverter.convert_to_seq2seq_format(path, path.with_suffix(".seq2seq.tsv"), debug=True)
