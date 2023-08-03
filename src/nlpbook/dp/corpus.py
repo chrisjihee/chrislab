@@ -1,7 +1,8 @@
+import re
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, ClassVar
 
 import torch
 from dataclasses_json import DataClassJsonMixin
@@ -380,23 +381,39 @@ class DPDataset(Dataset):
         return self._id_to_pos_label[label_id]
 
 
+@dataclass
+class DPParsedExample(DataClassJsonMixin):
+    column_names: ClassVar[List[str]] = ["id", "form", "lemma", "pos", "head", "label"]
+    example_id: str = field(default_factory=str)
+    sentence: str = field(default_factory=str)
+    words: List[Dict[str, str | int]] = field(default_factory=list)
+
+    @classmethod
+    def from_tsv(cls, tsv: str):
+        meta = [x.split('\t') for x in tsv.strip().splitlines() if x.startswith('#')][-1]
+        words = ([["0", "<ROOT>", "<ROOT>", "<ROOT>", "-1", "<ROOT>"]] +
+                 [x.split('\t') for x in tsv.strip().splitlines() if not x.startswith('#')])
+        words = [dict(zip(cls.column_names, row)) for row in words]
+        for word in words:
+            word["id"] = int(word["id"])
+            word["head"] = int(word["head"])
+        example_id = re.sub(r"^##+", "", meta[0]).strip()
+        sentence = meta[-1]
+
+        return cls(example_id=example_id, sentence=sentence, words=words)
+
+
 class DPCorpusConverter:
     @classmethod
     def convert_to_seq2seq_format_v0(cls, infile: str | Path, outfile1: str | Path, outfile2: str | Path = None, debug: bool = False):
         out1 = Path(outfile1).open("w", encoding="utf-8") if outfile1 else None
         out2 = Path(outfile2).open("w", encoding="utf-8") if outfile2 else None
-        column_names = ["id", "form", "lemma", "pos", "head", "label"]
         for chunk in [x for x in infile.read_text().split("\n\n") if len(x.strip()) > 0]:
-            head = [x.split('\t') for x in chunk.strip().splitlines() if x.startswith('#')][-1]
-            # example_id = head[0].split()[-1]
-            sentence = head[-1]
-            body = [x.split('\t') for x in chunk.strip().splitlines() if not x.startswith('#')]
-            body = [dict(zip(column_names, row)) for row in body]
-            seq1 = ' '.join([x["form"] for x in body])
-            # assert sentence == seq1, f"sentence={sentence}, seq1={seq1}"
-            if sentence != seq1:
+            example = DPParsedExample.from_tsv(chunk)
+            seq1 = ' '.join(word["form"] for word in example.words[1:])
+            if example.sentence != seq1:
                 continue
-            seq2 = ' '.join([f'{x["head"]}/{x["label"]}' for x in body])
+            seq2 = ' '.join([f'{word["head"]}/{word["label"]}' for word in example.words[1:]])
             if out1 and out2:
                 out1.write(f"{seq1}\n")
                 out2.write(f"{seq2}\n")
@@ -411,20 +428,36 @@ class DPCorpusConverter:
     def convert_to_seq2seq_format_v1(cls, infile: str | Path, outfile1: str | Path, outfile2: str | Path = None, debug: bool = False):
         out1 = Path(outfile1).open("w", encoding="utf-8") if outfile1 else None
         out2 = Path(outfile2).open("w", encoding="utf-8") if outfile2 else None
-        column_names = ["id", "form", "lemma", "pos", "head", "label"]
         for chunk in [x for x in infile.read_text().split("\n\n") if len(x.strip()) > 0]:
-            meta = [x.split('\t') for x in chunk.strip().splitlines() if x.startswith('#')][-1]
-            # example_id = head[0].split()[-1]
-            sentence = meta[-1]
-            body = [x.split('\t') for x in chunk.strip().splitlines() if not x.startswith('#')]
-            body = [dict(zip(column_names, row)) for row in body]
-            heads = {x["id"]: x for x in body}
-            heads["0"] = {"form": "<ROOT>"}
-            seq1 = ' '.join([x["form"] for x in body])
-            # assert sentence == seq1, f"sentence={sentence}, seq1={seq1}"
-            if sentence != seq1:
+            example = DPParsedExample.from_tsv(chunk)
+            seq1 = ' '.join(word["form"] for word in example.words[1:])
+            if example.sentence != seq1:
                 continue
-            seq2 = ' '.join([f'{heads[x["head"]]["form"]}-{x["head"]}/{x["label"]}' for x in body])
+            seq2 = ' '.join([f'{example.words[word["head"]]["form"]}-{word["head"]}/{word["label"]}' for word in example.words[1:]])
+            if out1 and out2:
+                out1.write(f"{seq1}\n")
+                out2.write(f"{seq2}\n")
+            elif out1:
+                out1.write(f"{seq1}\t{seq2}\n")
+        if out1:
+            out1.close()
+        if out2:
+            out2.close()
+
+    @classmethod
+    def convert_to_seq2seq_format_v2(cls, infile: str | Path, outfile1: str | Path, outfile2: str | Path = None, debug: bool = False):
+        out1 = Path(outfile1).open("w", encoding="utf-8") if outfile1 else None
+        out2 = Path(outfile2).open("w", encoding="utf-8") if outfile2 else None
+        for chunk in [x for x in infile.read_text().split("\n\n") if len(x.strip()) > 0]:
+            example = DPParsedExample.from_tsv(chunk)
+            seq1 = ' '.join(word["form"] for word in example.words[1:])
+            seq2_units = []
+            for word in example.words[1:]:
+                r = word["label"]
+                h = f'{word["form"]}-{word["id"]}'
+                d = f'{example.words[word["head"]]["form"]}-{word["head"]}'
+                seq2_units.append(f"{r}({h}, {d})")
+            seq2 = '</s>'.join(seq2_units)
             if out1 and out2:
                 out1.write(f"{seq1}\n")
                 out2.write(f"{seq2}\n")
@@ -442,7 +475,7 @@ if __name__ == "__main__":
         run2: bool = False
         run3_v0: bool = True
         run3_v1: bool = True
-        run3_v2: bool = False
+        run3_v2: bool = True
         run3_v3: bool = False
 
 
@@ -461,3 +494,11 @@ if __name__ == "__main__":
         for path in files("data/klue-dp-mini/*_train.tsv") + files("data/klue-dp/*_train.tsv"):
             print(f"[FILE]: {path}")
             DPCorpusConverter.convert_to_seq2seq_format_v1(path, path.with_suffix(".seq2seq_v1.tsv"), debug=True)
+
+    if RunOption.run3_v2:
+        for path in files("data/klue-dp-mini/*_dev.tsv") + files("data/klue-dp/*_dev.tsv"):
+            print(f"[FILE]: {path}")
+            DPCorpusConverter.convert_to_seq2seq_format_v2(path, path.with_suffix(".input.seq2seq_v2.tsv"), path.with_suffix(".answer.seq2seq_v2.tsv"), debug=True)
+        for path in files("data/klue-dp-mini/*_train.tsv") + files("data/klue-dp/*_train.tsv"):
+            print(f"[FILE]: {path}")
+            DPCorpusConverter.convert_to_seq2seq_format_v2(path, path.with_suffix(".seq2seq_v2.tsv"), debug=True)
