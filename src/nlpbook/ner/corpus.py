@@ -349,19 +349,19 @@ class NERCorpusConverter:
             out2 = Path(outfile2).open("w", encoding="utf-8") if outfile2 else None
             for line in inp.readlines():
                 example = NERRawExample.from_json(line)
-                seq1 = example.origin
+                s = example.origin
                 n = 0
                 for c, t in example.character_list:
                     n += 1
                     if c == ' ':
                         continue
-                    seq1_plus = f"{seq1} {n}번째 글자인 '{c}'의 개체명 태그는?"
+                    seq1 = f"질문: 문장에서 {n}번째 글자인 <{c}>의 개체명 태그는? 문장: {s}"
                     seq2 = t
                     if out1 and out2:
-                        out1.write(f"{seq1_plus}\n")
+                        out1.write(f"{seq1}\n")
                         out2.write(f"{seq2}\n")
                     elif out1:
-                        out1.write(f"{seq1_plus}\t{seq2}\n")
+                        out1.write(f"{seq1}\t{seq2}\n")
             if out1:
                 out1.close()
             if out2:
