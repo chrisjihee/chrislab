@@ -1,4 +1,3 @@
-import json
 import logging
 import re
 from dataclasses import dataclass, field
@@ -8,11 +7,11 @@ from typing import List, Optional, ClassVar, Dict
 import torch
 from dataclasses_json import DataClassJsonMixin
 from torch.utils.data.dataset import Dataset
+from transformers import PreTrainedTokenizerFast, BatchEncoding, CharSpan
+from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
 
 from chrisbase.io import make_parent_dir, files, merge_dicts, hr
 from nlpbook.arguments import TesterArguments, TrainerArguments
-from transformers import PreTrainedTokenizerFast, BatchEncoding, CharSpan
-from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -388,25 +387,25 @@ if __name__ == "__main__":
             NERCorpusConverter.convert_from_klue_format(path, path.with_suffix(".jsonl"), debug=True)
 
     if RunOption.run3_v1:
-        for path in files("data/klue-ner-mini/*_train.jsonl") + files("data/klue-ner/*_train.jsonl"):
-            print(f"[FILE]: {path}")
-            NERCorpusConverter.convert_to_seq2seq_format_v1(path, path.with_suffix(".seq2seq_v1.tsv"), debug=True)
         for path in files("data/klue-ner-mini/*_dev.jsonl") + files("data/klue-ner/*_dev.jsonl"):
             print(f"[FILE]: {path}")
             NERCorpusConverter.convert_to_seq2seq_format_v1(path, path.with_suffix(".input.seq2seq_v1.tsv"), path.with_suffix(".answer.seq2seq_v1.tsv"), debug=True)
-
-    if RunOption.run3_v2:
         for path in files("data/klue-ner-mini/*_train.jsonl") + files("data/klue-ner/*_train.jsonl"):
             print(f"[FILE]: {path}")
-            NERCorpusConverter.convert_to_seq2seq_format_v2(path, path.with_suffix(".seq2seq_v2.tsv"), debug=True)
+            NERCorpusConverter.convert_to_seq2seq_format_v1(path, path.with_suffix(".seq2seq_v1.tsv"), debug=True)
+
+    if RunOption.run3_v2:
         for path in files("data/klue-ner-mini/*_dev.jsonl") + files("data/klue-ner/*_dev.jsonl"):
             print(f"[FILE]: {path}")
             NERCorpusConverter.convert_to_seq2seq_format_v2(path, path.with_suffix(".input.seq2seq_v2.tsv"), path.with_suffix(".answer.seq2seq_v2.tsv"), debug=True)
-
-    if RunOption.run3_v3:
         for path in files("data/klue-ner-mini/*_train.jsonl") + files("data/klue-ner/*_train.jsonl"):
             print(f"[FILE]: {path}")
-            NERCorpusConverter.convert_to_seq2seq_format_v3(path, path.with_suffix(".seq2seq_v3.tsv"), debug=True)
+            NERCorpusConverter.convert_to_seq2seq_format_v2(path, path.with_suffix(".seq2seq_v2.tsv"), debug=True)
+
+    if RunOption.run3_v3:
         for path in files("data/klue-ner-mini/*_dev.jsonl") + files("data/klue-ner/*_dev.jsonl"):
             print(f"[FILE]: {path}")
             NERCorpusConverter.convert_to_seq2seq_format_v3(path, path.with_suffix(".input.seq2seq_v3.tsv"), path.with_suffix(".answer.seq2seq_v3.tsv"), debug=True)
+        for path in files("data/klue-ner-mini/*_train.jsonl") + files("data/klue-ner/*_train.jsonl"):
+            print(f"[FILE]: {path}")
+            NERCorpusConverter.convert_to_seq2seq_format_v3(path, path.with_suffix(".seq2seq_v3.tsv"), debug=True)

@@ -6,11 +6,11 @@ from typing import List, Optional, Dict
 import torch
 from dataclasses_json import DataClassJsonMixin
 from torch.utils.data.dataset import Dataset
-
-from chrisbase.io import hr
-from nlpbook.arguments import TesterArguments, TrainerArguments
 from transformers import PreTrainedTokenizerFast, BatchEncoding
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
+
+from chrisbase.io import files, hr
+from nlpbook.arguments import TesterArguments, TrainerArguments
 
 logger = logging.getLogger(__name__)
 
@@ -378,3 +378,49 @@ class DPDataset(Dataset):
 
     def id_to_pos_label(self, label_id: int) -> str:
         return self._id_to_pos_label[label_id]
+
+
+class DPCorpusConverter:
+    @classmethod
+    def convert_to_seq2seq_format_v0(cls, infile: str | Path, outfile1: str | Path, outfile2: str | Path = None, debug: bool = False):
+        out1 = Path(outfile1).open("w", encoding="utf-8") if outfile1 else None
+        out2 = Path(outfile2).open("w", encoding="utf-8") if outfile2 else None
+        column_names = ["id", "form", "lemma", "pos", "head", "label"]
+        for chunk in [x for x in infile.read_text().split("\n\n") if len(x.strip()) > 0]:
+            head = [x.split('\t') for x in chunk.strip().splitlines() if x.startswith('#')][-1]
+            # example_id = head[0].split()[-1]
+            sentence = head[-1]
+            body = [x.split('\t') for x in chunk.strip().splitlines() if not x.startswith('#')]
+            body = [dict(zip(column_names, row)) for row in body]
+            seq1 = ' '.join([x["form"] for x in body])
+            # assert sentence == seq1, f"sentence={sentence}, seq1={seq1}"
+            if sentence != seq1:
+                continue
+            seq2 = ' '.join([x["head"] for x in body])
+            if out1 and out2:
+                out1.write(f"{seq1}\n")
+                out2.write(f"{seq2}\n")
+            elif out1:
+                out1.write(f"{seq1}\t{seq2}\n")
+        if out1:
+            out1.close()
+        if out2:
+            out2.close()
+
+
+if __name__ == "__main__":
+    class RunOption:
+        run1: bool = False
+        run2: bool = False
+        run3_v1: bool = True
+        run3_v2: bool = True
+        run3_v3: bool = True
+
+
+    if RunOption.run3_v1:
+        for path in files("data/klue-dp-mini/*_dev.tsv") + files("data/klue-dp/*_dev.tsv"):
+            print(f"[FILE]: {path}")
+            DPCorpusConverter.convert_to_seq2seq_format_v0(path, path.with_suffix(".input.seq2seq_v0.tsv"), path.with_suffix(".answer.seq2seq_v0.tsv"), debug=True)
+        for path in files("data/klue-dp-mini/*_train.tsv") + files("data/klue-dp/*_train.tsv"):
+            print(f"[FILE]: {path}")
+            DPCorpusConverter.convert_to_seq2seq_format_v0(path, path.with_suffix(".seq2seq_v0.tsv"), debug=True)
