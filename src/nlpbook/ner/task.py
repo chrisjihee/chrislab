@@ -71,6 +71,19 @@ class NERTask(LightningModule):
     def _valid_metric(self, metric_tool: LabelMetricTool) -> torch.Tensor | float:
         metric_tool.reset()
         metric_tool.update(self._valid_preds, self._valid_labels, self._labels)
+        # logger.info("")
+        # logger.info("")
+        # logger.info("")
+        # logger.info(f"self._valid_preds: {self._valid_preds}")
+        # logger.info(f"self._valid_labels: {self._valid_labels}")
+        # logger.info(f"self._labels: {self._labels}")
+        # logger.info(f"metric_tool.compute()={metric_tool.compute()}")
+        # from nlpbook.metrics import klue_ner_char_macro_f1
+        # logger.info(f'klue_ner_char_macro_f1(self._valid_preds, self._valid_labels, self._labels)={klue_ner_char_macro_f1(self._valid_preds, self._valid_labels, self._labels)}')
+        # NER_Char_MacroF1.reset()
+        # NER_Char_MacroF1.update(self._valid_preds, self._valid_labels, self._labels)
+        # logger.info(f'NER_Char_MacroF1.compute()={NER_Char_MacroF1.compute()}')
+        # exit(1)
         return metric_tool.compute()
 
     def _log_value(self, name: str, value: torch.Tensor | float):
