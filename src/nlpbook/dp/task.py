@@ -58,6 +58,16 @@ class DPTask(LightningModule):
     def _valid_metric(self, metric_tool: BasicMetricTool) -> torch.Tensor | float:
         metric_tool.reset()
         metric_tool.update(self._valid_preds, self._valid_labels)
+        # logger.info("")
+        # logger.info("")
+        # logger.info("")
+        # logger.info(f"self._valid_preds: {self._valid_preds}")
+        # logger.info(f"self._valid_labels: {self._valid_labels}")
+        # logger.info(f"metric_tool.compute()={metric_tool.compute()}")
+        # DP_UAS_MacroF1.reset()
+        # DP_UAS_MacroF1.update(self._valid_preds, self._valid_labels)
+        # logger.info(f'DP_UAS_MacroF1.compute()={DP_UAS_MacroF1.compute()}')
+        # exit(1)
         return metric_tool.compute()
 
     def _log_value(self, name: str, value: torch.Tensor | float):

@@ -78,8 +78,6 @@ class NERTask(LightningModule):
         # logger.info(f"self._valid_labels: {self._valid_labels}")
         # logger.info(f"self._labels: {self._labels}")
         # logger.info(f"metric_tool.compute()={metric_tool.compute()}")
-        # from nlpbook.metrics import klue_ner_char_macro_f1
-        # logger.info(f'klue_ner_char_macro_f1(self._valid_preds, self._valid_labels, self._labels)={klue_ner_char_macro_f1(self._valid_preds, self._valid_labels, self._labels)}')
         # NER_Char_MacroF1.reset()
         # NER_Char_MacroF1.update(self._valid_preds, self._valid_labels, self._labels)
         # logger.info(f'NER_Char_MacroF1.compute()={NER_Char_MacroF1.compute()}')
