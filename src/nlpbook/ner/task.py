@@ -185,8 +185,7 @@ class NERTask(LightningModule):
         self._valid_accuracies.clear()
 
     def on_train_batch_end(self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
-        self._log_value("g_step", self._global_step())
-        self._log_value("g_epoch", self._global_epoch())
+        self._log_value("ep", self._global_epoch())
         self._log_value("lr", self._learning_rate())
         self._log_value("loss", outputs["loss"])
         self._log_value("acc", outputs["acc"])
@@ -201,8 +200,7 @@ class NERTask(LightningModule):
         assert self._valid_preds
         assert self._valid_labels
         assert len(self._valid_preds) == len(self._valid_labels)
-        self._log_value("g_step", self._global_step())
-        self._log_value("g_epoch", self._global_epoch())
+        self._log_value("ep", self._global_epoch())
         self._log_value("lr", self._learning_rate())
         self._log_value("val_loss", self._valid_loss())
         self._log_value("val_acc", self._valid_accuracy())
