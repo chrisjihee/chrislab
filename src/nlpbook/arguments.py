@@ -14,7 +14,7 @@ from pytorch_lightning.loggers import CSVLogger
 from pytorch_lightning.strategies import Strategy
 
 from chrisbase.data import ProjectEnv, OptionData, ResultData, CommonArguments
-from chrisbase.io import files, configure_dual_logger, LoggingFormat
+from chrisbase.io import files, LoggingFormat
 from chrisbase.time import now
 from chrisbase.util import to_dataframe
 
@@ -107,13 +107,10 @@ class MLArguments(CommonArguments):
         if not self.env.argument_file.stem.endswith(self.tag):
             self.env.argument_file = self.env.argument_file.with_stem(f"{self.env.argument_file.stem}-{self.tag}")
 
-        self.env.output_home = self.env.output_home or Path("output")
         if self.data and self.model:
             self.env.output_home = self.model.home / self.data.name
         elif self.data:
-            self.env.output_home = self.env.output_home / self.data.home
-        configure_dual_logger(level=self.env.msg_level, fmt=self.env.msg_format, datefmt=self.env.date_format,
-                              filename=self.env.output_home / self.env.logging_file)
+            self.env.output_home = self.data.home
 
     def configure_csv_logger(self, version=None):
         if not version:
@@ -121,12 +118,7 @@ class MLArguments(CommonArguments):
         self.prog.csv_logger = CSVLogger(self.model.home, name=self.data.name,
                                          version=f'{self.tag}-{self.env.job_name}-{version}',
                                          flush_logs_every_n_steps=1)
-        existing_file = self.env.output_home / self.env.logging_file
-        existing_content = existing_file.read_text() if existing_file.exists() else None
-        existing_file.unlink(missing_ok=True)
         self.env.output_home = Path(self.prog.csv_logger.log_dir)
-        configure_dual_logger(level=self.env.msg_level, fmt=self.env.msg_format, datefmt=self.env.date_format,
-                              filename=self.env.output_home / self.env.logging_file, existing_content=existing_content)
         return self
 
     def dataframe(self, columns=None) -> pd.DataFrame:
