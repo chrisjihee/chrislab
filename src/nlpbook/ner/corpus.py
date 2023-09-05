@@ -11,7 +11,7 @@ from transformers import PreTrainedTokenizerFast, BatchEncoding, CharSpan
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
 
 from chrisbase.io import make_parent_dir, files, merge_dicts, hr
-from nlpbook.arguments import TesterArguments, TrainerArguments
+from nlpbook.arguments import MLArguments
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ class NEREncodedExample:
 
 
 class NERCorpus:
-    def __init__(self, args: TesterArguments | TrainerArguments):
+    def __init__(self, args: MLArguments):
         self.args = args
 
     @property
