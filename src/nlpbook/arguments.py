@@ -144,7 +144,12 @@ class ServerArguments(MLArguments):
                 f"No finetuning home: {self.model.home}"
             if not self.model.name:
                 ckpt_files: List[Path] = files(self.env.output_home / "**/*.ckpt")
-                assert ckpt_files, f"No checkpoint file in {self.model.home}"
+                assert ckpt_files, f"No checkpoint file in {self.env.output_home}"
+                ckpt_files = sorted([x for x in ckpt_files if "temp" not in str(x) and "tmp" not in str(x)], key=str)
+                self.model.name = ckpt_files[-1].relative_to(self.env.output_home)
+            elif (self.env.output_home / self.model.name).exists() and (self.env.output_home / self.model.name).is_dir():
+                ckpt_files: List[Path] = files(self.env.output_home / self.model.name / "**/*.ckpt")
+                assert ckpt_files, f"No checkpoint file in {self.env.output_home / self.model.name}"
                 ckpt_files = sorted([x for x in ckpt_files if "temp" not in str(x) and "tmp" not in str(x)], key=str)
                 self.model.name = ckpt_files[-1].relative_to(self.env.output_home)
             assert (self.env.output_home / self.model.name).exists() and (self.env.output_home / self.model.name).is_file(), \
