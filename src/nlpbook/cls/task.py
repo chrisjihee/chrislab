@@ -145,8 +145,6 @@ class ClassificationTask(LightningModule):
         assert self._test_preds
         assert self._test_labels
         assert len(self._test_preds) == len(self._test_labels)
-        self._log_value("ep", self._global_epoch())
-        self._log_value("lr", self._learning_rate())
         self._log_value("test_loss", self._test_loss())
         self._log_value("test_acc", self._test_accuracy())
         self.on_test_epoch_start()  # reset accumulated values
