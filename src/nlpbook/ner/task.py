@@ -43,9 +43,7 @@ class NERTask(LightningModule):
         self._valid_preds: List[int] = []
         self._valid_labels: List[int] = []
         self._valid_losses: List[torch.Tensor] = []
-        self._train_losses: List[torch.Tensor] = []
         self._valid_accuracies: List[torch.Tensor] = []
-        self._train_accuracies: List[torch.Tensor] = []
 
     def _global_step(self) -> float:
         return self.trainer.lightning_module.global_step * 1.0
@@ -56,14 +54,8 @@ class NERTask(LightningModule):
     def _learning_rate(self) -> float:
         return self.trainer.optimizers[0].param_groups[0]["lr"]
 
-    def _train_loss(self) -> torch.Tensor:
-        return torch.tensor(self._train_losses).mean()
-
     def _valid_loss(self) -> torch.Tensor:
         return torch.tensor(self._valid_losses).mean()
-
-    def _train_accuracy(self) -> torch.Tensor:
-        return torch.tensor(self._train_accuracies).mean()
 
     def _valid_accuracy(self) -> torch.Tensor:
         return torch.tensor(self._valid_accuracies).mean()
@@ -71,17 +63,6 @@ class NERTask(LightningModule):
     def _valid_metric(self, metric_tool: LabelMetricTool) -> torch.Tensor | float:
         metric_tool.reset()
         metric_tool.update(self._valid_preds, self._valid_labels, self._labels)
-        # logger.info("")
-        # logger.info("")
-        # logger.info("")
-        # logger.info(f"self._valid_preds: {self._valid_preds}")
-        # logger.info(f"self._valid_labels: {self._valid_labels}")
-        # logger.info(f"self._labels: {self._labels}")
-        # logger.info(f"metric_tool.compute()={metric_tool.compute()}")
-        # NER_Char_MacroF1.reset()
-        # NER_Char_MacroF1.update(self._valid_preds, self._valid_labels, self._labels)
-        # logger.info(f'NER_Char_MacroF1.compute()={NER_Char_MacroF1.compute()}')
-        # exit(1)
         return metric_tool.compute()
 
     def _log_value(self, name: str, value: torch.Tensor | float):
@@ -197,10 +178,6 @@ class NERTask(LightningModule):
             "labels": list_of_char_label_ids
         }
 
-    def on_train_epoch_start(self) -> None:
-        self._train_losses.clear()
-        self._train_accuracies.clear()
-
     def on_validation_epoch_start(self) -> None:
         self._valid_preds.clear()
         self._valid_labels.clear()
@@ -208,15 +185,11 @@ class NERTask(LightningModule):
         self._valid_accuracies.clear()
 
     def on_train_batch_end(self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
-        self._train_losses.append(outputs["loss"])
-        self._train_accuracies.append(outputs["acc"])
         self._log_value("g_step", self._global_step())
         self._log_value("g_epoch", self._global_epoch())
         self._log_value("lr", self._learning_rate())
         self._log_value("loss", outputs["loss"])
         self._log_value("acc", outputs["acc"])
-        self._log_value("avg_loss", self._train_loss())
-        self._log_value("avg_acc", self._train_accuracy())
 
     def on_validation_batch_end(self, outputs: Dict[str, torch.Tensor | List[int]], batch: Dict[str, torch.Tensor], batch_idx: int, dataloader_idx: int = 0) -> None:
         self._valid_preds.extend(outputs["preds"])
@@ -231,11 +204,9 @@ class NERTask(LightningModule):
         self._log_value("g_step", self._global_step())
         self._log_value("g_epoch", self._global_epoch())
         self._log_value("lr", self._learning_rate())
-        self._log_value("avg_loss", self._train_loss())
-        self._log_value("avg_acc", self._train_accuracy())
         self._log_value("val_loss", self._valid_loss())
         self._log_value("val_acc", self._valid_accuracy())
         for name, tool in self.metric_tools.items():
             self._log_value(f"val_{name}", self._valid_metric(tool))
-        self.on_validation_epoch_start()
-        self.on_train_epoch_start()  # reset accumulated train losses after validation
+        self.on_validation_epoch_start()  # reset accumulated values
+        self.on_train_epoch_start()  # reset accumulated values
