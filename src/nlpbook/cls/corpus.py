@@ -65,9 +65,13 @@ def _convert_examples_to_cls_features(
     labels = [label_map[example.label] for example in examples]
 
     logger.info("tokenize sentences, it could take a lot of time...")
+    if examples[0].text_b is not None:
+        batch_text_or_text_pairs = [(example.text_a, example.text_b) for example in examples if example.text_b is not None]
+    else:
+        batch_text_or_text_pairs = [example.text_a for example in examples if example.text_a is not None]
     start = time.time()
     batch_encoding = tokenizer(
-        [(example.text_a, example.text_b) for example in examples],
+        batch_text_or_text_pairs,
         max_length=args.model.seq_len,
         padding="max_length",
         truncation=True,
@@ -80,7 +84,7 @@ def _convert_examples_to_cls_features(
         feature = ClassificationFeatures(**inputs, label=labels[i])
         features.append(feature)
 
-    for i, example in enumerate(examples[:3]):
+    for i, example in enumerate(examples[:args.data.num_check]):
         logger.info("*** Example ***")
         if example.text_b is None:
             logger.info("sentence: %s" % (example.text_a))
