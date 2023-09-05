@@ -1,17 +1,13 @@
 import csv
 import logging
-import os
-import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional, List, Dict
 
-import torch
-from filelock import FileLock
 from torch.utils.data.dataset import Dataset
+from transformers import PreTrainedTokenizer, BatchEncoding
 
 from nlpbook.arguments import TrainerArguments, TesterArguments
-from transformers import PreTrainedTokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +29,25 @@ class ClassificationFeatures:
 
 class NsmcCorpus:
 
-    def __init__(self):
-        pass
+    def __init__(self, args: TesterArguments | TrainerArguments):
+        self.args = args
 
-    def get_examples(self, data_path):
-        logger.info(f"loading data from {data_path}...")
+    @property
+    def num_labels(self):
+        return len(self.get_labels())
+
+    def get_labels(self):
+        return ["0", "1"]
+
+    def read_raw_examples(self, split: str) -> List[ClassificationExample]:
+        assert self.args.data.home, f"No data_home: {self.args.data.home}"
+        assert self.args.data.name, f"No data_name: {self.args.data.name}"
+        data_file_dict: dict = self.args.data.files.to_dict()
+        assert split in data_file_dict, f"No '{split}' split in data_file: should be one of {list(data_file_dict.keys())}"
+        assert data_file_dict[split], f"No data_file for '{split}' split: {self.args.data.files}"
+        data_path: Path = Path(self.args.data.home) / self.args.data.name / data_file_dict[split]
+        assert data_path.exists() and data_path.is_file(), f"No data_text_path: {data_path}"
+        logger.info(f"Creating features from {data_path}")
         lines = list(csv.reader(open(data_path, "r", encoding="utf-8"), delimiter="\t", quotechar='"'))
         examples = []
         for (i, line) in enumerate(lines):
@@ -45,97 +55,58 @@ class NsmcCorpus:
                 continue
             _, text_a, label = line
             examples.append(ClassificationExample(text_a=text_a, text_b=None, label=label))
+        logger.info(f"Loaded {len(examples)} examples from {data_path}")
         return examples
 
-    def get_labels(self):
-        return ["0", "1"]
+    def raw_examples_to_encoded_examples(
+            self,
+            raw_examples: List[ClassificationExample],
+            tokenizer: PreTrainedTokenizer,
+            label_list: List[str],
+    ) -> List[ClassificationFeatures]:
+        label_to_id: Dict[str, int] = {label: i for i, label in enumerate(label_list)}
+        labels: List[int] = [label_to_id[example.label] for example in raw_examples]
 
-    @property
-    def num_labels(self):
-        return len(self.get_labels())
-
-
-def _convert_examples_to_cls_features(
-        examples: List[ClassificationExample],
-        tokenizer: PreTrainedTokenizer,
-        args: TrainerArguments,
-        label_list: List[str],
-):
-    label_map = {label: i for i, label in enumerate(label_list)}
-    labels = [label_map[example.label] for example in examples]
-
-    logger.info("tokenize sentences, it could take a lot of time...")
-    if examples[0].text_b is not None:
-        batch_text_or_text_pairs = [(example.text_a, example.text_b) for example in examples if example.text_b is not None]
-    else:
-        batch_text_or_text_pairs = [example.text_a for example in examples if example.text_a is not None]
-    start = time.time()
-    batch_encoding = tokenizer(
-        batch_text_or_text_pairs,
-        max_length=args.model.seq_len,
-        padding="max_length",
-        truncation=True,
-    )
-    logger.info("tokenize sentences [took %.3f s]", time.time() - start)
-
-    features = []
-    for i in range(len(examples)):
-        inputs = {k: batch_encoding[k][i] for k in batch_encoding}
-        feature = ClassificationFeatures(**inputs, label=labels[i])
-        features.append(feature)
-
-    for i, example in enumerate(examples[:args.data.num_check]):
-        logger.info("*** Example ***")
-        if example.text_b is None:
-            logger.info("sentence: %s" % (example.text_a))
+        if raw_examples[0].text_b is not None:
+            batch_text_or_text_pairs = [(example.text_a, example.text_b) for example in raw_examples if example.text_b is not None]
         else:
-            sentence = example.text_a + " + " + example.text_b
-            logger.info("sentence A, B: %s" % (sentence))
-        logger.info("tokens: %s" % (" ".join(tokenizer.convert_ids_to_tokens(features[i].input_ids))))
-        logger.info("label: %s" % (example.label))
-        logger.info("features: %s" % features[i])
+            batch_text_or_text_pairs = [example.text_a for example in raw_examples if example.text_a is not None]
+        batch_encoding: BatchEncoding = tokenizer.batch_encode_plus(
+            batch_text_or_text_pairs,
+            max_length=self.args.model.seq_len,
+            padding="max_length",
+            truncation=True,
+        )
 
-    return features
+        encoded_examples = []
+        for i in range(len(raw_examples)):
+            inputs = {k: batch_encoding[k][i] for k in batch_encoding}
+            feature = ClassificationFeatures(**inputs, label=labels[i])
+            encoded_examples.append(feature)
+
+        for i, raw_example in enumerate(raw_examples[: self.args.data.num_check]):
+            logger.info("  === [Example %d] ===" % (i + 1))
+            if raw_example.text_b is None:
+                logger.info("  = sentence : %s" % (raw_example.text_a))
+            else:
+                logger.info("  = sentence : %s" % (raw_example.text_a + " + " + raw_example.text_b))
+            logger.info("  = tokens   : %s" % " ".join(batch_encoding.tokens(i)))
+            logger.info("  = label    : %s" % (raw_example.label))
+            logger.info("  = features : %s" % encoded_examples[i])
+            logger.info("  === ")
+
+        logger.info(f"Converted {len(raw_examples)} raw examples to {len(encoded_examples)} encoded examples")
+        return encoded_examples
 
 
 class ClassificationDataset(Dataset):
 
-    def __init__(
-            self,
-            split: str,
-            args: TrainerArguments | TesterArguments,
-            tokenizer: PreTrainedTokenizer,
-            corpus: NsmcCorpus,
-            convert_examples_to_features_fn=_convert_examples_to_cls_features,
-    ):
-        assert corpus, "corpus is not valid"
-        self.corpus = corpus
-
-        assert args.data.home, f"No data_home: {args.data.home}"
-        assert args.data.name, f"No data_name: {args.data.name}"
-        data_file_dict: dict = args.data.files.to_dict()
-        assert split in data_file_dict, f"No '{split}' split in data_file: should be one of {list(data_file_dict.keys())}"
-        assert data_file_dict[split], f"No data_file for '{split}' split: {args.data.files}"
-        text_data_path: Path = Path(args.data.home) / args.data.name / data_file_dict[split]
-        cache_data_path = text_data_path \
-            .with_stem(text_data_path.stem + f"-by-{tokenizer.__class__.__name__}-with-{args.model.seq_len}") \
-            .with_suffix(".cache")
-        cache_lock_path = cache_data_path.with_suffix(".lock")
-
-        with FileLock(cache_lock_path):
-            if os.path.exists(cache_data_path) and args.data.caching:
-                start = time.time()
-                self.features = torch.load(cache_data_path)
-                logger.info(f"Loading features from cached file at {cache_data_path} [took {time.time() - start:.3f} s]")
-            else:
-                assert text_data_path.exists() and text_data_path.is_file(), f"No data_text_path: {text_data_path}"
-                logger.info(f"Creating features from {text_data_path}")
-                examples = self.corpus.get_examples(text_data_path)
-                self.features = convert_examples_to_features_fn(examples, tokenizer, args, label_list=self.corpus.get_labels())
-                start = time.time()
-                logger.info("Saving features into cached file, it could take a lot of time...")
-                torch.save(self.features, cache_data_path)
-                logger.info(f"Saving features into cached file at {cache_data_path} [took {time.time() - start:.3f} s]")
+    def __init__(self, split: str, tokenizer: PreTrainedTokenizer, corpus: NsmcCorpus):
+        self.corpus: NsmcCorpus = corpus
+        examples: List[ClassificationExample] = self.corpus.read_raw_examples(split)
+        self.label_list: List[str] = self.corpus.get_labels()
+        self.features: List[ClassificationFeatures] = self.corpus.raw_examples_to_encoded_examples(
+            examples, tokenizer, label_list=self.label_list)
 
     def __len__(self):
         return len(self.features)
@@ -143,5 +114,5 @@ class ClassificationDataset(Dataset):
     def __getitem__(self, i):
         return self.features[i]
 
-    def get_labels(self):
-        return self.corpus.get_labels()
+    def get_labels(self) -> List[str]:
+        return self.label_list

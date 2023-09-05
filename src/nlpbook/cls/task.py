@@ -9,8 +9,9 @@ from nlpbook.metrics import accuracy
 
 
 class ClassificationTask(LightningModule):
-    def __init__(self, model: PreTrainedModel,
+    def __init__(self,
                  args: TrainerArguments | TesterArguments,
+                 model: PreTrainedModel,
                  trainer: Trainer):
         super().__init__()
         self.model = model
