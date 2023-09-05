@@ -7,7 +7,7 @@ from typing import Optional, List, Dict
 from torch.utils.data.dataset import Dataset
 from transformers import PreTrainedTokenizer, BatchEncoding
 
-from nlpbook.arguments import TrainerArguments, TesterArguments
+from nlpbook.arguments import MLArguments
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ class ClassificationFeatures:
 
 class NsmcCorpus:
 
-    def __init__(self, args: TesterArguments | TrainerArguments):
+    def __init__(self, args: MLArguments):
         self.args = args
 
     @property

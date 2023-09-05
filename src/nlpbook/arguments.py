@@ -155,6 +155,58 @@ class ServerArguments(MLArguments):
             assert (self.env.output_home / self.model.name).exists() and (self.env.output_home / self.model.name).is_file(), \
                 f"No checkpoint file: {self.env.output_home / self.model.name}"
 
+    @staticmethod
+    def from_args(
+            # env
+            project: str = None,
+            job_name: str = None,
+            debugging: bool = False,
+            # data
+            data_home: str = "data",
+            data_name: str = None,
+            train_file: str = None,
+            valid_file: str = None,
+            test_file: str = None,
+            num_check: int = 2,
+            # model
+            pretrained: str = "klue/roberta-small",
+            model_home: str = "finetuning",
+            model_name: str = None,
+            seq_len: int = 128,
+            # hardware
+            accelerator: str = "gpu",
+            precision: str = "32-true",
+            strategy: str = "auto",
+            device: List[int] = (0,),
+            batch_size: int = 100,
+    ) -> "ServerArguments":
+        pretrained = Path(pretrained)
+        return ServerArguments(
+            env=ProjectEnv(
+                project=project,
+                job_name=job_name if job_name else pretrained.name,
+                debugging=debugging,
+                msg_level=logging.DEBUG if debugging else logging.INFO,
+                msg_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_36,
+            ),
+            data=DataOption(
+                home=data_home,
+                name=data_name,
+                files=DataFiles(
+                    train=train_file,
+                    valid=valid_file,
+                    test=test_file,
+                ),
+                num_check=num_check,
+            ),
+            model=ModelOption(
+                pretrained=pretrained,
+                home=model_home,
+                name=model_name,
+                seq_len=seq_len,
+            ),
+        )
+
 
 @dataclass
 class TesterArguments(ServerArguments):
