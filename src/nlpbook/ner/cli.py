@@ -226,10 +226,13 @@ def train(args_file: Path | str):
         with RuntimeChecking(args.configure_csv_logger()):
             torch.set_float32_matmul_precision('high')
             trainer: pl.Trainer = nlpbook.make_trainer(args)
-            trainer.fit(NERTask(model=model, args=args, trainer=trainer, valid_dataset=val_dataset,
-                                total_steps=len(train_dataloader) * args.learning.epochs),
+            trainer.fit(NERTask(args,
+                                model=model,
+                                trainer=trainer,
+                                epoch_steps=len(train_dataloader),
+                                test_dataset=val_dataset),
                         train_dataloaders=train_dataloader,
-                        val_dataloaders=val_dataloader)
+                        val_dataloaders=val_dataset)
 
 
 @app.command()

@@ -22,16 +22,15 @@ class NERTask(LightningModule):
                  model: PreTrainedModel,
                  trainer: Trainer,
                  epoch_steps: int,
-                 valid_dataset: NERDataset):
+                 test_dataset: NERDataset):
         super().__init__()
         self.args: TesterArguments | TrainerArguments = args
         self.model: PreTrainedModel = model
         self.trainer: Trainer = trainer
         self.epoch_steps: int = epoch_steps
 
-        # for validation
-        self.valid_dataset: NERDataset = valid_dataset
-        self._labels: List[str] = self.valid_dataset.get_labels()
+        self.test_dataset: NERDataset = test_dataset
+        self._labels: List[str] = self.test_dataset.get_labels()
         self._label_to_id: Dict[str, int] = {label: i for i, label in enumerate(self._labels)}
         self._id_to_label: Dict[int, str] = {i: label for i, label in enumerate(self._labels)}
         self.metric_tools: Dict[str, LabelMetricTool] = {
@@ -39,30 +38,26 @@ class NERTask(LightningModule):
             "F1e": NER_Entity_MacroF1,
         }
 
-        # initalize result
-        self._valid_preds: List[int] = []
-        self._valid_labels: List[int] = []
-        self._valid_losses: List[torch.Tensor] = []
-        self._valid_accuracies: List[torch.Tensor] = []
+        self._test_preds: List[int] = []
+        self._test_labels: List[int] = []
+        self._test_losses: List[torch.Tensor] = []
+        self._test_accuracies: List[torch.Tensor] = []
 
-    def _global_step(self) -> float:
-        return self.trainer.lightning_module.global_step * 1.0
-
-    def _global_epoch(self) -> float:
-        return self._global_step() / self.epoch_steps
+    def _epoch_done(self) -> float:
+        return self.trainer.lightning_module.global_step / self.epoch_steps
 
     def _learning_rate(self) -> float:
         return self.trainer.optimizers[0].param_groups[0]["lr"]
 
-    def _valid_loss(self) -> torch.Tensor:
-        return torch.tensor(self._valid_losses).mean()
+    def _test_loss(self) -> torch.Tensor:
+        return torch.tensor(self._test_losses).mean()
 
-    def _valid_accuracy(self) -> torch.Tensor:
-        return torch.tensor(self._valid_accuracies).mean()
+    def _test_accuracy(self) -> torch.Tensor:
+        return torch.tensor(self._test_accuracies).mean()
 
-    def _valid_metric(self, metric_tool: LabelMetricTool) -> torch.Tensor | float:
+    def _test_metric(self, metric_tool: LabelMetricTool) -> torch.Tensor | float:
         metric_tool.reset()
-        metric_tool.update(self._valid_preds, self._valid_labels, self._labels)
+        metric_tool.update(self._test_preds, self._test_labels, self._labels)
         return metric_tool.compute()
 
     def _log_value(self, name: str, value: torch.Tensor | float):
@@ -101,18 +96,21 @@ class NERTask(LightningModule):
     def id_to_label(self, x):
         return self._id_to_label[x]
 
-    def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> Dict[str, torch.Tensor | List[int]]:
+    def validation_step(self, inputs, batch_idx):
+        return self.test_step(inputs, batch_idx)
+
+    def test_step(self, inputs: Dict[str, torch.Tensor], batch_idx: int) -> Dict[str, torch.Tensor | List[int]]:
         if self.args.env.debugging:
             logger.debug('')
             logger.debug(f"[validation_step] batch_idx: {batch_idx}, global_step: {self.trainer.lightning_module.global_step}")
-            for key in batch.keys():
-                if isinstance(batch[key], torch.Tensor):
-                    logger.debug(f"  - batch[{key:14s}]     = {batch[key].shape} | {batch[key].tolist()}")
+            for key in inputs.keys():
+                if isinstance(inputs[key], torch.Tensor):
+                    logger.debug(f"  - batch[{key:14s}]     = {inputs[key].shape} | {inputs[key].tolist()}")
                 else:
-                    logger.debug(f"  - batch[{key:14s}]     = ({len(batch[key])}) | {batch[key]}")
-        example_ids: List[int] = batch.pop("example_ids").tolist()
-        outputs: TokenClassifierOutput = self.model(**batch)
-        labels: torch.Tensor = batch["labels"]
+                    logger.debug(f"  - batch[{key:14s}]     = ({len(inputs[key])}) | {inputs[key]}")
+        example_ids: List[int] = inputs.pop("example_ids").tolist()
+        outputs: TokenClassifierOutput = self.model(**inputs)
+        labels: torch.Tensor = inputs["labels"]
         preds: torch.Tensor = outputs.logits.argmax(dim=-1)
         acc: torch.Tensor = accuracy(preds=preds, labels=labels, ignore_index=0)
 
@@ -121,7 +119,7 @@ class NERTask(LightningModule):
         dict_of_char_pred_ids: Dict[int, List[int]] = {}
         for token_pred_ids, example_id in zip(preds.tolist(), example_ids):
             token_pred_tags: List[str] = [self.id_to_label(x) for x in token_pred_ids]
-            encoded_example: NEREncodedExample = self.valid_dataset[example_id]
+            encoded_example: NEREncodedExample = self.test_dataset[example_id]
             offset_to_label: Dict[int, str] = encoded_example.raw.get_offset_label_dict()
             all_char_pair_tags: List[Tuple[str | None, str | None]] = [(None, None)] * len(encoded_example.raw.character_list)
             for token_id in range(self.args.model.seq_len):
@@ -141,7 +139,7 @@ class NERTask(LightningModule):
             logger.debug(hr())
         list_of_char_pred_ids: List[int] = []
         list_of_char_label_ids: List[int] = []
-        for encoded_example in [self.valid_dataset[i] for i in example_ids]:
+        for encoded_example in [self.test_dataset[i] for i in example_ids]:
             char_label_ids = dict_of_char_label_ids[encoded_example.idx]
             char_pred_ids = dict_of_char_pred_ids[encoded_example.idx]
             assert len(char_pred_ids) == len(char_label_ids)
@@ -179,32 +177,47 @@ class NERTask(LightningModule):
         }
 
     def on_validation_epoch_start(self) -> None:
-        self._valid_preds.clear()
-        self._valid_labels.clear()
-        self._valid_losses.clear()
-        self._valid_accuracies.clear()
+        self.on_test_epoch_start()
+
+    def on_test_epoch_start(self) -> None:
+        self._test_preds.clear()
+        self._test_labels.clear()
+        self._test_losses.clear()
+        self._test_accuracies.clear()
 
     def on_train_batch_end(self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
-        self._log_value("ep", self._global_epoch())
+        self._log_value("ep", self._epoch_done())
         self._log_value("lr", self._learning_rate())
         self._log_value("loss", outputs["loss"])
         self._log_value("acc", outputs["acc"])
 
     def on_validation_batch_end(self, outputs: Dict[str, torch.Tensor | List[int]], batch: Dict[str, torch.Tensor], batch_idx: int, dataloader_idx: int = 0) -> None:
-        self._valid_preds.extend(outputs["preds"])
-        self._valid_labels.extend(outputs["labels"])
-        self._valid_losses.append(outputs["loss"])
-        self._valid_accuracies.append(outputs["acc"])
+        self.on_test_batch_end(outputs, batch, batch_idx, dataloader_idx)
+
+    def on_test_batch_end(self, outputs: Dict[str, torch.Tensor | List[int]], batch: Dict[str, torch.Tensor], batch_idx: int, dataloader_idx: int = 0) -> None:
+        self._test_preds.extend(outputs["preds"])
+        self._test_labels.extend(outputs["labels"])
+        self._test_losses.append(outputs["loss"])
+        self._test_accuracies.append(outputs["acc"])
 
     def on_validation_epoch_end(self) -> None:
-        assert self._valid_preds
-        assert self._valid_labels
-        assert len(self._valid_preds) == len(self._valid_labels)
-        self._log_value("ep", self._global_epoch())
+        assert self._test_preds
+        assert self._test_labels
+        assert len(self._test_preds) == len(self._test_labels)
+        self._log_value("ep", self._epoch_done())
         self._log_value("lr", self._learning_rate())
-        self._log_value("val_loss", self._valid_loss())
-        self._log_value("val_acc", self._valid_accuracy())
+        self._log_value("val_loss", self._test_loss())
+        self._log_value("val_acc", self._test_accuracy())
         for name, tool in self.metric_tools.items():
-            self._log_value(f"val_{name}", self._valid_metric(tool))
+            self._log_value(f"val_{name}", self._test_metric(tool))
         self.on_validation_epoch_start()  # reset accumulated values
-        self.on_train_epoch_start()  # reset accumulated values
+
+    def on_test_epoch_end(self) -> None:
+        assert self._test_preds
+        assert self._test_labels
+        assert len(self._test_preds) == len(self._test_labels)
+        self._log_value("test_loss", self._test_loss())
+        self._log_value("test_acc", self._test_accuracy())
+        for name, tool in self.metric_tools.items():
+            self._log_value(f"val_{name}", self._test_metric(tool))
+        self.on_test_epoch_start()  # reset accumulated values
