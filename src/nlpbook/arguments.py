@@ -172,6 +172,65 @@ class TesterArguments(ServerArguments):
             to_dataframe(columns=columns, raw=self.hardware, data_prefix="hardware"),
         ]).reset_index(drop=True)
 
+    @staticmethod
+    def from_args(
+            # env
+            project: str = None,
+            job_name: str = None,
+            debugging: bool = False,
+            # data
+            data_home: str = "data",
+            data_name: str = None,
+            train_file: str = None,
+            valid_file: str = None,
+            test_file: str = None,
+            num_check: int = 2,
+            # model
+            pretrained: str = "klue/roberta-small",
+            model_home: str = "finetuning",
+            model_name: str = None,
+            seq_len: int = 128,
+            # hardware
+            accelerator: str = "gpu",
+            precision: str = "32-true",
+            strategy: str = "auto",
+            device: List[int] = (0,),
+            batch_size: int = 100,
+    ) -> "TesterArguments":
+        pretrained = Path(pretrained)
+        return TesterArguments(
+            env=ProjectEnv(
+                project=project,
+                job_name=job_name if job_name else pretrained.name,
+                debugging=debugging,
+                msg_level=logging.DEBUG if debugging else logging.INFO,
+                msg_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_36,
+            ),
+            data=DataOption(
+                home=data_home,
+                name=data_name,
+                files=DataFiles(
+                    train=train_file,
+                    valid=valid_file,
+                    test=test_file,
+                ),
+                num_check=num_check,
+            ),
+            model=ModelOption(
+                pretrained=pretrained,
+                home=model_home,
+                name=model_name,
+                seq_len=seq_len,
+            ),
+            hardware=HardwareOption(
+                accelerator=accelerator,
+                precision=precision,
+                strategy=strategy,
+                devices=device,
+                batch_size=batch_size,
+            ),
+        )
+
 
 @dataclass
 class TrainerArguments(TesterArguments):
