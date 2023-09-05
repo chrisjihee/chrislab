@@ -207,7 +207,7 @@ class TrainerArguments(TesterArguments):
             test_file: str = None,
             num_check: int = 2,
             # model
-            pretrained: str = "pretrained-com/KLUE-RoBERTa",
+            pretrained: str = "klue/roberta-small",
             model_home: str = "finetuning",
             model_name: str = None,
             seq_len: int = 128,
@@ -219,7 +219,7 @@ class TrainerArguments(TesterArguments):
             batch_size: int = 100,
             # learning
             validate_fmt: str = None,
-            validate_on: float = 0.1,
+            validate_on: float = 0.25,
             num_save: int = 1,
             save_by: str = None,
             epochs: int = 1,
@@ -233,7 +233,7 @@ class TrainerArguments(TesterArguments):
                 job_name=job_name if job_name else pretrained.name,
                 debugging=debugging,
                 msg_level=logging.DEBUG if debugging else logging.INFO,
-                msg_format=LoggingFormat.DEBUG_48 if debugging else LoggingFormat.CHECK_48,
+                msg_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_36,
             ),
             data=DataOption(
                 home=data_home,
