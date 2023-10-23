@@ -12,10 +12,12 @@ from torch.utils.data.dataset import Dataset
 from transformers import PreTrainedTokenizerFast, BatchEncoding
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
 
+from chrisbase.data import AppTyper
 from chrisbase.io import files, hr
 from nlpbook.arguments import TesterArguments, TrainerArguments
 
 logger = logging.getLogger(__name__)
+app = AppTyper()
 
 
 @dataclass
@@ -471,36 +473,43 @@ class DPCorpusConverter:
             out2.close()
 
 
+@app.command()
+def convert():
+    pass
+
+
 if __name__ == "__main__":
-    class RunOption:
-        run1: bool = False
-        run2: bool = False
-        run3_v0: bool = True
-        run3_v1: bool = True
-        run3_v2: bool = True
-        run3_v3: bool = False
+    app()
 
-
-    if RunOption.run3_v0:
-        for path in files("data/klue-dp-mini/*_dev.tsv") + files("data/klue-dp/*_dev.tsv"):
-            print(f"[FILE]: {path}")
-            DPCorpusConverter.convert_to_seq2seq_format_v0(path, path.with_suffix(".input.seq2seq_v0.tsv"), path.with_suffix(".answer.seq2seq_v0.tsv"), debug=True)
-        for path in files("data/klue-dp-mini/*_train.tsv") + files("data/klue-dp/*_train.tsv"):
-            print(f"[FILE]: {path}")
-            DPCorpusConverter.convert_to_seq2seq_format_v0(path, path.with_suffix(".seq2seq_v0.tsv"), debug=True)
-
-    if RunOption.run3_v1:
-        for path in files("data/klue-dp-mini/*_dev.tsv") + files("data/klue-dp/*_dev.tsv"):
-            print(f"[FILE]: {path}")
-            DPCorpusConverter.convert_to_seq2seq_format_v1(path, path.with_suffix(".input.seq2seq_v1.tsv"), path.with_suffix(".answer.seq2seq_v1.tsv"), debug=True)
-        for path in files("data/klue-dp-mini/*_train.tsv") + files("data/klue-dp/*_train.tsv"):
-            print(f"[FILE]: {path}")
-            DPCorpusConverter.convert_to_seq2seq_format_v1(path, path.with_suffix(".seq2seq_v1.tsv"), debug=True)
-
-    if RunOption.run3_v2:
-        for path in files("data/klue-dp-mini/*_dev.tsv") + files("data/klue-dp/*_dev.tsv"):
-            print(f"[FILE]: {path}")
-            DPCorpusConverter.convert_to_seq2seq_format_v2(path, path.with_suffix(".input.seq2seq_v2.tsv"), path.with_suffix(".answer.seq2seq_v2.tsv"), debug=True)
-        for path in files("data/klue-dp-mini/*_train.tsv") + files("data/klue-dp/*_train.tsv"):
-            print(f"[FILE]: {path}")
-            DPCorpusConverter.convert_to_seq2seq_format_v2(path, path.with_suffix(".seq2seq_v2.tsv"), debug=True)
+    # class RunOption:
+    #     run1: bool = False
+    #     run2: bool = False
+    #     run3_v0: bool = True
+    #     run3_v1: bool = True
+    #     run3_v2: bool = True
+    #     run3_v3: bool = False
+    #
+    #
+    # if RunOption.run3_v0:
+    #     for path in files("data/klue-dp-mini/*_dev.tsv") + files("data/klue-dp/*_dev.tsv"):
+    #         print(f"[FILE]: {path}")
+    #         DPCorpusConverter.convert_to_seq2seq_format_v0(path, path.with_suffix(".input.seq2seq_v0.tsv"), path.with_suffix(".answer.seq2seq_v0.tsv"), debug=True)
+    #     for path in files("data/klue-dp-mini/*_train.tsv") + files("data/klue-dp/*_train.tsv"):
+    #         print(f"[FILE]: {path}")
+    #         DPCorpusConverter.convert_to_seq2seq_format_v0(path, path.with_suffix(".seq2seq_v0.tsv"), debug=True)
+    #
+    # if RunOption.run3_v1:
+    #     for path in files("data/klue-dp-mini/*_dev.tsv") + files("data/klue-dp/*_dev.tsv"):
+    #         print(f"[FILE]: {path}")
+    #         DPCorpusConverter.convert_to_seq2seq_format_v1(path, path.with_suffix(".input.seq2seq_v1.tsv"), path.with_suffix(".answer.seq2seq_v1.tsv"), debug=True)
+    #     for path in files("data/klue-dp-mini/*_train.tsv") + files("data/klue-dp/*_train.tsv"):
+    #         print(f"[FILE]: {path}")
+    #         DPCorpusConverter.convert_to_seq2seq_format_v1(path, path.with_suffix(".seq2seq_v1.tsv"), debug=True)
+    #
+    # if RunOption.run3_v2:
+    #     for path in files("data/klue-dp-mini/*_dev.tsv") + files("data/klue-dp/*_dev.tsv"):
+    #         print(f"[FILE]: {path}")
+    #         DPCorpusConverter.convert_to_seq2seq_format_v2(path, path.with_suffix(".input.seq2seq_v2.tsv"), path.with_suffix(".answer.seq2seq_v2.tsv"), debug=True)
+    #     for path in files("data/klue-dp-mini/*_train.tsv") + files("data/klue-dp/*_train.tsv"):
+    #         print(f"[FILE]: {path}")
+    #         DPCorpusConverter.convert_to_seq2seq_format_v2(path, path.with_suffix(".seq2seq_v2.tsv"), debug=True)
