@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
+from io import StringIO
 from pathlib import Path
 from typing import List, Optional, Dict, ClassVar
 
@@ -14,7 +15,7 @@ from torch.utils.data.dataset import Dataset
 from transformers import PreTrainedTokenizerFast, BatchEncoding
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
 
-from chrisbase.data import AppTyper, ProjectEnv, InputOption, FileOption, IOArguments, OutputOption, JobTimer, FileStreamer, Streamer, OptionData
+from chrisbase.data import AppTyper, ProjectEnv, InputOption, FileOption, IOArguments, OutputOption, JobTimer, FileStreamer, OptionData
 from chrisbase.io import hr, LoggingFormat
 from chrisbase.util import mute_tqdm_cls
 from chrisbase.util import to_dataframe
@@ -479,7 +480,6 @@ class DPCorpusConverter:
 
 @dataclass
 class ConvertOption(OptionData):
-    format: str = field()
     style: str = field()
 
 
@@ -508,13 +508,13 @@ def convert(
         logging_file: str = typer.Option(default="logging.out"),
         debugging: bool = typer.Option(default=False),
         # data
+        input_inter: int = typer.Option(default=100),
         input_file_home: str = typer.Option(default="data"),
         input_file_name: str = typer.Option(default="klue-dp-mini/klue-dp-v1.1_dev.tsv"),
         output_file_home: str = typer.Option(default="data"),
         output_file_name: str = typer.Option(default="klue-dp-mini/klue-dp-v1.1_dev.tsv"),
         # method
-        format: str = "seq2seq",
-        style: str = "v1",
+        style: str = "seq2seq-v4",
 ):
     env = ProjectEnv(
         project=project,
@@ -526,6 +526,7 @@ def convert(
         msg_format=LoggingFormat.DEBUG_48 if debugging else LoggingFormat.CHECK_36,
     )
     input_opt = InputOption(
+        inter=input_inter,
         file=FileOption(
             home=input_file_home,
             name=input_file_name,
@@ -537,13 +538,12 @@ def convert(
     output_opt = OutputOption(
         file=FileOption(
             home=output_file_home,
-            name=output_file_name.with_suffix(f".{format}.{style}{output_file_name.suffix}"),
+            name=output_file_name.with_suffix(f".{style}{output_file_name.suffix}"),
             mode="w",
             strict=False,
         ),
     )
     convert_opt = ConvertOption(
-        format=format,
         style=style,
     )
     args = ConvertArguments(
@@ -555,20 +555,46 @@ def convert(
     tqdm = mute_tqdm_cls()
     assert args.input.file, "input.file is required"
     assert args.output.file, "output.file is required"
-    print(args.input.file)
-    print(args.output.file)
 
     with (
         JobTimer(f"python {args.env.running_file} {' '.join(args.env.command_args)}", args=args, rt=1, rb=1, rc='='),
         FileStreamer(args.input.file) as input_file,
         FileStreamer(args.output.file) as output_file,
     ):
-        writer = Streamer.first_usable(output_file)
-        reader = Streamer.first_usable(input_file)
-        print(input_file)
-        print(output_file)
-        print(reader)
-        print(writer)
+        input_file.path.read_text()
+        input_chunks = [x for x in input_file.path.read_text().split("\n\n") if len(x.strip()) > 0]
+        logger.info(f"Load {len(input_chunks)} sentences from [{input_file.opt}")
+        progress, interval = (
+            tqdm(input_chunks, total=len(input_chunks), unit="sent", pre="*", desc="converting"),
+            args.input.inter
+        )
+        num_output = 0
+        for i, x in enumerate(progress):
+            if i > 0 and i % interval == 0:
+                logger.info(progress)
+            example = DPParsedExample.from_tsv(x)
+            with StringIO() as s1, StringIO() as s2:
+                print("task: Dependency Parsing", file=s1)
+                print('', file=s1)
+                print(f"Input: {example.sentence}", file=s1)
+                print("Lemmas: ", end='', file=s1)
+                print("deprel: ", end='', file=s2)
+                for w in example.words:
+                    if w["id"] == 0:
+                        continue
+                    ls = w["lemma"].split(" ")
+                    ps = w["pos"].split("+")
+                    print(f"{w['id']}/{w['form']}/{len(w['form'])}/{w['lemma']}/{ls[0]}:{ps[0]}/" + (f"{ls[-1]}:{ps[-1]}" if len(ps) > 1 else "NONE"), file=s1)
+                    print(f"({w['id']}/{len(w['form'])}, {w['head']}, {w['label']})", end='▁' if w["id"] < len(example.words) - 1 else '\n', file=s2)
+                print(f"word_counts: {len(example.words) - 1}", end='', file=s2)
+                s1.seek(0)
+                s2.seek(0)
+                seq1 = s1.read().replace("\n", "<BR>")
+                seq2 = s2.read().replace("\n", "<BR>")
+            output_file.fp.write(f"{seq1}\t{seq2}\n")
+            num_output += 1
+        logger.info(progress)
+        logger.info(f"Saved {num_output} sequence pairs to [{output_file.opt}]")
 
 
 if __name__ == "__main__":
