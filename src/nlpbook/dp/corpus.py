@@ -6,14 +6,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Dict, ClassVar
 
+import pandas as pd
 import torch
+import typer
 from dataclasses_json import DataClassJsonMixin
 from torch.utils.data.dataset import Dataset
 from transformers import PreTrainedTokenizerFast, BatchEncoding
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
 
-from chrisbase.data import AppTyper
-from chrisbase.io import files, hr
+from chrisbase.data import AppTyper, ProjectEnv, InputOption, FileOption, IOArguments, OutputOption, JobTimer, FileStreamer, Streamer, OptionData
+from chrisbase.io import hr, LoggingFormat
+from chrisbase.util import mute_tqdm_cls
+from chrisbase.util import to_dataframe
 from nlpbook.arguments import TesterArguments, TrainerArguments
 
 logger = logging.getLogger(__name__)
@@ -473,9 +477,98 @@ class DPCorpusConverter:
             out2.close()
 
 
+@dataclass
+class ConvertOption(OptionData):
+    format: str = field()
+    style: str = field()
+
+
+@dataclass
+class ConvertArguments(IOArguments):
+    convert: ConvertOption = field()
+
+    def __post_init__(self):
+        super().__post_init__()
+
+    def dataframe(self, columns=None) -> pd.DataFrame:
+        if not columns:
+            columns = [self.data_type, "value"]
+        return pd.concat([
+            super().dataframe(columns=columns),
+            to_dataframe(columns=columns, raw=self.convert, data_prefix="convert"),
+        ]).reset_index(drop=True)
+
+
 @app.command()
-def convert():
-    pass
+def convert(
+        # env
+        project: str = typer.Option(default="DeepKNLU"),
+        job_name: str = typer.Option(default="convert"),
+        output_home: str = typer.Option(default="output"),
+        logging_file: str = typer.Option(default="logging.out"),
+        debugging: bool = typer.Option(default=False),
+        # data
+        input_file_home: str = typer.Option(default="data"),
+        input_file_name: str = typer.Option(default="klue-dp-mini/klue-dp-v1.1_dev.tsv"),
+        output_file_home: str = typer.Option(default="data"),
+        output_file_name: str = typer.Option(default="klue-dp-mini/klue-dp-v1.1_dev.tsv"),
+        # method
+        format: str = "seq2seq",
+        style: str = "v1",
+):
+    env = ProjectEnv(
+        project=project,
+        job_name=job_name,
+        debugging=debugging,
+        output_home=output_home,
+        logging_file=logging_file,
+        msg_level=logging.DEBUG if debugging else logging.INFO,
+        msg_format=LoggingFormat.DEBUG_48 if debugging else LoggingFormat.CHECK_36,
+    )
+    input_opt = InputOption(
+        file=FileOption(
+            home=input_file_home,
+            name=input_file_name,
+            mode="r",
+            strict=True,
+        ),
+    )
+    output_file_name = Path(output_file_name)
+    output_opt = OutputOption(
+        file=FileOption(
+            home=output_file_home,
+            name=output_file_name.with_suffix(f".{format}.{style}{output_file_name.suffix}"),
+            mode="w",
+            strict=False,
+        ),
+    )
+    convert_opt = ConvertOption(
+        format=format,
+        style=style,
+    )
+    args = ConvertArguments(
+        env=env,
+        input=input_opt,
+        output=output_opt,
+        convert=convert_opt,
+    )
+    tqdm = mute_tqdm_cls()
+    assert args.input.file, "input.file is required"
+    assert args.output.file, "output.file is required"
+    print(args.input.file)
+    print(args.output.file)
+
+    with (
+        JobTimer(f"python {args.env.running_file} {' '.join(args.env.command_args)}", args=args, rt=1, rb=1, rc='='),
+        FileStreamer(args.input.file) as input_file,
+        FileStreamer(args.output.file) as output_file,
+    ):
+        writer = Streamer.first_usable(output_file)
+        reader = Streamer.first_usable(input_file)
+        print(input_file)
+        print(output_file)
+        print(reader)
+        print(writer)
 
 
 if __name__ == "__main__":
