@@ -17,12 +17,12 @@ from transformers.tokenization_utils_base import PaddingStrategy, TruncationStra
 
 from chrisbase.data import AppTyper, ProjectEnv, InputOption, FileOption, IOArguments, OutputOption, JobTimer, FileStreamer, OptionData
 from chrisbase.io import hr, LoggingFormat
-from chrisbase.util import mute_tqdm_cls
+from chrisbase.util import mute_tqdm_cls, LF
 from chrisbase.util import to_dataframe
 from nlpbook.arguments import TesterArguments, TrainerArguments
 
 logger = logging.getLogger(__name__)
-app = AppTyper()
+main = AppTyper()
 
 
 @dataclass
@@ -412,223 +412,172 @@ class DPParsedExample(DataClassJsonMixin):
         return cls(example_id=example_id, sentence=sentence, words=words)
 
 
-class DPCorpusConverter:
-    @classmethod
-    def convert_to_seq2seq_format_v0(cls, infile: str | Path, outfile1: str | Path, outfile2: str | Path = None, debug: bool = False):
-        out1 = Path(outfile1).open("w", encoding="utf-8") if outfile1 else None
-        out2 = Path(outfile2).open("w", encoding="utf-8") if outfile2 else None
-        for chunk in [x for x in infile.read_text().split("\n\n") if len(x.strip()) > 0]:
-            example = DPParsedExample.from_tsv(chunk)
-            seq1 = ' '.join(word["form"] for word in example.words[1:])
-            if example.sentence != seq1:
-                continue
-            seq2 = ' '.join([f'{word["head"]}/{word["label"]}' for word in example.words[1:]])
-            if out1 and out2:
-                out1.write(f"{seq1}\n")
-                out2.write(f"{seq2}\n")
-            elif out1:
-                out1.write(f"{seq1}\t{seq2}\n")
-        if out1:
-            out1.close()
-        if out2:
-            out2.close()
+class ConvertApp:
+    app = AppTyper()
 
     @classmethod
-    def convert_to_seq2seq_format_v1(cls, infile: str | Path, outfile1: str | Path, outfile2: str | Path = None, debug: bool = False):
-        out1 = Path(outfile1).open("w", encoding="utf-8") if outfile1 else None
-        out2 = Path(outfile2).open("w", encoding="utf-8") if outfile2 else None
-        for chunk in [x for x in infile.read_text().split("\n\n") if len(x.strip()) > 0]:
-            example = DPParsedExample.from_tsv(chunk)
-            seq1 = ' '.join(word["form"] for word in example.words[1:])
-            if example.sentence != seq1:
-                continue
-            seq2 = ' '.join([f'{example.words[word["head"]]["form"]}-{word["head"]}/{word["label"]}' for word in example.words[1:]])
-            if out1 and out2:
-                out1.write(f"{seq1}\n")
-                out2.write(f"{seq2}\n")
-            elif out1:
-                out1.write(f"{seq1}\t{seq2}\n")
-        if out1:
-            out1.close()
-        if out2:
-            out2.close()
+    def typer(cls) -> typer.Typer:
 
-    @classmethod
-    def convert_to_seq2seq_format_v2(cls, infile: str | Path, outfile1: str | Path, outfile2: str | Path = None, debug: bool = False):
-        out1 = Path(outfile1).open("w", encoding="utf-8") if outfile1 else None
-        out2 = Path(outfile2).open("w", encoding="utf-8") if outfile2 else None
-        for chunk in [x for x in infile.read_text().split("\n\n") if len(x.strip()) > 0]:
-            example = DPParsedExample.from_tsv(chunk)
-            seq1 = ' '.join(word["form"] for word in example.words[1:])
-            seq2_units = []
-            for word in example.words[1:]:
-                r = word["label"]
-                h = f'{word["form"]}-{word["id"]}'
-                d = f'{example.words[word["head"]]["form"]}-{word["head"]}'
-                seq2_units.append(f"{r}({h}, {d})")
-            seq2 = '</s>'.join(seq2_units)
-            if out1 and out2:
-                out1.write(f"{seq1}\n")
-                out2.write(f"{seq2}\n")
-            elif out1:
-                out1.write(f"{seq1}\t{seq2}\n")
-        if out1:
-            out1.close()
-        if out2:
-            out2.close()
+        @dataclass
+        class ConvertOption(OptionData):
+            level_major: int = field()
+            level_minor: int = field()
 
+        @dataclass
+        class ConvertArguments(IOArguments):
+            convert: ConvertOption = field()
 
-@dataclass
-class ConvertOption(OptionData):
-    style: str = field()
+            def __post_init__(self):
+                super().__post_init__()
 
+            def dataframe(self, columns=None) -> pd.DataFrame:
+                if not columns:
+                    columns = [self.data_type, "value"]
+                return pd.concat([
+                    super().dataframe(columns=columns),
+                    to_dataframe(columns=columns, raw=self.convert, data_prefix="convert"),
+                ]).reset_index(drop=True)
 
-@dataclass
-class ConvertArguments(IOArguments):
-    convert: ConvertOption = field()
+        def to_str(s: StringIO):
+            s.seek(0)
+            return s.read().replace("\n", "<BR>")
 
-    def __post_init__(self):
-        super().__post_init__()
+        def to_seq1(example: DPParsedExample, level: int):
+            assert level < 2, f"Unsupported seq1 level: {level}"
+            with StringIO() as s:
+                print("Task: Dependency Parsing", file=s)
+                print('', file=s)
+                print(f"Input: {' '.join(word['form'] for word in example.words[1:])}", file=s)
+                if level < 1:
+                    return to_str(s)
 
-    def dataframe(self, columns=None) -> pd.DataFrame:
-        if not columns:
-            columns = [self.data_type, "value"]
-        return pd.concat([
-            super().dataframe(columns=columns),
-            to_dataframe(columns=columns, raw=self.convert, data_prefix="convert"),
-        ]).reset_index(drop=True)
+                units1 = []
+                for word in example.words[1:]:
+                    ls = word["lemma"].split(" ")
+                    ps = word["pos"].split("+")
+                    unit1 = f"{word['id']}/{word['form']}/{len(word['form'])}/{word['lemma']}/{ls[0]}:{ps[0]}/" + (f"{ls[-1]}:{ps[-1]}" if len(ps) > 1 else "NONE")
+                    units1.append(unit1)
+                print(f"Lemmas: {LF.join(units1)}", end='', file=s)
+                if level < 2:
+                    return to_str(s)
 
+        def to_seq2(example: DPParsedExample, level: int):
+            assert level < 4, f"Unsupported seq2 level: {level}"
+            with (StringIO() as s):
+                units2 = []
+                for word in example.words[1:]:
+                    if level < 1:
+                        unit2 = f"{word['head']}/{word['label']}"
+                    elif level < 2:
+                        unit2 = f"{example.words[word['head']]['form']}-{word['head']}/{word['label']}"
+                    elif level < 3:
+                        d = f"{word['form']}-{word['id']}"
+                        h = f"{example.words[word['head']]['form']}-{word['head']}"
+                        unit2 = f"{word['label']}({d}, {h})"
+                    elif level < 4:
+                        unit2 = f"({word['id']}/{len(word['form'])}, {word['head']}, {word['label']})"
+                    units2.append(unit2)
+                print(f"Dependency Relations: {'▁'.join(units2)}", file=s)
+                print(f"Word Count: {len(example.words) - 1}", file=s)
+                return to_str(s)
 
-@app.command()
-def convert(
-        # env
-        project: str = typer.Option(default="DeepKNLU"),
-        job_name: str = typer.Option(default="convert"),
-        output_home: str = typer.Option(default="output"),
-        logging_file: str = typer.Option(default="logging.out"),
-        debugging: bool = typer.Option(default=False),
-        # data
-        input_inter: int = typer.Option(default=100),
-        input_file_home: str = typer.Option(default="data"),
-        input_file_name: str = typer.Option(default="klue-dp-mini/klue-dp-v1.1_dev.tsv"),
-        output_file_home: str = typer.Option(default="data"),
-        output_file_name: str = typer.Option(default="klue-dp-mini/klue-dp-v1.1_dev.tsv"),
-        # method
-        style: str = "seq2seq-v4",
-):
-    env = ProjectEnv(
-        project=project,
-        job_name=job_name,
-        debugging=debugging,
-        output_home=output_home,
-        logging_file=logging_file,
-        msg_level=logging.DEBUG if debugging else logging.INFO,
-        msg_format=LoggingFormat.DEBUG_48 if debugging else LoggingFormat.CHECK_36,
-    )
-    input_opt = InputOption(
-        inter=input_inter,
-        file=FileOption(
-            home=input_file_home,
-            name=input_file_name,
-            mode="r",
-            strict=True,
-        ),
-    )
-    output_file_name = Path(output_file_name)
-    output_opt = OutputOption(
-        file=FileOption(
-            home=output_file_home,
-            name=output_file_name.with_suffix(f".{style}{output_file_name.suffix}"),
-            mode="w",
-            strict=False,
-        ),
-    )
-    convert_opt = ConvertOption(
-        style=style,
-    )
-    args = ConvertArguments(
-        env=env,
-        input=input_opt,
-        output=output_opt,
-        convert=convert_opt,
-    )
-    tqdm = mute_tqdm_cls()
-    assert args.input.file, "input.file is required"
-    assert args.output.file, "output.file is required"
+        @cls.app.command()
+        def my_command():
+            print("THIS is MY COMMAND!")
 
-    with (
-        JobTimer(f"python {args.env.running_file} {' '.join(args.env.command_args)}", args=args, rt=1, rb=1, rc='='),
-        FileStreamer(args.input.file) as input_file,
-        FileStreamer(args.output.file) as output_file,
-    ):
-        input_file.path.read_text()
-        input_chunks = [x for x in input_file.path.read_text().split("\n\n") if len(x.strip()) > 0]
-        logger.info(f"Load {len(input_chunks)} sentences from [{input_file.opt}")
-        progress, interval = (
-            tqdm(input_chunks, total=len(input_chunks), unit="sent", pre="*", desc="converting"),
-            args.input.inter
-        )
-        num_output = 0
-        for i, x in enumerate(progress):
-            if i > 0 and i % interval == 0:
+        @cls.app.callback(invoke_without_command=True)
+        def convert(
+                ctx: typer.Context,
+                # env
+                project: str = typer.Option(default="DeepKNLU"),
+                job_name: str = typer.Option(default="convert"),
+                output_home: str = typer.Option(default="output"),
+                logging_file: str = typer.Option(default="logging.out"),
+                debugging: bool = typer.Option(default=False),
+                # data
+                input_inter: int = typer.Option(default=100),
+                input_file_home: str = typer.Option(default="data"),
+                input_file_name: str = typer.Option(default="klue-dp-mini/klue-dp-v1.1_dev.tsv"),
+                output_file_home: str = typer.Option(default="data"),
+                output_file_name: str = typer.Option(default="klue-dp-mini/klue-dp-v1.1_dev.tsv"),
+                output_file_mode: str = typer.Option(default="w"),
+                output_file_reset: bool = typer.Option(default=True),
+                # convert
+                level_major: int = typer.Option(default=0),
+                level_minor: int = typer.Option(default=0),
+        ):
+            if ctx.invoked_subcommand is not None:
+                return
+            env = ProjectEnv(
+                project=project,
+                job_name=job_name,
+                debugging=debugging,
+                output_home=output_home,
+                logging_file=logging_file,
+                msg_level=logging.DEBUG if debugging else logging.INFO,
+                msg_format=LoggingFormat.DEBUG_48 if debugging else LoggingFormat.CHECK_36,
+            )
+            input_opt = InputOption(
+                inter=input_inter,
+                file=FileOption(
+                    home=input_file_home,
+                    name=input_file_name,
+                    mode="r",
+                    strict=True,
+                ),
+            )
+            output_file_name = Path(output_file_name)
+            output_opt = OutputOption(
+                file=FileOption(
+                    home=output_file_home,
+                    name=output_file_name.with_suffix(f".seq-v{level_major}.{level_minor}{output_file_name.suffix}"),
+                    mode=output_file_mode,
+                    reset=output_file_reset,
+                    strict=True,
+                ),
+            )
+            convert_opt = ConvertOption(
+                level_major=level_major,
+                level_minor=level_minor,
+            )
+            args = ConvertArguments(
+                env=env,
+                input=input_opt,
+                output=output_opt,
+                convert=convert_opt,
+            )
+            tqdm = mute_tqdm_cls()
+            assert args.input.file, "input.file is required"
+            assert args.output.file, "output.file is required"
+
+            with (
+                JobTimer(f"python {args.env.current_file} {' '.join(args.env.command_args)}", args=args, rt=1, rb=1, rc='='),
+                FileStreamer(args.input.file) as input_file,
+                FileStreamer(args.output.file) as output_file,
+            ):
+                input_file.path.read_text()
+                input_chunks = [x for x in input_file.path.read_text().split("\n\n") if len(x.strip()) > 0]
+                logger.info(f"Load {len(input_chunks)} sentences from [{input_file.opt}")
+                progress, interval = (
+                    tqdm(input_chunks, total=len(input_chunks), unit="sent", pre="*", desc="converting"),
+                    args.input.inter
+                )
+                num_output = 0
+                for i, x in enumerate(progress):
+                    if i > 0 and i % interval == 0:
+                        logger.info(progress)
+                    example = DPParsedExample.from_tsv(x)
+                    seq1 = to_seq1(example, args.convert.level_major)
+                    seq2 = to_seq2(example, args.convert.level_minor)
+                    output_file.fp.write(seq1 + "\t" + seq2 + "\n")
+                    num_output += 1
                 logger.info(progress)
-            example = DPParsedExample.from_tsv(x)
-            with StringIO() as s1, StringIO() as s2:
-                print("task: Dependency Parsing", file=s1)
-                print('', file=s1)
-                print(f"Input: {example.sentence}", file=s1)
-                print("Lemmas: ", end='', file=s1)
-                print("deprel: ", end='', file=s2)
-                for w in example.words:
-                    if w["id"] == 0:
-                        continue
-                    ls = w["lemma"].split(" ")
-                    ps = w["pos"].split("+")
-                    print(f"{w['id']}/{w['form']}/{len(w['form'])}/{w['lemma']}/{ls[0]}:{ps[0]}/" + (f"{ls[-1]}:{ps[-1]}" if len(ps) > 1 else "NONE"), file=s1)
-                    print(f"({w['id']}/{len(w['form'])}, {w['head']}, {w['label']})", end='▁' if w["id"] < len(example.words) - 1 else '\n', file=s2)
-                print(f"word_counts: {len(example.words) - 1}", end='', file=s2)
-                s1.seek(0)
-                s2.seek(0)
-                seq1 = s1.read().replace("\n", "<BR>")
-                seq2 = s2.read().replace("\n", "<BR>")
-            output_file.fp.write(f"{seq1}\t{seq2}\n")
-            num_output += 1
-        logger.info(progress)
-        logger.info(f"Saved {num_output} sequence pairs to [{output_file.opt}]")
+                logger.info(f"Saved {num_output} sequence pairs to [{output_file.opt}]")
 
+        return cls.app
+
+
+main.add_typer(ConvertApp.typer(), name="convert")
 
 if __name__ == "__main__":
-    app()
-
-    # class RunOption:
-    #     run1: bool = False
-    #     run2: bool = False
-    #     run3_v0: bool = True
-    #     run3_v1: bool = True
-    #     run3_v2: bool = True
-    #     run3_v3: bool = False
-    #
-    #
-    # if RunOption.run3_v0:
-    #     for path in files("data/klue-dp-mini/*_dev.tsv") + files("data/klue-dp/*_dev.tsv"):
-    #         print(f"[FILE]: {path}")
-    #         DPCorpusConverter.convert_to_seq2seq_format_v0(path, path.with_suffix(".input.seq2seq_v0.tsv"), path.with_suffix(".answer.seq2seq_v0.tsv"), debug=True)
-    #     for path in files("data/klue-dp-mini/*_train.tsv") + files("data/klue-dp/*_train.tsv"):
-    #         print(f"[FILE]: {path}")
-    #         DPCorpusConverter.convert_to_seq2seq_format_v0(path, path.with_suffix(".seq2seq_v0.tsv"), debug=True)
-    #
-    # if RunOption.run3_v1:
-    #     for path in files("data/klue-dp-mini/*_dev.tsv") + files("data/klue-dp/*_dev.tsv"):
-    #         print(f"[FILE]: {path}")
-    #         DPCorpusConverter.convert_to_seq2seq_format_v1(path, path.with_suffix(".input.seq2seq_v1.tsv"), path.with_suffix(".answer.seq2seq_v1.tsv"), debug=True)
-    #     for path in files("data/klue-dp-mini/*_train.tsv") + files("data/klue-dp/*_train.tsv"):
-    #         print(f"[FILE]: {path}")
-    #         DPCorpusConverter.convert_to_seq2seq_format_v1(path, path.with_suffix(".seq2seq_v1.tsv"), debug=True)
-    #
-    # if RunOption.run3_v2:
-    #     for path in files("data/klue-dp-mini/*_dev.tsv") + files("data/klue-dp/*_dev.tsv"):
-    #         print(f"[FILE]: {path}")
-    #         DPCorpusConverter.convert_to_seq2seq_format_v2(path, path.with_suffix(".input.seq2seq_v2.tsv"), path.with_suffix(".answer.seq2seq_v2.tsv"), debug=True)
-    #     for path in files("data/klue-dp-mini/*_train.tsv") + files("data/klue-dp/*_train.tsv"):
-    #         print(f"[FILE]: {path}")
-    #         DPCorpusConverter.convert_to_seq2seq_format_v2(path, path.with_suffix(".seq2seq_v2.tsv"), debug=True)
+    main()

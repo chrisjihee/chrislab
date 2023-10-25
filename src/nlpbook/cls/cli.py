@@ -181,5 +181,5 @@ def serve(args_file: Path | str):
         with RuntimeChecking(args.configure_csv_logger()):
             server: Flask = nlpbook.make_server(inference_fn,
                                                 template_file="serve_cls.html",
-                                                ngrok_home=args.env.working_path)
+                                                ngrok_home=args.env.working_dir)
             server.run()
