@@ -495,7 +495,7 @@ class ConvertApp:
                 logging_file: str = typer.Option(default="logging.out"),
                 debugging: bool = typer.Option(default=False),
                 # data
-                input_inter: int = typer.Option(default=100),
+                input_inter: int = typer.Option(default=5000),
                 input_file_home: str = typer.Option(default="data"),
                 input_file_name: str = typer.Option(default="klue-dp-mini/klue-dp-v1.1_dev.tsv"),
                 output_file_home: str = typer.Option(default="data"),
