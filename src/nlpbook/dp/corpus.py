@@ -419,7 +419,8 @@ class CLI:
     label_ids = [i for i, _ in enumerate(label_names)]
     label_to_id = {label: i for i, label in enumerate(label_names)}
     id_to_label = {i: label for i, label in enumerate(label_names)}
-    dp_full_pattern = re.compile("-([0-9]+)(/([A-Z]{1,3}(_[A-Z]{1,3})?))?")
+    dp_v1_pattern = re.compile("-([0-9]+)(/([A-Z]{1,3}(_[A-Z]{1,3})?))?")
+    dp_v3_pattern = re.compile("\([0-9]+/[0-9]+, ([0-9]+), ([A-Z]{1,3}(_[A-Z]{1,3})?)\)")
 
     @dataclass
     class ConvertOption(OptionData):
@@ -442,9 +443,15 @@ class CLI:
             ]).reset_index(drop=True)
 
     @dataclass
+    class EvaluateOption(OptionData):
+        skip_longer: bool = field()
+        skip_shorter: bool = field()
+
+    @dataclass
     class EvaluateArguments(IOArguments):
         refer: InputOption = field()
         convert: CLI.ConvertOption = field()
+        evaluate: CLI.EvaluateOption = field()
 
         def __post_init__(self):
             super().__post_init__()
@@ -534,7 +541,7 @@ class CLI:
             output_home=output_home,
             logging_file=logging_file,
             msg_level=logging.DEBUG if debugging else logging.INFO,
-            msg_format=LoggingFormat.DEBUG_48 if debugging else LoggingFormat.CHECK_24,
+            msg_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_24,
         )
         input_opt = InputOption(
             inter=input_inter,
@@ -596,21 +603,37 @@ class CLI:
             logger.info(f"Saved {num_output} sequence pairs to [{output_file.opt}]")
 
     @staticmethod
-    def to_dp_result_v1(words: List[str]) -> DPResult:
+    def to_dp_result(words: List[str], convert: CLI.ConvertOption) -> DPResult:
         heads = [-1] * len(words)
         types = [-1] * len(words)
-        for wi, word in enumerate(words):
-            m = CLI.dp_full_pattern.search(word)
-            if m:
-                head, dep = m.group(1), m.group(3)
-                dep_id = CLI.label_to_id.get(dep, 0) if dep else 0
-                head_id = int(head)
-                heads[wi] = head_id
-                types[wi] = dep_id
-            else:
-                heads[wi] = 0
-                types[wi] = 0
-        result = DPResult(torch.tensor(heads), torch.tensor(types))
+        if convert.level_minor == 1:
+            for i, x in enumerate(words):
+                m = CLI.dp_v1_pattern.search(x)
+                if m:
+                    head, dep = m.group(1), m.group(3)
+                    dep_id = CLI.label_to_id.get(dep, 0) if dep else 0
+                    head_id = int(head)
+                    heads[i] = head_id
+                    types[i] = dep_id
+                else:
+                    heads[i] = 0
+                    types[i] = 0
+            result = DPResult(torch.tensor(heads), torch.tensor(types))
+        elif convert.level_minor == 3:
+            for i, x in enumerate(words):
+                m = CLI.dp_v3_pattern.search(x)
+                if m:
+                    head, dep = m.group(1), m.group(2)
+                    dep_id = CLI.label_to_id.get(dep, 0) if dep else 0
+                    head_id = int(head)
+                    heads[i] = head_id
+                    types[i] = dep_id
+                else:
+                    heads[i] = 0
+                    types[i] = 0
+            result = DPResult(torch.tensor(heads), torch.tensor(types))
+        else:
+            raise NotImplementedError(f"Unsupported convert option: {convert}")
         assert result.heads.shape == result.types.shape, f"result.heads.shape != result.types.shape: {result.heads.shape} != {result.types.shape}"
         return result
 
@@ -627,14 +650,17 @@ class CLI:
             # data
             input_inter: int = typer.Option(default=5000),
             input_file_home: str = typer.Option(default="data"),
-            input_file_name: str = typer.Option(default="klue-dp-pred/infer_klue_dp-v1.1.0.pred"),
+            input_file_name: str = typer.Option(default="klue-dp-pred/infer_klue_dp-v1.3.0.pred"),
             refer_file_home: str = typer.Option(default="data"),
-            refer_file_name: str = typer.Option(default="klue-dp/klue-dp-v1.1_dev.seq-v1.1.tsv"),
+            refer_file_name: str = typer.Option(default="klue-dp/klue-dp-v1.1_dev.seq-v1.3.tsv"),
             output_file_home: str = typer.Option(default="data"),
-            output_file_name: str = typer.Option(default="klue-dp-pred/infer_klue_dp-v1.1.0.eval"),
+            output_file_name: str = typer.Option(default="klue-dp-pred/infer_klue_dp-v1.3.0.eval"),
             # convert
             level_major: int = typer.Option(default=0),
-            level_minor: int = typer.Option(default=1),
+            level_minor: int = typer.Option(default=3),
+            # evaluate
+            skip_longer: bool = typer.Option(default=False),
+            skip_shorter: bool = typer.Option(default=True),
     ):
         env = ProjectEnv(
             project=project,
@@ -643,7 +669,7 @@ class CLI:
             output_home=output_home,
             logging_file=logging_file,
             msg_level=logging.DEBUG if debugging else logging.INFO,
-            msg_format=LoggingFormat.DEBUG_48 if debugging else LoggingFormat.CHECK_24,
+            msg_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_24,
         )
         input_opt = InputOption(
             inter=input_inter,
@@ -674,12 +700,17 @@ class CLI:
             level_major=level_major,
             level_minor=level_minor,
         )
+        evaluate_opt = CLI.EvaluateOption(
+            skip_longer=skip_longer,
+            skip_shorter=skip_shorter,
+        )
         args = CLI.EvaluateArguments(
             env=env,
             input=input_opt,
             refer=refer_opt,
             output=output_opt,
             convert=convert_opt,
+            evaluate=evaluate_opt,
         )
         tqdm = mute_tqdm_cls()
         assert args.input.file, "input.file is required"
@@ -716,46 +747,55 @@ class CLI:
                 gold_words = b.strip().splitlines()[0].split("▁")
                 if len(pred_words) < len(gold_words):
                     num_shorter += 1
-                    continue
-                    # logger.warning(f"[{i:04d}] Shorter pred_words({len(pred_words)}): {pred_words}")
-                    # logger.warning(f"[{i:04d}]         gold_words({len(gold_words)}): {gold_words}")
-                    # pred_words = pred_words + (
-                    #         [pred_words[-1]] * (len(gold_words) - len(pred_words))
-                    # )
-                    # logger.warning(f"[{i:04d}]      -> pred_words({len(pred_words)}): {pred_words}")
+                    if args.evaluate.skip_shorter:
+                        continue
+                    else:
+                        logger.warning(f"[{i:04d}] Shorter pred_words({len(pred_words)}): {pred_words}")
+                        logger.warning(f"[{i:04d}]         gold_words({len(gold_words)}): {gold_words}")
+                        pred_words = pred_words + (
+                                [pred_words[-1]] * (len(gold_words) - len(pred_words))
+                        )
+                        logger.warning(f"[{i:04d}]      -> pred_words({len(pred_words)}): {pred_words}")
                 if len(pred_words) > len(gold_words):
                     num_longer += 1
-                    continue
-                    # logger.warning(f"[{i:04d}]  Longer pred_words({len(pred_words)}): {pred_words}")
-                    # logger.warning(f"[{i:04d}]         gold_words({len(gold_words)}): {gold_words}")
-                    # pred_words = pred_words[:len(gold_words)]
-                    # logger.warning(f"[{i:04d}]      -> pred_words({len(pred_words)}): {pred_words}")
+                    if args.evaluate.skip_longer:
+                        continue
+                    else:
+                        logger.warning(f"[{i:04d}]  Longer pred_words({len(pred_words)}): {pred_words}")
+                        logger.warning(f"[{i:04d}]         gold_words({len(gold_words)}): {gold_words}")
+                        pred_words = pred_words[:len(gold_words)]
+                        logger.warning(f"[{i:04d}]      -> pred_words({len(pred_words)}): {pred_words}")
                 assert len(pred_words) == len(gold_words), f"Length of pred_words and gold_words are different: {len(pred_words)} != {len(gold_words)}"
-                pred_res = CLI.to_dp_result_v1(pred_words)
-                gold_res = CLI.to_dp_result_v1(gold_words)
-                print(f"gold_res({'x'.join(map(str, gold_res.heads.shape))}): {gold_res}")
-                print(f"test_res({'x'.join(map(str, pred_res.heads.shape))}): {pred_res}")
-                print()
-                assert gold_res.heads.shape == pred_res.heads.shape, f"gold_res.heads.shape != pred_res.heads.shape: {gold_res.heads.shape} != {pred_res.heads.shape}"
-                assert gold_res.types.shape == pred_res.types.shape, f"gold_res.types.shape != pred_res.types.shape: {gold_res.types.shape} != {pred_res.types.shape}"
-                golds.append(gold_res)
-                preds.append(pred_res)
-                gold_types.extend(gold_res.types.tolist())
-                pred_types.extend(pred_res.types.tolist())
-                gold_heads.extend(gold_res.heads.tolist())
-                pred_heads.extend(pred_res.heads.tolist())
+                if debugging:
+                    logger.info(f"-- pred_words({len(pred_words)}): {pred_words}")
+                    logger.info(f"-- gold_words({len(gold_words)}): {gold_words}")
+                pred_words = CLI.to_dp_result(pred_words, args.convert)
+                gold_words = CLI.to_dp_result(gold_words, args.convert)
+                if debugging:
+                    logger.info(f"-> pred_words({'x'.join(map(str, pred_words.heads.shape))}): heads={pred_words.heads.tolist()}, types={pred_words.types.tolist()}")
+                    logger.info(f"-> gold_words({'x'.join(map(str, gold_words.heads.shape))}): heads={gold_words.heads.tolist()}, types={gold_words.types.tolist()}")
+                    logger.info("")
+                assert gold_words.heads.shape == pred_words.heads.shape, f"gold_res.heads.shape != pred_res.heads.shape: {gold_words.heads.shape} != {pred_words.heads.shape}"
+                assert gold_words.types.shape == pred_words.types.shape, f"gold_res.types.shape != pred_res.types.shape: {gold_words.types.shape} != {pred_words.types.shape}"
+                golds.append(gold_words)
+                preds.append(pred_words)
+                gold_types.extend(gold_words.types.tolist())
+                pred_types.extend(pred_words.types.tolist())
+                gold_heads.extend(gold_words.heads.tolist())
+                pred_heads.extend(pred_words.heads.tolist())
             logger.info(progress)
             assert len(golds) == len(preds), f"Length of golds and preds are different: {len(golds)} != {len(preds)}"
 
-            res1 = classification_report(gold_types, pred_types, labels=CLI.label_ids, target_names=CLI.label_names, digits=4, zero_division=1)
-            logger.info(hr(c='-'))
-            for line in res1.splitlines():
-                logger.info(line)
-            res2 = classification_report(gold_heads, pred_heads, digits=4, zero_division=1)
-            logger.info(hr(c='-'))
-            for line in res2.splitlines():
-                logger.info(line)
-            logger.info(hr(c='-'))
+            if debugging:
+                res1 = classification_report(gold_types, pred_types, labels=CLI.label_ids, target_names=CLI.label_names, digits=4, zero_division=1)
+                logger.info(hr(c='-'))
+                for line in res1.splitlines():
+                    logger.info(line)
+                res2 = classification_report(gold_heads, pred_heads, digits=4, zero_division=1)
+                logger.info(hr(c='-'))
+                for line in res2.splitlines():
+                    logger.info(line)
+                logger.info(hr(c='-'))
 
             DP_UAS_MacroF1.reset()
             DP_LAS_MacroF1.reset()
@@ -765,11 +805,11 @@ class CLI:
             DP_LAS_MacroF1.update(preds, golds)
             DP_UAS_MicroF1.update(preds, golds)
             DP_LAS_MicroF1.update(preds, golds)
-            logger.info(f"#evaluated_cases: #{len(preds)}")
-            logger.info(f"- DP UASa = {DP_UAS_MacroF1.compute():.4f}")
-            logger.info(f"- DP LASa = {DP_LAS_MacroF1.compute():.4f}")
-            logger.info(f"- DP UASi = {DP_UAS_MicroF1.compute():.4f}")
-            logger.info(f"- DP LASi = {DP_LAS_MicroF1.compute():.4f}")
+            logger.info(f"* evaluated={len(preds)}, shorter={num_shorter}, longer={num_longer}")
+            logger.info(f"  - DP UASa = {DP_UAS_MacroF1.compute():.4f}")
+            logger.info(f"  - DP LASa = {DP_LAS_MacroF1.compute():.4f}")
+            logger.info(f"  - DP UASi = {DP_UAS_MicroF1.compute():.4f}")
+            logger.info(f"  - DP LASi = {DP_LAS_MicroF1.compute():.4f}")
 
 
 if __name__ == "__main__":
