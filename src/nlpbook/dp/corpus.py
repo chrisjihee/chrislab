@@ -516,7 +516,6 @@ class CLI:
 
     @staticmethod
     def to_seq2(example: DPParsedExample, level: int):
-        assert level < 4, f"Unsupported seq2 level: {level}"
         with (StringIO() as s):
             units2 = []
             for word in example.words[1:]:
@@ -530,6 +529,8 @@ class CLI:
                     unit2 = f"{word['label']}({d}, {h})"
                 elif level < 4:
                     unit2 = f"({word['id']}/{len(word['form'])}, {word['head']}, {word['label']})"
+                else:
+                    f"Unsupported seq2 level: {level}"
                 units2.append(unit2)
             print(f"Dependency Relations: {'▁'.join(units2)}", file=s)
             print(f"Word Count: {len(example.words) - 1}", file=s)
