@@ -494,6 +494,7 @@ class ConvertApp:
                 output_home: str = typer.Option(default="output"),
                 logging_file: str = typer.Option(default="logging.out"),
                 debugging: bool = typer.Option(default=False),
+                verbose: int = typer.Option(default=0),
                 # data
                 input_inter: int = typer.Option(default=5000),
                 input_file_home: str = typer.Option(default="data"),
@@ -515,7 +516,7 @@ class ConvertApp:
                 output_home=output_home,
                 logging_file=logging_file,
                 msg_level=logging.DEBUG if debugging else logging.INFO,
-                msg_format=LoggingFormat.DEBUG_48 if debugging else LoggingFormat.CHECK_36,
+                msg_format=LoggingFormat.DEBUG_48 if debugging else LoggingFormat.CHECK_24,
             )
             input_opt = InputOption(
                 inter=input_inter,
@@ -550,14 +551,17 @@ class ConvertApp:
             assert args.input.file, "input.file is required"
             assert args.output.file, "output.file is required"
 
+            if verbose < 1:
+                logging.getLogger("chrisbase.data").setLevel(logging.WARNING)
             with (
-                JobTimer(f"python {args.env.current_file} {' '.join(args.env.command_args)}", args=args, rt=1, rb=1, rc='='),
+                JobTimer(f"python {args.env.current_file} {' '.join(args.env.command_args)}",
+                         rt=1, rb=1, rc='=', verbose=verbose > 1, args=args if debugging or verbose > 2 else None),
                 FileStreamer(args.input.file) as input_file,
                 FileStreamer(args.output.file) as output_file,
             ):
                 input_file.path.read_text()
                 input_chunks = [x for x in input_file.path.read_text().split("\n\n") if len(x.strip()) > 0]
-                logger.info(f"Load {len(input_chunks)} sentences from [{input_file.opt}")
+                logger.info(f"Load {len(input_chunks)} sentences from [{input_file.opt}]")
                 progress, interval = (
                     tqdm(input_chunks, total=len(input_chunks), unit="sent", pre="*", desc="converting"),
                     args.input.inter
