@@ -412,6 +412,114 @@ class DPParsedExample(DataClassJsonMixin):
         return cls(example_id=example_id, sentence=sentence, words=words)
 
 
+class EvaluateApp:
+    app = AppTyper()
+
+    @classmethod
+    def typer(cls) -> typer.Typer:
+
+        @dataclass
+        class EvaluateArguments(IOArguments):
+            refer: InputOption = field()
+
+            def __post_init__(self):
+                super().__post_init__()
+
+            def dataframe(self, columns=None) -> pd.DataFrame:
+                if not columns:
+                    columns = [self.data_type, "value"]
+                return pd.concat([
+                    super().dataframe(columns=columns),
+                    to_dataframe(columns=columns, raw=self.refer, data_prefix="refer", data_exclude=["file", "table", "index"]),
+                    to_dataframe(columns=columns, raw=self.refer.file, data_prefix="refer.file") if self.refer.file else None,
+                    to_dataframe(columns=columns, raw=self.refer.table, data_prefix="refer.table") if self.refer.table else None,
+                    to_dataframe(columns=columns, raw=self.refer.index, data_prefix="refer.index") if self.refer.index else None,
+                ]).reset_index(drop=True)
+
+        @cls.app.callback(invoke_without_command=True)
+        def evaluate(
+                ctx: typer.Context,
+                # env
+                project: str = typer.Option(default="DeepKNLU"),
+                job_name: str = typer.Option(default="evaluate"),
+                output_home: str = typer.Option(default="output"),
+                logging_file: str = typer.Option(default="logging.out"),
+                debugging: bool = typer.Option(default=False),
+                verbose: int = typer.Option(default=3),
+                # data
+                input_inter: int = typer.Option(default=5000),
+                input_file_home: str = typer.Option(default="data"),
+                input_file_name: str = typer.Option(default="klue-dp-pred/infer_klue_dp-v1.0.0.pred"),
+                refer_file_home: str = typer.Option(default="data"),
+                refer_file_name: str = typer.Option(default="klue-dp/klue-dp-v1.1_dev.seq-v1.0.tsv"),
+                output_file_home: str = typer.Option(default="data"),
+                output_file_name: str = typer.Option(default="klue-dp-pred/infer_klue_dp-v1.0.0.eval"),
+        ):
+            if ctx.invoked_subcommand is not None:
+                return
+            env = ProjectEnv(
+                project=project,
+                job_name=job_name,
+                debugging=debugging,
+                output_home=output_home,
+                logging_file=logging_file,
+                msg_level=logging.DEBUG if debugging else logging.INFO,
+                msg_format=LoggingFormat.DEBUG_48 if debugging else LoggingFormat.CHECK_24,
+            )
+            input_opt = InputOption(
+                inter=input_inter,
+                file=FileOption(
+                    home=input_file_home,
+                    name=input_file_name,
+                    mode="r",
+                    strict=True,
+                ),
+            )
+            refer_opt = InputOption(
+                file=FileOption(
+                    home=refer_file_home,
+                    name=refer_file_name,
+                    mode="r",
+                    strict=True,
+                ),
+            )
+            output_opt = OutputOption(
+                file=FileOption(
+                    home=output_file_home,
+                    name=output_file_name,
+                    mode="w",
+                    strict=True,
+                ),
+            )
+            args = EvaluateArguments(
+                env=env,
+                input=input_opt,
+                refer=refer_opt,
+                output=output_opt,
+            )
+            tqdm = mute_tqdm_cls()
+            assert args.input.file, "input.file is required"
+            assert args.refer.file, "refer.file is required"
+            assert args.output.file, "output.file is required"
+
+            if verbose < 1:
+                logging.getLogger("chrisbase.data").setLevel(logging.WARNING)
+            with (
+                JobTimer(f"python {args.env.current_file} {' '.join(args.env.command_args)}",
+                         rt=1, rb=1, rc='=', verbose=verbose > 1, args=args if debugging or verbose > 2 else None),
+                FileStreamer(args.input.file) as input_file,
+                FileStreamer(args.refer.file) as refer_file,
+                FileStreamer(args.output.file) as output_file,
+            ):
+                logger.info(f"input_file: {input_file.opt}")
+                logger.info(f"refer_file: {refer_file.opt}")
+                logger.info(f"output_file: {output_file.opt}")
+                gold = [x.split("\t")[1] for x in refer_file]
+                input_file.path.read_text()
+
+        return cls.app
+
+
 class ConvertApp:
     app = AppTyper()
 
@@ -481,10 +589,6 @@ class ConvertApp:
                 print(f"Word Count: {len(example.words) - 1}", file=s)
                 return to_str(s)
 
-        @cls.app.command()
-        def my_command():
-            print("THIS is MY COMMAND!")
-
         @cls.app.callback(invoke_without_command=True)
         def convert(
                 ctx: typer.Context,
@@ -501,8 +605,6 @@ class ConvertApp:
                 input_file_name: str = typer.Option(default="klue-dp-mini/klue-dp-v1.1_dev.tsv"),
                 output_file_home: str = typer.Option(default="data"),
                 output_file_name: str = typer.Option(default="klue-dp-mini/klue-dp-v1.1_dev.tsv"),
-                output_file_mode: str = typer.Option(default="w"),
-                output_file_reset: bool = typer.Option(default=True),
                 # convert
                 level_major: int = typer.Option(default=0),
                 level_minor: int = typer.Option(default=0),
@@ -532,8 +634,7 @@ class ConvertApp:
                 file=FileOption(
                     home=output_file_home,
                     name=output_file_name.with_suffix(f".seq-v{level_major}.{level_minor}{output_file_name.suffix}"),
-                    mode=output_file_mode,
-                    reset=output_file_reset,
+                    mode="w",
                     strict=True,
                 ),
             )
@@ -582,6 +683,7 @@ class ConvertApp:
 
 
 main.add_typer(ConvertApp.typer(), name="convert")
+main.add_typer(EvaluateApp.typer(), name="evaluate")
 
 if __name__ == "__main__":
     main()
