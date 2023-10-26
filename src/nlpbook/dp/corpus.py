@@ -24,7 +24,6 @@ from nlpbook.arguments import TesterArguments, TrainerArguments
 from nlpbook.metrics import DPResult, DP_UAS_MacroF1, DP_LAS_MacroF1, DP_UAS_MicroF1, DP_LAS_MicroF1
 
 logger = logging.getLogger(__name__)
-main = AppTyper()
 
 
 @dataclass
@@ -414,372 +413,364 @@ class DPParsedExample(DataClassJsonMixin):
         return cls(example_id=example_id, sentence=sentence, words=words)
 
 
-class EvaluateApp:
-    app = AppTyper()
+class CLI:
+    main = AppTyper()
     label_names = DPCorpus.get_dep_labels()
     label_ids = [i for i, _ in enumerate(label_names)]
     label_to_id = {label: i for i, label in enumerate(label_names)}
     id_to_label = {i: label for i, label in enumerate(label_names)}
-
     dp_full_pattern = re.compile("-([0-9]+)(/([A-Z]{1,3}(_[A-Z]{1,3})?))?")
 
-    @classmethod
-    def typer(cls) -> typer.Typer:
+    @dataclass
+    class ConvertOption(OptionData):
+        level_major: int = field()
+        level_minor: int = field()
 
-        @dataclass
-        class EvaluateArguments(IOArguments):
-            refer: InputOption = field()
+    @dataclass
+    class ConvertArguments(IOArguments):
+        convert: CLI.ConvertOption = field()
 
-            def __post_init__(self):
-                super().__post_init__()
+        def __post_init__(self):
+            super().__post_init__()
 
-            def dataframe(self, columns=None) -> pd.DataFrame:
-                if not columns:
-                    columns = [self.data_type, "value"]
-                return pd.concat([
-                    super().dataframe(columns=columns),
-                    to_dataframe(columns=columns, raw=self.refer, data_prefix="refer", data_exclude=["file", "table", "index"]),
-                    to_dataframe(columns=columns, raw=self.refer.file, data_prefix="refer.file") if self.refer.file else None,
-                    to_dataframe(columns=columns, raw=self.refer.table, data_prefix="refer.table") if self.refer.table else None,
-                    to_dataframe(columns=columns, raw=self.refer.index, data_prefix="refer.index") if self.refer.index else None,
-                ]).reset_index(drop=True)
+        def dataframe(self, columns=None) -> pd.DataFrame:
+            if not columns:
+                columns = [self.data_type, "value"]
+            return pd.concat([
+                super().dataframe(columns=columns),
+                to_dataframe(columns=columns, raw=self.convert, data_prefix="convert"),
+            ]).reset_index(drop=True)
 
-        def to_dp_result_v1(words: List[str]) -> DPResult:
-            heads = [-1] * len(words)
-            types = [-1] * len(words)
-            for wi, word in enumerate(words):
-                m = cls.dp_full_pattern.search(word)
-                if m:
-                    head, dep = m.group(1), m.group(3)
-                    dep_id = cls.label_to_id.get(dep, 0) if dep else 0
-                    head_id = int(head)
-                    heads[wi] = head_id
-                    types[wi] = dep_id
-                else:
-                    heads[wi] = 0
-                    types[wi] = 0
-            result = DPResult(torch.tensor(heads), torch.tensor(types))
-            assert result.heads.shape == result.types.shape, f"result.heads.shape != result.types.shape: {result.heads.shape} != {result.types.shape}"
-            return result
+    @dataclass
+    class EvaluateArguments(IOArguments):
+        refer: InputOption = field()
+        convert: CLI.ConvertOption = field()
 
-        @cls.app.callback(invoke_without_command=True)
-        def evaluate(
-                ctx: typer.Context,
-                # env
-                project: str = typer.Option(default="DeepKNLU"),
-                job_name: str = typer.Option(default="evaluate"),
-                output_home: str = typer.Option(default="output"),
-                logging_file: str = typer.Option(default="logging.out"),
-                debugging: bool = typer.Option(default=False),
-                verbose: int = typer.Option(default=3),
-                # data
-                input_inter: int = typer.Option(default=5000),
-                input_file_home: str = typer.Option(default="data"),
-                input_file_name: str = typer.Option(default="klue-dp-pred/infer_klue_dp-v1.3.0.pred"),
-                refer_file_home: str = typer.Option(default="data"),
-                refer_file_name: str = typer.Option(default="klue-dp/klue-dp-v1.1_dev.seq-v1.3.tsv"),
-                output_file_home: str = typer.Option(default="data"),
-                output_file_name: str = typer.Option(default="klue-dp-pred/infer_klue_dp-v1.0.0.eval"),
-        ):
-            if ctx.invoked_subcommand is not None:
-                return
-            env = ProjectEnv(
-                project=project,
-                job_name=job_name,
-                debugging=debugging,
-                output_home=output_home,
-                logging_file=logging_file,
-                msg_level=logging.DEBUG if debugging else logging.INFO,
-                msg_format=LoggingFormat.DEBUG_48 if debugging else LoggingFormat.CHECK_24,
-            )
-            input_opt = InputOption(
-                inter=input_inter,
-                file=FileOption(
-                    home=input_file_home,
-                    name=input_file_name,
-                    mode="r",
-                    strict=True,
-                ),
-            )
-            refer_opt = InputOption(
-                file=FileOption(
-                    home=refer_file_home,
-                    name=refer_file_name,
-                    mode="r",
-                    strict=True,
-                ),
-            )
-            output_opt = OutputOption(
-                file=FileOption(
-                    home=output_file_home,
-                    name=output_file_name,
-                    mode="w",
-                    strict=True,
-                ),
-            )
-            args = EvaluateArguments(
-                env=env,
-                input=input_opt,
-                refer=refer_opt,
-                output=output_opt,
-            )
-            tqdm = mute_tqdm_cls()
-            assert args.input.file, "input.file is required"
-            assert args.refer.file, "refer.file is required"
-            assert args.output.file, "output.file is required"
+        def __post_init__(self):
+            super().__post_init__()
 
-            if verbose < 1:
-                logging.getLogger("chrisbase.data").setLevel(logging.WARNING)
-            with (
-                JobTimer(f"python {args.env.current_file} {' '.join(args.env.command_args)}",
-                         rt=1, rb=1, rc='=', verbose=verbose > 1, args=args if debugging or verbose > 2 else None),
-                FileStreamer(args.input.file) as input_file,
-                FileStreamer(args.refer.file) as refer_file,
-                FileStreamer(args.output.file) as output_file,
-            ):
-                input_items = [x.strip() for x in input_file.path.read_text().split("Dependency Relations: ") if len(x.strip()) > 0]
-                refer_items = [x.replace("<BR>", "\n").strip() for x in [x.split("Dependency Relations: ")[1] for x in refer_file] if len(x.strip()) > 0]
-                logger.info(f"Load {len(input_items)} items from [{input_file.opt}]")
-                logger.info(f"Load {len(refer_items)} items from [{refer_file.opt}]")
-                assert len(input_items) == len(refer_items), f"Length of input_items and refer_items are different: {len(input_items)} != {len(refer_items)}"
-                progress, interval = (
-                    tqdm(zip(input_items, refer_items), total=len(input_items), unit="item", pre="*", desc="evaluating"),
-                    args.input.inter,
-                )
+        def dataframe(self, columns=None) -> pd.DataFrame:
+            if not columns:
+                columns = [self.data_type, "value"]
+            return pd.concat([
+                super().dataframe(columns=columns),
+                to_dataframe(columns=columns, raw=self.refer, data_prefix="refer", data_exclude=["file", "table", "index"]),
+                to_dataframe(columns=columns, raw=self.refer.file, data_prefix="refer.file") if self.refer.file else None,
+                to_dataframe(columns=columns, raw=self.refer.table, data_prefix="refer.table") if self.refer.table else None,
+                to_dataframe(columns=columns, raw=self.refer.index, data_prefix="refer.index") if self.refer.index else None,
+                to_dataframe(columns=columns, raw=self.convert, data_prefix="convert"),
+            ]).reset_index(drop=True)
 
-                golds, preds = [], []
-                gold_heads, pred_heads = [], []
-                gold_types, pred_types = [], []
-                num_shorter, num_longer = 0, 0
-                for i, (a, b) in enumerate(progress):
-                    if i > 0 and i % interval == 0:
-                        logger.info(progress)
-                    pred_words = a.strip().splitlines()[0].split("▁")
-                    gold_words = b.strip().splitlines()[0].split("▁")
-                    if len(pred_words) < len(gold_words):
-                        num_shorter += 1
-                        continue
-                        # logger.warning(f"[{i:04d}] Shorter pred_words({len(pred_words)}): {pred_words}")
-                        # logger.warning(f"[{i:04d}]         gold_words({len(gold_words)}): {gold_words}")
-                        # pred_words = pred_words + (
-                        #         [pred_words[-1]] * (len(gold_words) - len(pred_words))
-                        # )
-                        # logger.warning(f"[{i:04d}]      -> pred_words({len(pred_words)}): {pred_words}")
-                    if len(pred_words) > len(gold_words):
-                        num_longer += 1
-                        continue
-                        # logger.warning(f"[{i:04d}]  Longer pred_words({len(pred_words)}): {pred_words}")
-                        # logger.warning(f"[{i:04d}]         gold_words({len(gold_words)}): {gold_words}")
-                        # pred_words = pred_words[:len(gold_words)]
-                        # logger.warning(f"[{i:04d}]      -> pred_words({len(pred_words)}): {pred_words}")
-                    assert len(pred_words) == len(gold_words), f"Length of pred_words and gold_words are different: {len(pred_words)} != {len(gold_words)}"
-                    pred_res = to_dp_result_v1(pred_words)
-                    gold_res = to_dp_result_v1(gold_words)
-                    print(f"gold_res({'x'.join(map(str, gold_res.heads.shape))}): {gold_res}")
-                    print(f"test_res({'x'.join(map(str, pred_res.heads.shape))}): {pred_res}")
-                    print()
-                    assert gold_res.heads.shape == pred_res.heads.shape, f"gold_res.heads.shape != pred_res.heads.shape: {gold_res.heads.shape} != {pred_res.heads.shape}"
-                    assert gold_res.types.shape == pred_res.types.shape, f"gold_res.types.shape != pred_res.types.shape: {gold_res.types.shape} != {pred_res.types.shape}"
-                    golds.append(gold_res)
-                    preds.append(pred_res)
-                    gold_types.extend(gold_res.types.tolist())
-                    pred_types.extend(pred_res.types.tolist())
-                    gold_heads.extend(gold_res.heads.tolist())
-                    pred_heads.extend(pred_res.heads.tolist())
-                logger.info(progress)
-                assert len(golds) == len(preds), f"Length of golds and preds are different: {len(golds)} != {len(preds)}"
+    @staticmethod
+    def to_str(s: StringIO):
+        s.seek(0)
+        return s.read().replace("\n", "<BR>")
 
-                res1 = classification_report(gold_types, pred_types, labels=cls.label_ids, target_names=cls.label_names, digits=4, zero_division=1)
-                logger.info(hr(c='-'))
-                for line in res1.splitlines():
-                    logger.info(line)
-                res2 = classification_report(gold_heads, pred_heads, digits=4, zero_division=1)
-                logger.info(hr(c='-'))
-                for line in res2.splitlines():
-                    logger.info(line)
-                logger.info(hr(c='-'))
+    @staticmethod
+    def to_seq1(example: DPParsedExample, level: int):
+        assert level < 2, f"Unsupported seq1 level: {level}"
+        with StringIO() as s:
+            print("Task: Dependency Parsing", file=s)
+            print('', file=s)
+            print(f"Input: {' '.join(word['form'] for word in example.words[1:])}", file=s)
+            if level < 1:
+                return CLI.to_str(s)
 
-                DP_UAS_MacroF1.reset()
-                DP_LAS_MacroF1.reset()
-                DP_UAS_MicroF1.reset()
-                DP_LAS_MicroF1.reset()
-                DP_UAS_MacroF1.update(preds, golds)
-                DP_LAS_MacroF1.update(preds, golds)
-                DP_UAS_MicroF1.update(preds, golds)
-                DP_LAS_MicroF1.update(preds, golds)
-                logger.info(f"#evaluated_cases: #{len(preds)}")
-                logger.info(f"- DP UASa = {DP_UAS_MacroF1.compute():.4f}")
-                logger.info(f"- DP LASa = {DP_LAS_MacroF1.compute():.4f}")
-                logger.info(f"- DP UASi = {DP_UAS_MicroF1.compute():.4f}")
-                logger.info(f"- DP LASi = {DP_LAS_MicroF1.compute():.4f}")
+            units1 = []
+            for word in example.words[1:]:
+                ls = word["lemma"].split(" ")
+                ps = word["pos"].split("+")
+                unit1 = f"{word['id']}/{word['form']}/{len(word['form'])}/{word['lemma']}/{ls[0]}:{ps[0]}/" + (f"{ls[-1]}:{ps[-1]}" if len(ps) > 1 else "NONE")
+                units1.append(unit1)
+            print(f"Lemmas: {LF.join(units1)}", end='', file=s)
+            if level < 2:
+                return CLI.to_str(s)
 
-        return cls.app
-
-
-class ConvertApp:
-    app = AppTyper()
-
-    @classmethod
-    def typer(cls) -> typer.Typer:
-
-        @dataclass
-        class ConvertOption(OptionData):
-            level_major: int = field()
-            level_minor: int = field()
-
-        @dataclass
-        class ConvertArguments(IOArguments):
-            convert: ConvertOption = field()
-
-            def __post_init__(self):
-                super().__post_init__()
-
-            def dataframe(self, columns=None) -> pd.DataFrame:
-                if not columns:
-                    columns = [self.data_type, "value"]
-                return pd.concat([
-                    super().dataframe(columns=columns),
-                    to_dataframe(columns=columns, raw=self.convert, data_prefix="convert"),
-                ]).reset_index(drop=True)
-
-        def to_str(s: StringIO):
-            s.seek(0)
-            return s.read().replace("\n", "<BR>")
-
-        def to_seq1(example: DPParsedExample, level: int):
-            assert level < 2, f"Unsupported seq1 level: {level}"
-            with StringIO() as s:
-                print("Task: Dependency Parsing", file=s)
-                print('', file=s)
-                print(f"Input: {' '.join(word['form'] for word in example.words[1:])}", file=s)
+    @staticmethod
+    def to_seq2(example: DPParsedExample, level: int):
+        assert level < 4, f"Unsupported seq2 level: {level}"
+        with (StringIO() as s):
+            units2 = []
+            for word in example.words[1:]:
                 if level < 1:
-                    return to_str(s)
+                    unit2 = f"{word['head']}/{word['label']}"
+                elif level < 2:
+                    unit2 = f"{example.words[word['head']]['form']}-{word['head']}/{word['label']}"
+                elif level < 3:
+                    d = f"{word['form']}-{word['id']}"
+                    h = f"{example.words[word['head']]['form']}-{word['head']}"
+                    unit2 = f"{word['label']}({d}, {h})"
+                elif level < 4:
+                    unit2 = f"({word['id']}/{len(word['form'])}, {word['head']}, {word['label']})"
+                units2.append(unit2)
+            print(f"Dependency Relations: {'▁'.join(units2)}", file=s)
+            print(f"Word Count: {len(example.words) - 1}", file=s)
+            return CLI.to_str(s)
 
-                units1 = []
-                for word in example.words[1:]:
-                    ls = word["lemma"].split(" ")
-                    ps = word["pos"].split("+")
-                    unit1 = f"{word['id']}/{word['form']}/{len(word['form'])}/{word['lemma']}/{ls[0]}:{ps[0]}/" + (f"{ls[-1]}:{ps[-1]}" if len(ps) > 1 else "NONE")
-                    units1.append(unit1)
-                print(f"Lemmas: {LF.join(units1)}", end='', file=s)
-                if level < 2:
-                    return to_str(s)
+    @staticmethod
+    @main.command()
+    def convert(
+            # env
+            project: str = typer.Option(default="DeepKNLU"),
+            job_name: str = typer.Option(default="convert"),
+            output_home: str = typer.Option(default="output"),
+            logging_file: str = typer.Option(default="logging.out"),
+            debugging: bool = typer.Option(default=False),
+            verbose: int = typer.Option(default=0),
+            # data
+            input_inter: int = typer.Option(default=5000),
+            input_file_home: str = typer.Option(default="data"),
+            input_file_name: str = typer.Option(default="klue-dp-mini/klue-dp-v1.1_dev.tsv"),
+            output_file_home: str = typer.Option(default="data"),
+            output_file_name: str = typer.Option(default="klue-dp-mini/klue-dp-v1.1_dev.tsv"),
+            # convert
+            level_major: int = typer.Option(default=0),
+            level_minor: int = typer.Option(default=0),
+    ):
+        env = ProjectEnv(
+            project=project,
+            job_name=job_name,
+            debugging=debugging,
+            output_home=output_home,
+            logging_file=logging_file,
+            msg_level=logging.DEBUG if debugging else logging.INFO,
+            msg_format=LoggingFormat.DEBUG_48 if debugging else LoggingFormat.CHECK_24,
+        )
+        input_opt = InputOption(
+            inter=input_inter,
+            file=FileOption(
+                home=input_file_home,
+                name=input_file_name,
+                mode="r",
+                strict=True,
+            ),
+        )
+        output_file_name = Path(output_file_name)
+        output_opt = OutputOption(
+            file=FileOption(
+                home=output_file_home,
+                name=output_file_name.with_suffix(f".seq-v{level_major}.{level_minor}{output_file_name.suffix}"),
+                mode="w",
+                strict=True,
+            ),
+        )
+        convert_opt = CLI.ConvertOption(
+            level_major=level_major,
+            level_minor=level_minor,
+        )
+        args = CLI.ConvertArguments(
+            env=env,
+            input=input_opt,
+            output=output_opt,
+            convert=convert_opt,
+        )
+        tqdm = mute_tqdm_cls()
+        assert args.input.file, "input.file is required"
+        assert args.output.file, "output.file is required"
 
-        def to_seq2(example: DPParsedExample, level: int):
-            assert level < 4, f"Unsupported seq2 level: {level}"
-            with (StringIO() as s):
-                units2 = []
-                for word in example.words[1:]:
-                    if level < 1:
-                        unit2 = f"{word['head']}/{word['label']}"
-                    elif level < 2:
-                        unit2 = f"{example.words[word['head']]['form']}-{word['head']}/{word['label']}"
-                    elif level < 3:
-                        d = f"{word['form']}-{word['id']}"
-                        h = f"{example.words[word['head']]['form']}-{word['head']}"
-                        unit2 = f"{word['label']}({d}, {h})"
-                    elif level < 4:
-                        unit2 = f"({word['id']}/{len(word['form'])}, {word['head']}, {word['label']})"
-                    units2.append(unit2)
-                print(f"Dependency Relations: {'▁'.join(units2)}", file=s)
-                print(f"Word Count: {len(example.words) - 1}", file=s)
-                return to_str(s)
-
-        @cls.app.callback(invoke_without_command=True)
-        def convert(
-                ctx: typer.Context,
-                # env
-                project: str = typer.Option(default="DeepKNLU"),
-                job_name: str = typer.Option(default="convert"),
-                output_home: str = typer.Option(default="output"),
-                logging_file: str = typer.Option(default="logging.out"),
-                debugging: bool = typer.Option(default=False),
-                verbose: int = typer.Option(default=0),
-                # data
-                input_inter: int = typer.Option(default=5000),
-                input_file_home: str = typer.Option(default="data"),
-                input_file_name: str = typer.Option(default="klue-dp-mini/klue-dp-v1.1_dev.tsv"),
-                output_file_home: str = typer.Option(default="data"),
-                output_file_name: str = typer.Option(default="klue-dp-mini/klue-dp-v1.1_dev.tsv"),
-                # convert
-                level_major: int = typer.Option(default=0),
-                level_minor: int = typer.Option(default=0),
+        if verbose < 1:
+            logging.getLogger("chrisbase.data").setLevel(logging.WARNING)
+        with (
+            JobTimer(f"python {args.env.current_file} {' '.join(args.env.command_args)}",
+                     rt=1, rb=1, rc='=', verbose=verbose > 1, args=args if debugging or verbose > 2 else None),
+            FileStreamer(args.input.file) as input_file,
+            FileStreamer(args.output.file) as output_file,
         ):
-            if ctx.invoked_subcommand is not None:
-                return
-            env = ProjectEnv(
-                project=project,
-                job_name=job_name,
-                debugging=debugging,
-                output_home=output_home,
-                logging_file=logging_file,
-                msg_level=logging.DEBUG if debugging else logging.INFO,
-                msg_format=LoggingFormat.DEBUG_48 if debugging else LoggingFormat.CHECK_24,
+            input_file.path.read_text()
+            input_chunks = [x for x in input_file.path.read_text().split("\n\n") if len(x.strip()) > 0]
+            logger.info(f"Load {len(input_chunks)} sentences from [{input_file.opt}]")
+            progress, interval = (
+                tqdm(input_chunks, total=len(input_chunks), unit="sent", pre="*", desc="converting"),
+                args.input.inter,
             )
-            input_opt = InputOption(
-                inter=input_inter,
-                file=FileOption(
-                    home=input_file_home,
-                    name=input_file_name,
-                    mode="r",
-                    strict=True,
-                ),
-            )
-            output_file_name = Path(output_file_name)
-            output_opt = OutputOption(
-                file=FileOption(
-                    home=output_file_home,
-                    name=output_file_name.with_suffix(f".seq-v{level_major}.{level_minor}{output_file_name.suffix}"),
-                    mode="w",
-                    strict=True,
-                ),
-            )
-            convert_opt = ConvertOption(
-                level_major=level_major,
-                level_minor=level_minor,
-            )
-            args = ConvertArguments(
-                env=env,
-                input=input_opt,
-                output=output_opt,
-                convert=convert_opt,
-            )
-            tqdm = mute_tqdm_cls()
-            assert args.input.file, "input.file is required"
-            assert args.output.file, "output.file is required"
+            num_output = 0
+            for i, x in enumerate(progress):
+                if i > 0 and i % interval == 0:
+                    logger.info(progress)
+                example = DPParsedExample.from_tsv(x)
+                seq1 = CLI.to_seq1(example, args.convert.level_major)
+                seq2 = CLI.to_seq2(example, args.convert.level_minor)
+                output_file.fp.write(seq1 + "\t" + seq2 + "\n")
+                num_output += 1
+            logger.info(progress)
+            logger.info(f"Saved {num_output} sequence pairs to [{output_file.opt}]")
 
-            if verbose < 1:
-                logging.getLogger("chrisbase.data").setLevel(logging.WARNING)
-            with (
-                JobTimer(f"python {args.env.current_file} {' '.join(args.env.command_args)}",
-                         rt=1, rb=1, rc='=', verbose=verbose > 1, args=args if debugging or verbose > 2 else None),
-                FileStreamer(args.input.file) as input_file,
-                FileStreamer(args.output.file) as output_file,
-            ):
-                input_file.path.read_text()
-                input_chunks = [x for x in input_file.path.read_text().split("\n\n") if len(x.strip()) > 0]
-                logger.info(f"Load {len(input_chunks)} sentences from [{input_file.opt}]")
-                progress, interval = (
-                    tqdm(input_chunks, total=len(input_chunks), unit="sent", pre="*", desc="converting"),
-                    args.input.inter,
-                )
-                num_output = 0
-                for i, x in enumerate(progress):
-                    if i > 0 and i % interval == 0:
-                        logger.info(progress)
-                    example = DPParsedExample.from_tsv(x)
-                    seq1 = to_seq1(example, args.convert.level_major)
-                    seq2 = to_seq2(example, args.convert.level_minor)
-                    output_file.fp.write(seq1 + "\t" + seq2 + "\n")
-                    num_output += 1
-                logger.info(progress)
-                logger.info(f"Saved {num_output} sequence pairs to [{output_file.opt}]")
+    @staticmethod
+    def to_dp_result_v1(words: List[str]) -> DPResult:
+        heads = [-1] * len(words)
+        types = [-1] * len(words)
+        for wi, word in enumerate(words):
+            m = CLI.dp_full_pattern.search(word)
+            if m:
+                head, dep = m.group(1), m.group(3)
+                dep_id = CLI.label_to_id.get(dep, 0) if dep else 0
+                head_id = int(head)
+                heads[wi] = head_id
+                types[wi] = dep_id
+            else:
+                heads[wi] = 0
+                types[wi] = 0
+        result = DPResult(torch.tensor(heads), torch.tensor(types))
+        assert result.heads.shape == result.types.shape, f"result.heads.shape != result.types.shape: {result.heads.shape} != {result.types.shape}"
+        return result
 
-        return cls.app
+    @staticmethod
+    @main.command()
+    def evaluate(
+            # env
+            project: str = typer.Option(default="DeepKNLU"),
+            job_name: str = typer.Option(default="evaluate"),
+            output_home: str = typer.Option(default="output"),
+            logging_file: str = typer.Option(default="logging.out"),
+            debugging: bool = typer.Option(default=False),
+            verbose: int = typer.Option(default=3),
+            # data
+            input_inter: int = typer.Option(default=5000),
+            input_file_home: str = typer.Option(default="data"),
+            input_file_name: str = typer.Option(default="klue-dp-pred/infer_klue_dp-v1.1.0.pred"),
+            refer_file_home: str = typer.Option(default="data"),
+            refer_file_name: str = typer.Option(default="klue-dp/klue-dp-v1.1_dev.seq-v1.1.tsv"),
+            output_file_home: str = typer.Option(default="data"),
+            output_file_name: str = typer.Option(default="klue-dp-pred/infer_klue_dp-v1.1.0.eval"),
+            # convert
+            level_major: int = typer.Option(default=0),
+            level_minor: int = typer.Option(default=1),
+    ):
+        env = ProjectEnv(
+            project=project,
+            job_name=job_name,
+            debugging=debugging,
+            output_home=output_home,
+            logging_file=logging_file,
+            msg_level=logging.DEBUG if debugging else logging.INFO,
+            msg_format=LoggingFormat.DEBUG_48 if debugging else LoggingFormat.CHECK_24,
+        )
+        input_opt = InputOption(
+            inter=input_inter,
+            file=FileOption(
+                home=input_file_home,
+                name=input_file_name,
+                mode="r",
+                strict=True,
+            ),
+        )
+        refer_opt = InputOption(
+            file=FileOption(
+                home=refer_file_home,
+                name=refer_file_name,
+                mode="r",
+                strict=True,
+            ),
+        )
+        output_opt = OutputOption(
+            file=FileOption(
+                home=output_file_home,
+                name=output_file_name,
+                mode="w",
+                strict=True,
+            ),
+        )
+        convert_opt = CLI.ConvertOption(
+            level_major=level_major,
+            level_minor=level_minor,
+        )
+        args = CLI.EvaluateArguments(
+            env=env,
+            input=input_opt,
+            refer=refer_opt,
+            output=output_opt,
+            convert=convert_opt,
+        )
+        tqdm = mute_tqdm_cls()
+        assert args.input.file, "input.file is required"
+        assert args.refer.file, "refer.file is required"
+        assert args.output.file, "output.file is required"
 
+        if verbose < 1:
+            logging.getLogger("chrisbase.data").setLevel(logging.WARNING)
+        with (
+            JobTimer(f"python {args.env.current_file} {' '.join(args.env.command_args)}",
+                     rt=1, rb=1, rc='=', verbose=verbose > 1, args=args if debugging or verbose > 2 else None),
+            FileStreamer(args.input.file) as input_file,
+            FileStreamer(args.refer.file) as refer_file,
+            FileStreamer(args.output.file) as output_file,
+        ):
+            input_items = [x.strip() for x in input_file.path.read_text().split("Dependency Relations: ") if len(x.strip()) > 0]
+            refer_items = [x.replace("<BR>", "\n").strip() for x in [x.split("Dependency Relations: ")[1] for x in refer_file] if len(x.strip()) > 0]
+            logger.info(f"Load {len(input_items)} items from [{input_file.opt}]")
+            logger.info(f"Load {len(refer_items)} items from [{refer_file.opt}]")
+            assert len(input_items) == len(refer_items), f"Length of input_items and refer_items are different: {len(input_items)} != {len(refer_items)}"
+            progress, interval = (
+                tqdm(zip(input_items, refer_items), total=len(input_items), unit="item", pre="*", desc="evaluating"),
+                args.input.inter,
+            )
 
-main.add_typer(ConvertApp.typer(), name="convert")
-main.add_typer(EvaluateApp.typer(), name="evaluate")
+            golds, preds = [], []
+            gold_heads, pred_heads = [], []
+            gold_types, pred_types = [], []
+            num_shorter, num_longer = 0, 0
+            for i, (a, b) in enumerate(progress):
+                if i > 0 and i % interval == 0:
+                    logger.info(progress)
+                pred_words = a.strip().splitlines()[0].split("▁")
+                gold_words = b.strip().splitlines()[0].split("▁")
+                if len(pred_words) < len(gold_words):
+                    num_shorter += 1
+                    continue
+                    # logger.warning(f"[{i:04d}] Shorter pred_words({len(pred_words)}): {pred_words}")
+                    # logger.warning(f"[{i:04d}]         gold_words({len(gold_words)}): {gold_words}")
+                    # pred_words = pred_words + (
+                    #         [pred_words[-1]] * (len(gold_words) - len(pred_words))
+                    # )
+                    # logger.warning(f"[{i:04d}]      -> pred_words({len(pred_words)}): {pred_words}")
+                if len(pred_words) > len(gold_words):
+                    num_longer += 1
+                    continue
+                    # logger.warning(f"[{i:04d}]  Longer pred_words({len(pred_words)}): {pred_words}")
+                    # logger.warning(f"[{i:04d}]         gold_words({len(gold_words)}): {gold_words}")
+                    # pred_words = pred_words[:len(gold_words)]
+                    # logger.warning(f"[{i:04d}]      -> pred_words({len(pred_words)}): {pred_words}")
+                assert len(pred_words) == len(gold_words), f"Length of pred_words and gold_words are different: {len(pred_words)} != {len(gold_words)}"
+                pred_res = CLI.to_dp_result_v1(pred_words)
+                gold_res = CLI.to_dp_result_v1(gold_words)
+                print(f"gold_res({'x'.join(map(str, gold_res.heads.shape))}): {gold_res}")
+                print(f"test_res({'x'.join(map(str, pred_res.heads.shape))}): {pred_res}")
+                print()
+                assert gold_res.heads.shape == pred_res.heads.shape, f"gold_res.heads.shape != pred_res.heads.shape: {gold_res.heads.shape} != {pred_res.heads.shape}"
+                assert gold_res.types.shape == pred_res.types.shape, f"gold_res.types.shape != pred_res.types.shape: {gold_res.types.shape} != {pred_res.types.shape}"
+                golds.append(gold_res)
+                preds.append(pred_res)
+                gold_types.extend(gold_res.types.tolist())
+                pred_types.extend(pred_res.types.tolist())
+                gold_heads.extend(gold_res.heads.tolist())
+                pred_heads.extend(pred_res.heads.tolist())
+            logger.info(progress)
+            assert len(golds) == len(preds), f"Length of golds and preds are different: {len(golds)} != {len(preds)}"
+
+            res1 = classification_report(gold_types, pred_types, labels=CLI.label_ids, target_names=CLI.label_names, digits=4, zero_division=1)
+            logger.info(hr(c='-'))
+            for line in res1.splitlines():
+                logger.info(line)
+            res2 = classification_report(gold_heads, pred_heads, digits=4, zero_division=1)
+            logger.info(hr(c='-'))
+            for line in res2.splitlines():
+                logger.info(line)
+            logger.info(hr(c='-'))
+
+            DP_UAS_MacroF1.reset()
+            DP_LAS_MacroF1.reset()
+            DP_UAS_MicroF1.reset()
+            DP_LAS_MicroF1.reset()
+            DP_UAS_MacroF1.update(preds, golds)
+            DP_LAS_MacroF1.update(preds, golds)
+            DP_UAS_MicroF1.update(preds, golds)
+            DP_LAS_MicroF1.update(preds, golds)
+            logger.info(f"#evaluated_cases: #{len(preds)}")
+            logger.info(f"- DP UASa = {DP_UAS_MacroF1.compute():.4f}")
+            logger.info(f"- DP LASa = {DP_LAS_MacroF1.compute():.4f}")
+            logger.info(f"- DP UASi = {DP_UAS_MicroF1.compute():.4f}")
+            logger.info(f"- DP LASi = {DP_LAS_MicroF1.compute():.4f}")
+
 
 if __name__ == "__main__":
-    main()
+    CLI.main()
