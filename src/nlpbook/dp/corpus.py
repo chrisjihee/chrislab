@@ -420,6 +420,7 @@ class CLI:
     label_to_id = {label: i for i, label in enumerate(label_names)}
     id_to_label = {i: label for i, label in enumerate(label_names)}
     dp_v1_pattern = re.compile("-([0-9]+)(/([A-Z]{1,3}(_[A-Z]{1,3})?))?")
+    dp_v2_pattern = re.compile("([A-Z]{1,3}(_[A-Z]{1,3})?)\([^ ]+-([0-9]+), [^ ]+-([0-9]+)\)")
     dp_v3_pattern = re.compile("\([0-9]+/[0-9]+, ([0-9]+), ([A-Z]{1,3}(_[A-Z]{1,3})?)\)")
 
     @dataclass
@@ -610,7 +611,22 @@ class CLI:
             for i, x in enumerate(words):
                 m = CLI.dp_v1_pattern.search(x)
                 if m:
-                    head, dep = m.group(1), m.group(3)
+                    dep = m.group(3)
+                    head = m.group(1)
+                    dep_id = CLI.label_to_id.get(dep, 0) if dep else 0
+                    head_id = int(head)
+                    heads[i] = head_id
+                    types[i] = dep_id
+                else:
+                    heads[i] = 0
+                    types[i] = 0
+            result = DPResult(torch.tensor(heads), torch.tensor(types))
+        elif convert.level_minor == 2:
+            for i, x in enumerate(words):
+                m = CLI.dp_v2_pattern.search(x)
+                if m:
+                    dep = m.group(1)
+                    head = m.group(4)
                     dep_id = CLI.label_to_id.get(dep, 0) if dep else 0
                     head_id = int(head)
                     heads[i] = head_id
@@ -623,7 +639,8 @@ class CLI:
             for i, x in enumerate(words):
                 m = CLI.dp_v3_pattern.search(x)
                 if m:
-                    head, dep = m.group(1), m.group(2)
+                    dep = m.group(2)
+                    head = m.group(1)
                     dep_id = CLI.label_to_id.get(dep, 0) if dep else 0
                     head_id = int(head)
                     heads[i] = head_id
@@ -650,16 +667,16 @@ class CLI:
             # data
             input_inter: int = typer.Option(default=5000),
             input_file_home: str = typer.Option(default="data"),
-            input_file_name: str = typer.Option(default="klue-dp-pred/infer_klue_dp-v1.3.0.pred"),
+            input_file_name: str = typer.Option(default="klue-dp-pred/infer_klue_dp-v1.2.0.pred"),
             refer_file_home: str = typer.Option(default="data"),
-            refer_file_name: str = typer.Option(default="klue-dp/klue-dp-v1.1_dev.seq-v1.3.tsv"),
+            refer_file_name: str = typer.Option(default="klue-dp/klue-dp-v1.1_dev.seq-v1.2.tsv"),
             output_file_home: str = typer.Option(default="data"),
-            output_file_name: str = typer.Option(default="klue-dp-pred/infer_klue_dp-v1.3.0.eval"),
+            output_file_name: str = typer.Option(default="klue-dp-pred/infer_klue_dp-v1.2.0.eval"),
             # convert
             level_major: int = typer.Option(default=0),
-            level_minor: int = typer.Option(default=3),
+            level_minor: int = typer.Option(default=2),
             # evaluate
-            skip_longer: bool = typer.Option(default=False),
+            skip_longer: bool = typer.Option(default=True),
             skip_shorter: bool = typer.Option(default=True),
     ):
         env = ProjectEnv(
