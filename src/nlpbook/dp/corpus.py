@@ -419,9 +419,12 @@ class CLI:
     label_ids = [i for i, _ in enumerate(label_names)]
     label_to_id = {label: i for i, label in enumerate(label_names)}
     id_to_label = {i: label for i, label in enumerate(label_names)}
-    dp_v1_pattern = re.compile("-([0-9]+)(/([A-Z]{1,3}(_[A-Z]{1,3})?))?")
-    dp_v2_pattern = re.compile("([A-Z]{1,3}(_[A-Z]{1,3})?)\([^ ]+-([0-9]+), [^ ]+-([0-9]+)\)")
-    dp_v3_pattern = re.compile("\([0-9]+/[0-9]+, ([0-9]+), ([A-Z]{1,3}(_[A-Z]{1,3})?)\)")
+    label_regex = {
+        0: {"pattern": re.compile("([0-9]+)/([A-Z]{1,3}(_[A-Z]{1,3})?)"), "dep": 2, "head": 1, },
+        1: {"pattern": re.compile("[^ ]+-([0-9]+)/([A-Z]{1,3}(_[A-Z]{1,3})?)"), "dep": 2, "head": 1, },
+        2: {"pattern": re.compile("([A-Z]{1,3}(_[A-Z]{1,3})?)\([^ ]+-([0-9]+), [^ ]+-([0-9]+)\)"), "dep": 1, "head": 4, },
+        3: {"pattern": re.compile("\([0-9]+/[0-9]+, ([0-9]+), ([A-Z]{1,3}(_[A-Z]{1,3})?)\)"), "dep": 2, "head": 1, },
+    }
 
     @dataclass
     class ConvertOption(OptionData):
@@ -607,50 +610,21 @@ class CLI:
     def to_dp_result(words: List[str], convert: CLI.ConvertOption) -> DPResult:
         heads = [-1] * len(words)
         types = [-1] * len(words)
-        if convert.level_minor == 1:
-            for i, x in enumerate(words):
-                m = CLI.dp_v1_pattern.search(x)
-                if m:
-                    dep = m.group(3)
-                    head = m.group(1)
-                    dep_id = CLI.label_to_id.get(dep, 0) if dep else 0
-                    head_id = int(head)
-                    heads[i] = head_id
-                    types[i] = dep_id
-                else:
-                    heads[i] = 0
-                    types[i] = 0
-            result = DPResult(torch.tensor(heads), torch.tensor(types))
-        elif convert.level_minor == 2:
-            for i, x in enumerate(words):
-                m = CLI.dp_v2_pattern.search(x)
-                if m:
-                    dep = m.group(1)
-                    head = m.group(4)
-                    dep_id = CLI.label_to_id.get(dep, 0) if dep else 0
-                    head_id = int(head)
-                    heads[i] = head_id
-                    types[i] = dep_id
-                else:
-                    heads[i] = 0
-                    types[i] = 0
-            result = DPResult(torch.tensor(heads), torch.tensor(types))
-        elif convert.level_minor == 3:
-            for i, x in enumerate(words):
-                m = CLI.dp_v3_pattern.search(x)
-                if m:
-                    dep = m.group(2)
-                    head = m.group(1)
-                    dep_id = CLI.label_to_id.get(dep, 0) if dep else 0
-                    head_id = int(head)
-                    heads[i] = head_id
-                    types[i] = dep_id
-                else:
-                    heads[i] = 0
-                    types[i] = 0
-            result = DPResult(torch.tensor(heads), torch.tensor(types))
-        else:
-            raise NotImplementedError(f"Unsupported convert option: {convert}")
+        assert convert.level_minor in CLI.label_regex, f"Unsupported convert option: {convert}"
+        regex = CLI.label_regex[convert.level_minor]
+        for i, x in enumerate(words):
+            m = regex["pattern"].search(x)
+            if m:
+                dep = m.group(regex["dep"])
+                head = m.group(regex["head"])
+                dep_id = CLI.label_to_id.get(dep, 0) if dep else 0
+                head_id = int(head)
+                heads[i] = head_id
+                types[i] = dep_id
+            else:
+                heads[i] = 0
+                types[i] = 0
+        result = DPResult(torch.tensor(heads), torch.tensor(types))
         assert result.heads.shape == result.types.shape, f"result.heads.shape != result.types.shape: {result.heads.shape} != {result.types.shape}"
         return result
 
@@ -662,7 +636,7 @@ class CLI:
             job_name: str = typer.Option(default="evaluate"),
             output_home: str = typer.Option(default="output"),
             logging_file: str = typer.Option(default="logging.out"),
-            debugging: bool = typer.Option(default=False),
+            debugging: bool = typer.Option(default=True),
             verbose: int = typer.Option(default=3),
             # data
             input_inter: int = typer.Option(default=5000),
@@ -673,7 +647,7 @@ class CLI:
             output_file_home: str = typer.Option(default="data"),
             output_file_name: str = typer.Option(default="klue-dp-pred/infer_klue_dp-v1.2.0.eval"),
             # convert
-            level_major: int = typer.Option(default=0),
+            level_major: int = typer.Option(default=1),
             level_minor: int = typer.Option(default=2),
             # evaluate
             skip_longer: bool = typer.Option(default=True),
