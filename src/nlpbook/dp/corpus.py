@@ -11,6 +11,7 @@ import pandas as pd
 import torch
 import typer
 from dataclasses_json import DataClassJsonMixin
+from sklearn.metrics import classification_report
 from torch.utils.data.dataset import Dataset
 from transformers import PreTrainedTokenizerFast, BatchEncoding
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
@@ -20,6 +21,7 @@ from chrisbase.io import hr, LoggingFormat
 from chrisbase.util import mute_tqdm_cls, LF
 from chrisbase.util import to_dataframe
 from nlpbook.arguments import TesterArguments, TrainerArguments
+from nlpbook.metrics import DPResult, DP_UAS_MacroF1, DP_LAS_MacroF1, DP_UAS_MicroF1, DP_LAS_MicroF1
 
 logger = logging.getLogger(__name__)
 main = AppTyper()
@@ -414,6 +416,12 @@ class DPParsedExample(DataClassJsonMixin):
 
 class EvaluateApp:
     app = AppTyper()
+    label_names = DPCorpus.get_dep_labels()
+    label_ids = [i for i, _ in enumerate(label_names)]
+    label_to_id = {label: i for i, label in enumerate(label_names)}
+    id_to_label = {i: label for i, label in enumerate(label_names)}
+
+    dp_full_pattern = re.compile("-([0-9]+)(/([A-Z]{1,3}(_[A-Z]{1,3})?))?")
 
     @classmethod
     def typer(cls) -> typer.Typer:
@@ -436,6 +444,24 @@ class EvaluateApp:
                     to_dataframe(columns=columns, raw=self.refer.index, data_prefix="refer.index") if self.refer.index else None,
                 ]).reset_index(drop=True)
 
+        def to_dp_result_v1(words: List[str]) -> DPResult:
+            heads = [-1] * len(words)
+            types = [-1] * len(words)
+            for wi, word in enumerate(words):
+                m = cls.dp_full_pattern.search(word)
+                if m:
+                    head, dep = m.group(1), m.group(3)
+                    dep_id = cls.label_to_id.get(dep, 0) if dep else 0
+                    head_id = int(head)
+                    heads[wi] = head_id
+                    types[wi] = dep_id
+                else:
+                    heads[wi] = 0
+                    types[wi] = 0
+            result = DPResult(torch.tensor(heads), torch.tensor(types))
+            assert result.heads.shape == result.types.shape, f"result.heads.shape != result.types.shape: {result.heads.shape} != {result.types.shape}"
+            return result
+
         @cls.app.callback(invoke_without_command=True)
         def evaluate(
                 ctx: typer.Context,
@@ -449,9 +475,9 @@ class EvaluateApp:
                 # data
                 input_inter: int = typer.Option(default=5000),
                 input_file_home: str = typer.Option(default="data"),
-                input_file_name: str = typer.Option(default="klue-dp-pred/infer_klue_dp-v1.0.0.pred"),
+                input_file_name: str = typer.Option(default="klue-dp-pred/infer_klue_dp-v1.3.0.pred"),
                 refer_file_home: str = typer.Option(default="data"),
-                refer_file_name: str = typer.Option(default="klue-dp/klue-dp-v1.1_dev.seq-v1.0.tsv"),
+                refer_file_name: str = typer.Option(default="klue-dp/klue-dp-v1.1_dev.seq-v1.3.tsv"),
                 output_file_home: str = typer.Option(default="data"),
                 output_file_name: str = typer.Option(default="klue-dp-pred/infer_klue_dp-v1.0.0.eval"),
         ):
@@ -511,11 +537,81 @@ class EvaluateApp:
                 FileStreamer(args.refer.file) as refer_file,
                 FileStreamer(args.output.file) as output_file,
             ):
-                logger.info(f"input_file: {input_file.opt}")
-                logger.info(f"refer_file: {refer_file.opt}")
-                logger.info(f"output_file: {output_file.opt}")
-                gold = [x.split("\t")[1] for x in refer_file]
-                input_file.path.read_text()
+                input_items = [x.strip() for x in input_file.path.read_text().split("Dependency Relations: ") if len(x.strip()) > 0]
+                refer_items = [x.replace("<BR>", "\n").strip() for x in [x.split("Dependency Relations: ")[1] for x in refer_file] if len(x.strip()) > 0]
+                logger.info(f"Load {len(input_items)} items from [{input_file.opt}]")
+                logger.info(f"Load {len(refer_items)} items from [{refer_file.opt}]")
+                assert len(input_items) == len(refer_items), f"Length of input_items and refer_items are different: {len(input_items)} != {len(refer_items)}"
+                progress, interval = (
+                    tqdm(zip(input_items, refer_items), total=len(input_items), unit="item", pre="*", desc="evaluating"),
+                    args.input.inter,
+                )
+
+                golds, preds = [], []
+                gold_heads, pred_heads = [], []
+                gold_types, pred_types = [], []
+                num_shorter, num_longer = 0, 0
+                for i, (a, b) in enumerate(progress):
+                    if i > 0 and i % interval == 0:
+                        logger.info(progress)
+                    pred_words = a.strip().splitlines()[0].split("▁")
+                    gold_words = b.strip().splitlines()[0].split("▁")
+                    if len(pred_words) < len(gold_words):
+                        num_shorter += 1
+                        continue
+                        # logger.warning(f"[{i:04d}] Shorter pred_words({len(pred_words)}): {pred_words}")
+                        # logger.warning(f"[{i:04d}]         gold_words({len(gold_words)}): {gold_words}")
+                        # pred_words = pred_words + (
+                        #         [pred_words[-1]] * (len(gold_words) - len(pred_words))
+                        # )
+                        # logger.warning(f"[{i:04d}]      -> pred_words({len(pred_words)}): {pred_words}")
+                    if len(pred_words) > len(gold_words):
+                        num_longer += 1
+                        continue
+                        # logger.warning(f"[{i:04d}]  Longer pred_words({len(pred_words)}): {pred_words}")
+                        # logger.warning(f"[{i:04d}]         gold_words({len(gold_words)}): {gold_words}")
+                        # pred_words = pred_words[:len(gold_words)]
+                        # logger.warning(f"[{i:04d}]      -> pred_words({len(pred_words)}): {pred_words}")
+                    assert len(pred_words) == len(gold_words), f"Length of pred_words and gold_words are different: {len(pred_words)} != {len(gold_words)}"
+                    pred_res = to_dp_result_v1(pred_words)
+                    gold_res = to_dp_result_v1(gold_words)
+                    print(f"gold_res({'x'.join(map(str, gold_res.heads.shape))}): {gold_res}")
+                    print(f"test_res({'x'.join(map(str, pred_res.heads.shape))}): {pred_res}")
+                    print()
+                    assert gold_res.heads.shape == pred_res.heads.shape, f"gold_res.heads.shape != pred_res.heads.shape: {gold_res.heads.shape} != {pred_res.heads.shape}"
+                    assert gold_res.types.shape == pred_res.types.shape, f"gold_res.types.shape != pred_res.types.shape: {gold_res.types.shape} != {pred_res.types.shape}"
+                    golds.append(gold_res)
+                    preds.append(pred_res)
+                    gold_types.extend(gold_res.types.tolist())
+                    pred_types.extend(pred_res.types.tolist())
+                    gold_heads.extend(gold_res.heads.tolist())
+                    pred_heads.extend(pred_res.heads.tolist())
+                logger.info(progress)
+                assert len(golds) == len(preds), f"Length of golds and preds are different: {len(golds)} != {len(preds)}"
+
+                res1 = classification_report(gold_types, pred_types, labels=cls.label_ids, target_names=cls.label_names, digits=4, zero_division=1)
+                logger.info(hr(c='-'))
+                for line in res1.splitlines():
+                    logger.info(line)
+                res2 = classification_report(gold_heads, pred_heads, digits=4, zero_division=1)
+                logger.info(hr(c='-'))
+                for line in res2.splitlines():
+                    logger.info(line)
+                logger.info(hr(c='-'))
+
+                DP_UAS_MacroF1.reset()
+                DP_LAS_MacroF1.reset()
+                DP_UAS_MicroF1.reset()
+                DP_LAS_MicroF1.reset()
+                DP_UAS_MacroF1.update(preds, golds)
+                DP_LAS_MacroF1.update(preds, golds)
+                DP_UAS_MicroF1.update(preds, golds)
+                DP_LAS_MicroF1.update(preds, golds)
+                logger.info(f"#evaluated_cases: #{len(preds)}")
+                logger.info(f"- DP UASa = {DP_UAS_MacroF1.compute():.4f}")
+                logger.info(f"- DP LASa = {DP_LAS_MacroF1.compute():.4f}")
+                logger.info(f"- DP UASi = {DP_UAS_MicroF1.compute():.4f}")
+                logger.info(f"- DP LASi = {DP_LAS_MicroF1.compute():.4f}")
 
         return cls.app
 
@@ -665,7 +761,7 @@ class ConvertApp:
                 logger.info(f"Load {len(input_chunks)} sentences from [{input_file.opt}]")
                 progress, interval = (
                     tqdm(input_chunks, total=len(input_chunks), unit="sent", pre="*", desc="converting"),
-                    args.input.inter
+                    args.input.inter,
                 )
                 num_output = 0
                 for i, x in enumerate(progress):
