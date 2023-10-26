@@ -16,7 +16,7 @@ from torch.utils.data.dataset import Dataset
 from transformers import PreTrainedTokenizerFast, BatchEncoding
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
 
-from chrisbase.data import AppTyper, ProjectEnv, InputOption, FileOption, IOArguments, OutputOption, JobTimer, FileStreamer, OptionData
+from chrisbase.data import AppTyper, ProjectEnv, InputOption, FileOption, IOArguments, OutputOption, JobTimer, FileStreamer, OptionData, ResultData
 from chrisbase.io import hr, LoggingFormat
 from chrisbase.util import mute_tqdm_cls, LF
 from chrisbase.util import to_dataframe
@@ -472,6 +472,19 @@ class CLI:
                 to_dataframe(columns=columns, raw=self.convert, data_prefix="convert"),
             ]).reset_index(drop=True)
 
+    @dataclass
+    class EvaluateResult(ResultData):
+        num_answer: int
+        num_predict: int
+        num_evaluate: int
+        num_skipped: int
+        num_shorter: int
+        num_longer: int
+        metric_UASa: float
+        metric_LASa: float
+        metric_UASi: float
+        metric_LASi: float
+
     @staticmethod
     def to_str(s: StringIO):
         s.seek(0)
@@ -636,7 +649,7 @@ class CLI:
             job_name: str = typer.Option(default="evaluate"),
             output_home: str = typer.Option(default="output"),
             logging_file: str = typer.Option(default="logging.out"),
-            debugging: bool = typer.Option(default=True),
+            debugging: bool = typer.Option(default=False),
             verbose: int = typer.Option(default=3),
             # data
             input_inter: int = typer.Option(default=5000),
@@ -645,7 +658,7 @@ class CLI:
             refer_file_home: str = typer.Option(default="data"),
             refer_file_name: str = typer.Option(default="klue-dp/klue-dp-v1.1_dev.seq-v1.2.tsv"),
             output_file_home: str = typer.Option(default="data"),
-            output_file_name: str = typer.Option(default="klue-dp-pred/infer_klue_dp-v1.2.0.eval"),
+            output_file_name: str = typer.Option(default="klue-dp-pred/infer_klue_dp-v1.2.0-eval.json"),
             # convert
             level_major: int = typer.Option(default=1),
             level_minor: int = typer.Option(default=2),
@@ -730,7 +743,7 @@ class CLI:
             golds, preds = [], []
             gold_heads, pred_heads = [], []
             gold_types, pred_types = [], []
-            num_shorter, num_longer = 0, 0
+            num_skipped, num_shorter, num_longer = 0, 0, 0
             for i, (a, b) in enumerate(progress):
                 if i > 0 and i % interval == 0:
                     logger.info(progress)
@@ -739,6 +752,7 @@ class CLI:
                 if len(pred_words) < len(gold_words):
                     num_shorter += 1
                     if args.evaluate.skip_shorter:
+                        num_skipped += 1
                         continue
                     else:
                         logger.warning(f"[{i:04d}] Shorter pred_words({len(pred_words)}): {pred_words}")
@@ -750,6 +764,7 @@ class CLI:
                 if len(pred_words) > len(gold_words):
                     num_longer += 1
                     if args.evaluate.skip_longer:
+                        num_skipped += 1
                         continue
                     else:
                         logger.warning(f"[{i:04d}]  Longer pred_words({len(pred_words)}): {pred_words}")
@@ -796,11 +811,30 @@ class CLI:
             DP_LAS_MacroF1.update(preds, golds)
             DP_UAS_MicroF1.update(preds, golds)
             DP_LAS_MicroF1.update(preds, golds)
-            logger.info(f"* evaluated={len(preds)}, shorter={num_shorter}, longer={num_longer}")
-            logger.info(f"  - DP UASa = {DP_UAS_MacroF1.compute():.4f}")
-            logger.info(f"  - DP LASa = {DP_LAS_MacroF1.compute():.4f}")
-            logger.info(f"  - DP UASi = {DP_UAS_MicroF1.compute():.4f}")
-            logger.info(f"  - DP LASi = {DP_LAS_MicroF1.compute():.4f}")
+
+            res = CLI.EvaluateResult(
+                num_answer=len(refer_items),
+                num_predict=len(input_items),
+                num_evaluate=len(preds),
+                num_skipped=num_skipped,
+                num_shorter=num_shorter,
+                num_longer=num_longer,
+                metric_UASa=DP_UAS_MacroF1.compute(),
+                metric_LASa=DP_LAS_MacroF1.compute(),
+                metric_UASi=DP_UAS_MicroF1.compute(),
+                metric_LASi=DP_LAS_MicroF1.compute(),
+            )
+            output_file.fp.write(res.to_json(indent=2))
+            logger.info(f"  -> num_answer={res.num_answer}")
+            logger.info(f"  -> num_predict={res.num_predict}")
+            logger.info(f"  -> num_evaluate={res.num_evaluate}")
+            logger.info(f"  -> num_skipped={res.num_skipped}")
+            logger.info(f"  -> num_shorter={res.num_shorter}")
+            logger.info(f"  -> num_longer={res.num_longer}")
+            logger.info(f"  -> DP UASa = {res.metric_UASa:.2f}")
+            logger.info(f"  -> DP LASa = {res.metric_LASa:.2f}")
+            logger.info(f"  -> DP UASi = {res.metric_UASi:.2f}")
+            logger.info(f"  -> DP LASi = {res.metric_LASi:.2f}")
 
 
 if __name__ == "__main__":
