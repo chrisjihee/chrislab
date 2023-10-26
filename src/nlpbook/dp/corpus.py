@@ -474,6 +474,10 @@ class CLI:
 
     @dataclass
     class EvaluateResult(ResultData):
+        level_major: int
+        level_minor: int
+        file_answer: str
+        file_predict: str
         num_answer: int
         num_predict: int
         num_evaluate: int
@@ -809,6 +813,10 @@ class CLI:
             DP_LAS_MicroF1.update(preds, golds)
 
             res = CLI.EvaluateResult(
+                level_major=level_major,
+                level_minor=level_minor,
+                file_answer=str(refer_file.opt),
+                file_predict=str(input_file.opt),
                 num_answer=len(refer_items),
                 num_predict=len(input_items),
                 num_evaluate=len(preds),
@@ -821,6 +829,10 @@ class CLI:
                 metric_LASi=DP_LAS_MicroF1.compute(),
             )
             output_file.fp.write(res.to_json(indent=2))
+            logger.info(f"  -> level_major={res.level_major}")
+            logger.info(f"  -> level_minor={res.level_minor}")
+            logger.info(f"  -> file_answer={res.file_answer}")
+            logger.info(f"  -> file_predict={res.file_predict}")
             logger.info(f"  -> num_answer={res.num_answer}")
             logger.info(f"  -> num_predict={res.num_predict}")
             logger.info(f"  -> num_evaluate={res.num_evaluate}")
