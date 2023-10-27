@@ -421,17 +421,17 @@ class CLI:
     label_ids = [i for i, _ in enumerate(label_names)]
     label_to_id = {label: i for i, label in enumerate(label_names)}
     id_to_label = {i: label for i, label in enumerate(label_names)}
-    label_regex = {
-        0: {"pattern": re.compile("([0-9]+)/([A-Z]{1,3}(_[A-Z]{1,3})?)"), "dep": 2, "head": 1, },
-        1: {"pattern": re.compile("[^ ]+-([0-9]+)/([A-Z]{1,3}(_[A-Z]{1,3})?)"), "dep": 2, "head": 1, },
-        2: {"pattern": re.compile("([A-Z]{1,3}(_[A-Z]{1,3})?)\([^ ]+-([0-9]+), [^ ]+-([0-9]+)\)"), "dep": 1, "head": 4, },
-        3: {"pattern": re.compile("\([0-9]+/[0-9]+, ([0-9]+), ([A-Z]{1,3}(_[A-Z]{1,3})?)\)"), "dep": 2, "head": 1, },
+    seq2_regex = {
+        'a': {"pattern": re.compile("([0-9]+)/([A-Z]{1,3}(_[A-Z]{1,3})?)"), "dep": 2, "head": 1, },
+        'b': {"pattern": re.compile("[^ ]+-([0-9]+)/([A-Z]{1,3}(_[A-Z]{1,3})?)"), "dep": 2, "head": 1, },
+        'c': {"pattern": re.compile("([A-Z]{1,3}(_[A-Z]{1,3})?)\([^ ]+-([0-9]+), [^ ]+-([0-9]+)\)"), "dep": 1, "head": 4, },
+        'd': {"pattern": re.compile("\([0-9]+/[0-9]+, ([0-9]+), ([A-Z]{1,3}(_[A-Z]{1,3})?)\)"), "dep": 2, "head": 1, },
     }
 
     @dataclass
     class ConvertOption(OptionData):
-        level_major: int = field()
-        level_minor: int = field()
+        seq1_type: str = field()
+        seq2_type: str = field()
 
     @dataclass
     class ConvertArguments(IOArguments):
@@ -476,8 +476,8 @@ class CLI:
 
     @dataclass
     class EvaluateResult(ResultData):
-        level_major: int
-        level_minor: int
+        seq1_type: str
+        seq2_type: str
         file_answer: str
         file_predict: str
         num_answer: int
@@ -502,50 +502,50 @@ class CLI:
             return f"{word['id']}/{word['form']}/{len(word['form'])}"
 
         def word_to_lemma(word: Dict[str, str | int]):
-            return word_to_form(word) + "/" + f"{word['lemma']}"
+            return word_to_form(word) + f"/{word['lemma']}"
 
         def word_to_pos(word: Dict[str, str | int]):
             ls = word["lemma"].split(" ")
             ps = word["pos"].split("+")
-            return word_to_lemma(word) + "/" + f"{ls[0]}:{ps[0]}/" + (f"{ls[-1]}:{ps[-1]}" if len(ps) > 1 else "NONE")
+            return word_to_lemma(word) + f"/{ls[0]}:{ps[0]}/" + (f"{ls[-1]}:{ps[-1]}" if len(ps) > 1 else "NONE")
 
         with StringIO() as s:
             print("Task: Dependency Parsing", file=s)
             print('', file=s)
             print(f"Input: {' '.join(word['form'] for word in example.words[1:])}", file=s)
-            if convert.level_major == 0:
+            if convert.seq1_type == 'S0':
                 return [CLI.to_str(s)]
 
             forms = []
             for word in example.words[1:]:
                 forms.append(word_to_form(word))
-            if convert.level_major == 1:
+            if convert.seq1_type == 'S1':
                 print(f"Forms: {LF.join(forms)}", file=s)
                 return [CLI.to_str(s)]
 
             lemmas = []
             for word in example.words[1:]:
                 lemmas.append(word_to_lemma(word))
-            if convert.level_major == 2:
+            if convert.seq1_type == 'S2':
                 print(f"Lemmas: {LF.join(lemmas)}", file=s)
                 return [CLI.to_str(s)]
 
             poss = []
             for word in example.words[1:]:
                 poss.append(word_to_pos(word))
-            if convert.level_major == 3:
+            if convert.seq1_type == 'S3':
                 print(f"POSs: {LF.join(poss)}", file=s)
                 return [CLI.to_str(s)]
 
-            if convert.level_major == 4:
+            if convert.seq1_type == 'W1':
                 print(f"Forms: {LF.join(forms)}", file=s)
                 return [CLI.to_str(s) + f"Target: {form}" + CLI.LINE_SEP for form in forms]
 
-            elif convert.level_major == 5:
+            elif convert.seq1_type == 'W2':
                 print(f"Lemmas: {LF.join(lemmas)}", file=s)
                 return [CLI.to_str(s) + f"Target: {lemma}" + CLI.LINE_SEP for lemma in lemmas]
 
-            elif convert.level_major == 6:
+            elif convert.seq1_type == 'W3':
                 print(f"POSs: {LF.join(poss)}", file=s)
                 return [CLI.to_str(s) + f"Target: {pos}" + CLI.LINE_SEP for pos in poss]
 
@@ -556,24 +556,24 @@ class CLI:
     def to_seq2(example: DPParsedExample, convert: CLI.ConvertOption):
         relations = []
         for word in example.words[1:]:
-            if convert.level_minor == 0:
+            if convert.seq2_type == 'a':
                 unit2 = f"{word['head']}/{word['label']}"
-            elif convert.level_minor == 1:
+            elif convert.seq2_type == 'b':
                 unit2 = f"{example.words[word['head']]['form']}-{word['head']}/{word['label']}"
-            elif convert.level_minor == 2:
+            elif convert.seq2_type == 'c':
                 d = f"{word['id']}"
                 h = f"{word['head']}"
                 unit2 = f"{word['label']}({d}, {h})"
-            elif convert.level_minor == 3:
+            elif convert.seq2_type == 'd':
                 d = f"{word['form']}-{word['id']}"
                 h = f"{example.words[word['head']]['form']}-{word['head']}"
                 unit2 = f"{word['label']}({d}, {h})"
-            elif convert.level_minor == 4:
+            elif convert.seq2_type == 'e':
                 unit2 = f"({word['id']}/{len(word['form'])}, {word['head']}, {word['label']})"
             else:
                 raise NotImplementedError(f"Unsupported convert: {convert}")
             relations.append(unit2)
-        if convert.level_major <= 3:
+        if convert.seq1_type.startswith('S'):
             with (StringIO() as s):
                 print(f"Dependency Relations: {CLI.WORD_SEP.join(relations)}", file=s)
                 print(f"Word Count: {len(example.words) - 1}", file=s)
@@ -598,8 +598,8 @@ class CLI:
             output_file_home: str = typer.Option(default="data"),
             output_file_name: str = typer.Option(default="klue-dp/klue-dp-v1.1_dev.tsv"),
             # convert
-            level_major: int = typer.Option(default=6),
-            level_minor: int = typer.Option(default=0),
+            seq1_type: str = typer.Option(default='S0'),
+            seq2_type: str = typer.Option(default='a'),
     ):
         env = ProjectEnv(
             project=project,
@@ -623,14 +623,14 @@ class CLI:
         output_opt = OutputOption(
             file=FileOption(
                 home=output_file_home,
-                name=output_file_name.with_suffix(f".seq-v{level_major}.{level_minor}{output_file_name.suffix}"),
+                name=output_file_name.with_stem(f"{output_file_name.stem}-s2s={seq1_type}{seq2_type}"),
                 mode="w",
                 strict=True,
             ),
         )
         convert_opt = CLI.ConvertOption(
-            level_major=level_major,
-            level_minor=level_minor,
+            seq1_type=seq1_type,
+            seq2_type=seq2_type,
         )
         args = CLI.ConvertArguments(
             env=env,
@@ -673,8 +673,8 @@ class CLI:
     def to_dp_result(words: List[str], convert: CLI.ConvertOption) -> DPResult:
         heads = [-1] * len(words)
         types = [-1] * len(words)
-        assert convert.level_minor in CLI.label_regex, f"Unsupported convert option: {convert}"
-        regex = CLI.label_regex[convert.level_minor]
+        assert convert.seq2_type in CLI.seq2_regex, f"Unsupported convert option: {convert}"
+        regex = CLI.seq2_regex[convert.seq2_type]
         for i, x in enumerate(words):
             m = regex["pattern"].search(x)
             if m:
@@ -710,8 +710,8 @@ class CLI:
             output_file_home: str = typer.Option(default="data"),
             output_file_name: str = typer.Option(default="klue-dp-pred/infer_klue_dp-v1.2.0-eval.json"),
             # convert
-            level_major: int = typer.Option(default=1),
-            level_minor: int = typer.Option(default=2),
+            seq1_type: str = typer.Option(default='S0'),
+            seq2_type: str = typer.Option(default="A"),
             # evaluate
             skip_longer: bool = typer.Option(default=True),
             skip_shorter: bool = typer.Option(default=True),
@@ -751,8 +751,8 @@ class CLI:
             ),
         )
         convert_opt = CLI.ConvertOption(
-            level_major=level_major,
-            level_minor=level_minor,
+            seq1_type=seq1_type,
+            seq2_type=seq2_type,
         )
         evaluate_opt = CLI.EvaluateOption(
             skip_longer=skip_longer,
@@ -861,8 +861,8 @@ class CLI:
             DP_LAS_MicroF1.update(preds, golds)
 
             res = CLI.EvaluateResult(
-                level_major=level_major,
-                level_minor=level_minor,
+                seq1_type=seq1_type,
+                seq2_type=seq2_type,
                 file_answer=str(refer_file.opt),
                 file_predict=str(input_file.opt),
                 num_answer=len(refer_items),
@@ -877,8 +877,8 @@ class CLI:
                 metric_LASi=DP_LAS_MicroF1.compute(),
             )
             output_file.fp.write(res.to_json(indent=2))
-            logger.info(f"  -> level_major={res.level_major}")
-            logger.info(f"  -> level_minor={res.level_minor}")
+            logger.info(f"  -> seq1_type={res.seq1_type}")
+            logger.info(f"  -> seq2_type={res.seq2_type}")
             logger.info(f"  -> file_answer={res.file_answer}")
             logger.info(f"  -> file_predict={res.file_predict}")
             logger.info(f"  -> num_answer={res.num_answer}")
