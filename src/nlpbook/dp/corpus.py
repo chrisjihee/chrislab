@@ -18,7 +18,7 @@ from transformers.tokenization_utils_base import PaddingStrategy, TruncationStra
 
 from chrisbase.data import AppTyper, ProjectEnv, InputOption, FileOption, IOArguments, OutputOption, JobTimer, FileStreamer, OptionData, ResultData
 from chrisbase.io import hr, LoggingFormat
-from chrisbase.util import mute_tqdm_cls, LF
+from chrisbase.util import mute_tqdm_cls, LF, HT
 from chrisbase.util import to_dataframe
 from nlpbook.arguments import TesterArguments, TrainerArguments
 from nlpbook.metrics import DPResult, DP_UAS_MacroF1, DP_LAS_MacroF1, DP_UAS_MicroF1, DP_LAS_MicroF1
@@ -415,6 +415,8 @@ class DPParsedExample(DataClassJsonMixin):
 
 class CLI:
     main = AppTyper()
+    LINE_SEP = "<LF>"
+    WORD_SEP = "▁"
     label_names = DPCorpus.get_dep_labels()
     label_ids = [i for i, _ in enumerate(label_names)]
     label_to_id = {label: i for i, label in enumerate(label_names)}
@@ -492,49 +494,92 @@ class CLI:
     @staticmethod
     def to_str(s: StringIO):
         s.seek(0)
-        return s.read().replace("\n", "<BR>")
+        return s.read().replace(LF, CLI.LINE_SEP)
 
     @staticmethod
-    def to_seq1(example: DPParsedExample, level: int):
-        assert level < 2, f"Unsupported seq1 level: {level}"
+    def to_seq1(example: DPParsedExample, convert: CLI.ConvertOption):
+        def word_to_form(word: Dict[str, str | int]):
+            return f"{word['id']}/{word['form']}/{len(word['form'])}"
+
+        def word_to_lemma(word: Dict[str, str | int]):
+            return word_to_form(word) + "/" + f"{word['lemma']}"
+
+        def word_to_pos(word: Dict[str, str | int]):
+            ls = word["lemma"].split(" ")
+            ps = word["pos"].split("+")
+            return word_to_lemma(word) + "/" + f"{ls[0]}:{ps[0]}/" + (f"{ls[-1]}:{ps[-1]}" if len(ps) > 1 else "NONE")
+
         with StringIO() as s:
             print("Task: Dependency Parsing", file=s)
             print('', file=s)
             print(f"Input: {' '.join(word['form'] for word in example.words[1:])}", file=s)
-            if level < 1:
-                return CLI.to_str(s)
+            if convert.level_major == 0:
+                return [CLI.to_str(s)]
 
-            units1 = []
+            forms = []
             for word in example.words[1:]:
-                ls = word["lemma"].split(" ")
-                ps = word["pos"].split("+")
-                unit1 = f"{word['id']}/{word['form']}/{len(word['form'])}/{word['lemma']}/{ls[0]}:{ps[0]}/" + (f"{ls[-1]}:{ps[-1]}" if len(ps) > 1 else "NONE")
-                units1.append(unit1)
-            print(f"Lemmas: {LF.join(units1)}", end='', file=s)
-            if level < 2:
-                return CLI.to_str(s)
+                forms.append(word_to_form(word))
+            if convert.level_major == 1:
+                print(f"Forms: {LF.join(forms)}", file=s)
+                return [CLI.to_str(s)]
+
+            lemmas = []
+            for word in example.words[1:]:
+                lemmas.append(word_to_lemma(word))
+            if convert.level_major == 2:
+                print(f"Lemmas: {LF.join(lemmas)}", file=s)
+                return [CLI.to_str(s)]
+
+            poss = []
+            for word in example.words[1:]:
+                poss.append(word_to_pos(word))
+            if convert.level_major == 3:
+                print(f"POSs: {LF.join(poss)}", file=s)
+                return [CLI.to_str(s)]
+
+            if convert.level_major == 4:
+                print(f"Forms: {LF.join(forms)}", file=s)
+                return [CLI.to_str(s) + f"Target: {form}" + CLI.LINE_SEP for form in forms]
+
+            elif convert.level_major == 5:
+                print(f"Lemmas: {LF.join(lemmas)}", file=s)
+                return [CLI.to_str(s) + f"Target: {lemma}" + CLI.LINE_SEP for lemma in lemmas]
+
+            elif convert.level_major == 6:
+                print(f"POSs: {LF.join(poss)}", file=s)
+                return [CLI.to_str(s) + f"Target: {pos}" + CLI.LINE_SEP for pos in poss]
+
+            else:
+                raise NotImplementedError(f"Unsupported convert: {convert}")
 
     @staticmethod
-    def to_seq2(example: DPParsedExample, level: int):
-        with (StringIO() as s):
-            units2 = []
-            for word in example.words[1:]:
-                if level < 1:
-                    unit2 = f"{word['head']}/{word['label']}"
-                elif level < 2:
-                    unit2 = f"{example.words[word['head']]['form']}-{word['head']}/{word['label']}"
-                elif level < 3:
-                    d = f"{word['form']}-{word['id']}"
-                    h = f"{example.words[word['head']]['form']}-{word['head']}"
-                    unit2 = f"{word['label']}({d}, {h})"
-                elif level < 4:
-                    unit2 = f"({word['id']}/{len(word['form'])}, {word['head']}, {word['label']})"
-                else:
-                    f"Unsupported seq2 level: {level}"
-                units2.append(unit2)
-            print(f"Dependency Relations: {'▁'.join(units2)}", file=s)
-            print(f"Word Count: {len(example.words) - 1}", file=s)
-            return CLI.to_str(s)
+    def to_seq2(example: DPParsedExample, convert: CLI.ConvertOption):
+        relations = []
+        for word in example.words[1:]:
+            if convert.level_minor == 0:
+                unit2 = f"{word['head']}/{word['label']}"
+            elif convert.level_minor == 1:
+                unit2 = f"{example.words[word['head']]['form']}-{word['head']}/{word['label']}"
+            elif convert.level_minor == 2:
+                d = f"{word['id']}"
+                h = f"{word['head']}"
+                unit2 = f"{word['label']}({d}, {h})"
+            elif convert.level_minor == 3:
+                d = f"{word['form']}-{word['id']}"
+                h = f"{example.words[word['head']]['form']}-{word['head']}"
+                unit2 = f"{word['label']}({d}, {h})"
+            elif convert.level_minor == 4:
+                unit2 = f"({word['id']}/{len(word['form'])}, {word['head']}, {word['label']})"
+            else:
+                raise NotImplementedError(f"Unsupported convert: {convert}")
+            relations.append(unit2)
+        if convert.level_major <= 3:
+            with (StringIO() as s):
+                print(f"Dependency Relations: {CLI.WORD_SEP.join(relations)}", file=s)
+                print(f"Word Count: {len(example.words) - 1}", file=s)
+                return [CLI.to_str(s)]
+        else:
+            return [f"Dependency Relation: {relation}" for relation in relations]
 
     @staticmethod
     @main.command()
@@ -549,11 +594,11 @@ class CLI:
             # data
             input_inter: int = typer.Option(default=5000),
             input_file_home: str = typer.Option(default="data"),
-            input_file_name: str = typer.Option(default="klue-dp-mini/klue-dp-v1.1_dev.tsv"),
+            input_file_name: str = typer.Option(default="klue-dp/klue-dp-v1.1_dev.tsv"),
             output_file_home: str = typer.Option(default="data"),
-            output_file_name: str = typer.Option(default="klue-dp-mini/klue-dp-v1.1_dev.tsv"),
+            output_file_name: str = typer.Option(default="klue-dp/klue-dp-v1.1_dev.tsv"),
             # convert
-            level_major: int = typer.Option(default=0),
+            level_major: int = typer.Option(default=6),
             level_minor: int = typer.Option(default=0),
     ):
         env = ProjectEnv(
@@ -615,10 +660,12 @@ class CLI:
                 if i > 0 and i % interval == 0:
                     logger.info(progress)
                 example = DPParsedExample.from_tsv(x)
-                seq1 = CLI.to_seq1(example, args.convert.level_major)
-                seq2 = CLI.to_seq2(example, args.convert.level_minor)
-                output_file.fp.write(seq1 + "\t" + seq2 + "\n")
-                num_output += 1
+                seq1s = CLI.to_seq1(example, args.convert)
+                seq2s = CLI.to_seq2(example, args.convert)
+                assert len(seq1s) == len(seq2s), f"len(seq1) != len(seq2): {len(seq1s)} != {len(seq2s)}"
+                for seq1, seq2 in zip(seq1s, seq2s):
+                    output_file.fp.write(seq1 + HT + seq2 + LF)
+                    num_output += 1
             logger.info(progress)
             logger.info(f"Saved {num_output} sequence pairs to [{output_file.opt}]")
 
@@ -732,7 +779,7 @@ class CLI:
             FileStreamer(args.output.file) as output_file,
         ):
             input_items = [x.strip() for x in input_file.path.read_text().split("Dependency Relations: ") if len(x.strip()) > 0]
-            refer_items = [x.replace("<BR>", "\n").strip() for x in [x.split("Dependency Relations: ")[1] for x in refer_file] if len(x.strip()) > 0]
+            refer_items = [x.replace(CLI.LINE_SEP, LF).strip() for x in [x.split("Dependency Relations: ")[1] for x in refer_file] if len(x.strip()) > 0]
             logger.info(f"Load {len(input_items)} items from [{input_file.opt}]")
             logger.info(f"Load {len(refer_items)} items from [{refer_file.opt}]")
             assert len(input_items) == len(refer_items), f"Length of input_items and refer_items are different: {len(input_items)} != {len(refer_items)}"
@@ -748,8 +795,8 @@ class CLI:
             for i, (a, b) in enumerate(progress):
                 if i > 0 and i % interval == 0:
                     logger.info(progress)
-                pred_words = a.strip().splitlines()[0].split("▁")
-                gold_words = b.strip().splitlines()[0].split("▁")
+                pred_words = a.strip().splitlines()[0].split(CLI.WORD_SEP)
+                gold_words = b.strip().splitlines()[0].split(CLI.WORD_SEP)
                 if len(pred_words) < len(gold_words):
                     num_shorter += 1
                     if args.evaluate.skip_shorter:
