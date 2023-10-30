@@ -593,10 +593,8 @@ class CLI:
             verbose: int = typer.Option(default=1),
             # data
             input_inter: int = typer.Option(default=5000),
-            input_file_home: str = typer.Option(default="data"),
-            input_file_name: str = typer.Option(default="klue-dp/klue-dp-v1.1_dev.tsv"),
-            output_file_home: str = typer.Option(default="data"),
-            output_file_name: str = typer.Option(default="klue-dp/klue-dp-v1.1_dev.tsv"),
+            input_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev.tsv"),
+            output_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev.tsv"),
             # convert
             seq1_type: str = typer.Option(default='S0'),
             seq2_type: str = typer.Option(default='a'),
@@ -613,7 +611,6 @@ class CLI:
         input_opt = InputOption(
             inter=input_inter,
             file=FileOption(
-                home=input_file_home,
                 name=input_file_name,
                 mode="r",
                 strict=True,
@@ -622,7 +619,6 @@ class CLI:
         output_file_name = Path(output_file_name)
         output_opt = OutputOption(
             file=FileOption(
-                home=output_file_home,
                 name=output_file_name.with_stem(f"{output_file_name.stem}-s2s={seq1_type}{seq2_type}"),
                 mode="w",
                 strict=True,
@@ -703,15 +699,12 @@ class CLI:
             verbose: int = typer.Option(default=1),
             # data
             input_inter: int = typer.Option(default=5000),
-            input_file_home: str = typer.Option(default="data"),
-            input_file_name: str = typer.Option(default="klue-dp-pred/infer_klue_dp-v1.2.0.pred"),
-            refer_file_home: str = typer.Option(default="data"),
-            refer_file_name: str = typer.Option(default="klue-dp/klue-dp-v1.1_dev.seq-v1.2.tsv"),
-            output_file_home: str = typer.Option(default="data"),
-            output_file_name: str = typer.Option(default="klue-dp-pred/infer_klue_dp-v1.2.0-eval.json"),
+            refer_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev-s2s=S0a.tsv"),
+            input_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev-s2s=S0a-pred.out"),
+            output_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev-s2s=S0a-eval.json"),
             # convert
             seq1_type: str = typer.Option(default='S0'),
-            seq2_type: str = typer.Option(default="A"),
+            seq2_type: str = typer.Option(default='a'),
             # evaluate
             skip_longer: bool = typer.Option(default=True),
             skip_shorter: bool = typer.Option(default=True),
@@ -725,26 +718,23 @@ class CLI:
             msg_level=logging.DEBUG if debugging else logging.INFO,
             msg_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_24,
         )
-        input_opt = InputOption(
-            inter=input_inter,
+        refer_opt = InputOption(
             file=FileOption(
-                home=input_file_home,
-                name=input_file_name,
+                name=refer_file_name,
                 mode="r",
                 strict=True,
             ),
         )
-        refer_opt = InputOption(
+        input_opt = InputOption(
+            inter=input_inter,
             file=FileOption(
-                home=refer_file_home,
-                name=refer_file_name,
+                name=input_file_name,
                 mode="r",
                 strict=True,
             ),
         )
         output_opt = OutputOption(
             file=FileOption(
-                home=output_file_home,
                 name=output_file_name,
                 mode="w",
                 strict=True,
@@ -767,130 +757,133 @@ class CLI:
             evaluate=evaluate_opt,
         )
         tqdm = mute_tqdm_cls()
-        assert args.input.file, "input.file is required"
         assert args.refer.file, "refer.file is required"
+        assert args.input.file, "input.file is required"
         assert args.output.file, "output.file is required"
 
         with (
             JobTimer(f"python {args.env.current_file} {' '.join(args.env.command_args)}",
                      rt=1, rb=1, rc='=', verbose=verbose > 0, args=args if debugging or verbose > 1 else None),
-            FileStreamer(args.input.file) as input_file,
             FileStreamer(args.refer.file) as refer_file,
+            FileStreamer(args.input.file) as input_file,
             FileStreamer(args.output.file) as output_file,
         ):
-            input_items = [x.strip() for x in input_file.path.read_text().split("Dependency Relations: ") if len(x.strip()) > 0]
-            refer_items = [x.replace(CLI.LINE_SEP, LF).strip() for x in [x.split("Dependency Relations: ")[1] for x in refer_file] if len(x.strip()) > 0]
-            logger.info(f"Load {len(input_items)} items from [{input_file.opt}]")
-            logger.info(f"Load {len(refer_items)} items from [{refer_file.opt}]")
-            assert len(input_items) == len(refer_items), f"Length of input_items and refer_items are different: {len(input_items)} != {len(refer_items)}"
-            progress, interval = (
-                tqdm(zip(input_items, refer_items), total=len(input_items), unit="item", pre="*", desc="evaluating"),
-                args.input.inter,
-            )
-
-            golds, preds = [], []
-            gold_heads, pred_heads = [], []
-            gold_types, pred_types = [], []
-            num_skipped, num_shorter, num_longer = 0, 0, 0
-            for i, (a, b) in enumerate(progress):
-                if i > 0 and i % interval == 0:
-                    logger.info(progress)
-                pred_words = a.strip().splitlines()[0].split(CLI.WORD_SEP)
-                gold_words = b.strip().splitlines()[0].split(CLI.WORD_SEP)
-                if len(pred_words) < len(gold_words):
-                    num_shorter += 1
-                    if args.evaluate.skip_shorter:
-                        num_skipped += 1
-                        continue
-                    else:
-                        logger.warning(f"[{i:04d}] Shorter pred_words({len(pred_words)}): {pred_words}")
-                        logger.warning(f"[{i:04d}]         gold_words({len(gold_words)}): {gold_words}")
-                        pred_words = pred_words + (
-                                [pred_words[-1]] * (len(gold_words) - len(pred_words))
-                        )
-                        logger.warning(f"[{i:04d}]      -> pred_words({len(pred_words)}): {pred_words}")
-                if len(pred_words) > len(gold_words):
-                    num_longer += 1
-                    if args.evaluate.skip_longer:
-                        num_skipped += 1
-                        continue
-                    else:
-                        logger.warning(f"[{i:04d}]  Longer pred_words({len(pred_words)}): {pred_words}")
-                        logger.warning(f"[{i:04d}]         gold_words({len(gold_words)}): {gold_words}")
-                        pred_words = pred_words[:len(gold_words)]
-                        logger.warning(f"[{i:04d}]      -> pred_words({len(pred_words)}): {pred_words}")
-                assert len(pred_words) == len(gold_words), f"Length of pred_words and gold_words are different: {len(pred_words)} != {len(gold_words)}"
-                if debugging:
-                    logger.info(f"-- pred_words({len(pred_words)}): {pred_words}")
-                    logger.info(f"-- gold_words({len(gold_words)}): {gold_words}")
-                pred_words = CLI.to_dp_result(pred_words, args.convert)
-                gold_words = CLI.to_dp_result(gold_words, args.convert)
-                if debugging:
-                    logger.info(f"-> pred_words({'x'.join(map(str, pred_words.heads.shape))}): heads={pred_words.heads.tolist()}, types={pred_words.types.tolist()}")
-                    logger.info(f"-> gold_words({'x'.join(map(str, gold_words.heads.shape))}): heads={gold_words.heads.tolist()}, types={gold_words.types.tolist()}")
-                    logger.info("")
-                assert gold_words.heads.shape == pred_words.heads.shape, f"gold_res.heads.shape != pred_res.heads.shape: {gold_words.heads.shape} != {pred_words.heads.shape}"
-                assert gold_words.types.shape == pred_words.types.shape, f"gold_res.types.shape != pred_res.types.shape: {gold_words.types.shape} != {pred_words.types.shape}"
-                golds.append(gold_words)
-                preds.append(pred_words)
-                gold_types.extend(gold_words.types.tolist())
-                pred_types.extend(pred_words.types.tolist())
-                gold_heads.extend(gold_words.heads.tolist())
-                pred_heads.extend(pred_words.heads.tolist())
-            logger.info(progress)
-            assert len(golds) == len(preds), f"Length of golds and preds are different: {len(golds)} != {len(preds)}"
-
-            if debugging:
-                res1 = classification_report(gold_types, pred_types, labels=CLI.label_ids, target_names=CLI.label_names, digits=4, zero_division=1)
-                logger.info(hr(c='-'))
-                for line in res1.splitlines():
-                    logger.info(line)
-                res2 = classification_report(gold_heads, pred_heads, digits=4, zero_division=1)
-                logger.info(hr(c='-'))
-                for line in res2.splitlines():
-                    logger.info(line)
-                logger.info(hr(c='-'))
-
-            DP_UAS_MacroF1.reset()
-            DP_LAS_MacroF1.reset()
-            DP_UAS_MicroF1.reset()
-            DP_LAS_MicroF1.reset()
-            DP_UAS_MacroF1.update(preds, golds)
-            DP_LAS_MacroF1.update(preds, golds)
-            DP_UAS_MicroF1.update(preds, golds)
-            DP_LAS_MicroF1.update(preds, golds)
-
-            res = CLI.EvaluateResult(
-                seq1_type=seq1_type,
-                seq2_type=seq2_type,
-                file_answer=str(refer_file.opt),
-                file_predict=str(input_file.opt),
-                num_answer=len(refer_items),
-                num_predict=len(input_items),
-                num_evaluate=len(preds),
-                num_skipped=num_skipped,
-                num_shorter=num_shorter,
-                num_longer=num_longer,
-                metric_UASa=DP_UAS_MacroF1.compute(),
-                metric_LASa=DP_LAS_MacroF1.compute(),
-                metric_UASi=DP_UAS_MicroF1.compute(),
-                metric_LASi=DP_LAS_MicroF1.compute(),
-            )
-            output_file.fp.write(res.to_json(indent=2))
-            logger.info(f"  -> seq1_type={res.seq1_type}")
-            logger.info(f"  -> seq2_type={res.seq2_type}")
-            logger.info(f"  -> file_answer={res.file_answer}")
-            logger.info(f"  -> file_predict={res.file_predict}")
-            logger.info(f"  -> num_answer={res.num_answer}")
-            logger.info(f"  -> num_predict={res.num_predict}")
-            logger.info(f"  -> num_evaluate={res.num_evaluate}")
-            logger.info(f"  -> num_skipped={res.num_skipped}")
-            logger.info(f"  -> num_shorter={res.num_shorter}")
-            logger.info(f"  -> num_longer={res.num_longer}")
-            logger.info(f"  -> DP UASa = {res.metric_UASa:.2f}")
-            logger.info(f"  -> DP LASa = {res.metric_LASa:.2f}")
-            logger.info(f"  -> DP UASi = {res.metric_UASi:.2f}")
-            logger.info(f"  -> DP LASi = {res.metric_LASi:.2f}")
+            print(refer_file.opt.strict)
+            # for x in refer_file:
+            #     print(x)
+            # refer_items = [x.replace(CLI.LINE_SEP, LF).strip() for x in [x.split("Dependency Relations: ")[1] for x in refer_file] if len(x.strip()) > 0]
+            # input_items = [x.strip() for x in input_file.path.read_text().split("Dependency Relations: ") if len(x.strip()) > 0]
+            # logger.info(f"Load {len(input_items)} items from [{input_file.opt}]")
+            # logger.info(f"Load {len(refer_items)} items from [{refer_file.opt}]")
+            # assert len(input_items) == len(refer_items), f"Length of input_items and refer_items are different: {len(input_items)} != {len(refer_items)}"
+            # progress, interval = (
+            #     tqdm(zip(input_items, refer_items), total=len(input_items), unit="item", pre="*", desc="evaluating"),
+            #     args.input.inter,
+            # )
+            #
+            # golds, preds = [], []
+            # gold_heads, pred_heads = [], []
+            # gold_types, pred_types = [], []
+            # num_skipped, num_shorter, num_longer = 0, 0, 0
+            # for i, (a, b) in enumerate(progress):
+            #     if i > 0 and i % interval == 0:
+            #         logger.info(progress)
+            #     pred_words = a.strip().splitlines()[0].split(CLI.WORD_SEP)
+            #     gold_words = b.strip().splitlines()[0].split(CLI.WORD_SEP)
+            #     if len(pred_words) < len(gold_words):
+            #         num_shorter += 1
+            #         if args.evaluate.skip_shorter:
+            #             num_skipped += 1
+            #             continue
+            #         else:
+            #             logger.warning(f"[{i:04d}] Shorter pred_words({len(pred_words)}): {pred_words}")
+            #             logger.warning(f"[{i:04d}]         gold_words({len(gold_words)}): {gold_words}")
+            #             pred_words = pred_words + (
+            #                     [pred_words[-1]] * (len(gold_words) - len(pred_words))
+            #             )
+            #             logger.warning(f"[{i:04d}]      -> pred_words({len(pred_words)}): {pred_words}")
+            #     if len(pred_words) > len(gold_words):
+            #         num_longer += 1
+            #         if args.evaluate.skip_longer:
+            #             num_skipped += 1
+            #             continue
+            #         else:
+            #             logger.warning(f"[{i:04d}]  Longer pred_words({len(pred_words)}): {pred_words}")
+            #             logger.warning(f"[{i:04d}]         gold_words({len(gold_words)}): {gold_words}")
+            #             pred_words = pred_words[:len(gold_words)]
+            #             logger.warning(f"[{i:04d}]      -> pred_words({len(pred_words)}): {pred_words}")
+            #     assert len(pred_words) == len(gold_words), f"Length of pred_words and gold_words are different: {len(pred_words)} != {len(gold_words)}"
+            #     if debugging:
+            #         logger.info(f"-- pred_words({len(pred_words)}): {pred_words}")
+            #         logger.info(f"-- gold_words({len(gold_words)}): {gold_words}")
+            #     pred_words = CLI.to_dp_result(pred_words, args.convert)
+            #     gold_words = CLI.to_dp_result(gold_words, args.convert)
+            #     if debugging:
+            #         logger.info(f"-> pred_words({'x'.join(map(str, pred_words.heads.shape))}): heads={pred_words.heads.tolist()}, types={pred_words.types.tolist()}")
+            #         logger.info(f"-> gold_words({'x'.join(map(str, gold_words.heads.shape))}): heads={gold_words.heads.tolist()}, types={gold_words.types.tolist()}")
+            #         logger.info("")
+            #     assert gold_words.heads.shape == pred_words.heads.shape, f"gold_res.heads.shape != pred_res.heads.shape: {gold_words.heads.shape} != {pred_words.heads.shape}"
+            #     assert gold_words.types.shape == pred_words.types.shape, f"gold_res.types.shape != pred_res.types.shape: {gold_words.types.shape} != {pred_words.types.shape}"
+            #     golds.append(gold_words)
+            #     preds.append(pred_words)
+            #     gold_types.extend(gold_words.types.tolist())
+            #     pred_types.extend(pred_words.types.tolist())
+            #     gold_heads.extend(gold_words.heads.tolist())
+            #     pred_heads.extend(pred_words.heads.tolist())
+            # logger.info(progress)
+            # assert len(golds) == len(preds), f"Length of golds and preds are different: {len(golds)} != {len(preds)}"
+            #
+            # if debugging:
+            #     res1 = classification_report(gold_types, pred_types, labels=CLI.label_ids, target_names=CLI.label_names, digits=4, zero_division=1)
+            #     logger.info(hr(c='-'))
+            #     for line in res1.splitlines():
+            #         logger.info(line)
+            #     res2 = classification_report(gold_heads, pred_heads, digits=4, zero_division=1)
+            #     logger.info(hr(c='-'))
+            #     for line in res2.splitlines():
+            #         logger.info(line)
+            #     logger.info(hr(c='-'))
+            #
+            # DP_UAS_MacroF1.reset()
+            # DP_LAS_MacroF1.reset()
+            # DP_UAS_MicroF1.reset()
+            # DP_LAS_MicroF1.reset()
+            # DP_UAS_MacroF1.update(preds, golds)
+            # DP_LAS_MacroF1.update(preds, golds)
+            # DP_UAS_MicroF1.update(preds, golds)
+            # DP_LAS_MicroF1.update(preds, golds)
+            #
+            # res = CLI.EvaluateResult(
+            #     seq1_type=seq1_type,
+            #     seq2_type=seq2_type,
+            #     file_answer=str(refer_file.opt),
+            #     file_predict=str(input_file.opt),
+            #     num_answer=len(refer_items),
+            #     num_predict=len(input_items),
+            #     num_evaluate=len(preds),
+            #     num_skipped=num_skipped,
+            #     num_shorter=num_shorter,
+            #     num_longer=num_longer,
+            #     metric_UASa=DP_UAS_MacroF1.compute(),
+            #     metric_LASa=DP_LAS_MacroF1.compute(),
+            #     metric_UASi=DP_UAS_MicroF1.compute(),
+            #     metric_LASi=DP_LAS_MicroF1.compute(),
+            # )
+            # output_file.fp.write(res.to_json(indent=2))
+            # logger.info(f"  -> seq1_type={res.seq1_type}")
+            # logger.info(f"  -> seq2_type={res.seq2_type}")
+            # logger.info(f"  -> file_answer={res.file_answer}")
+            # logger.info(f"  -> file_predict={res.file_predict}")
+            # logger.info(f"  -> num_answer={res.num_answer}")
+            # logger.info(f"  -> num_predict={res.num_predict}")
+            # logger.info(f"  -> num_evaluate={res.num_evaluate}")
+            # logger.info(f"  -> num_skipped={res.num_skipped}")
+            # logger.info(f"  -> num_shorter={res.num_shorter}")
+            # logger.info(f"  -> num_longer={res.num_longer}")
+            # logger.info(f"  -> DP UASa = {res.metric_UASa:.2f}")
+            # logger.info(f"  -> DP LASa = {res.metric_LASa:.2f}")
+            # logger.info(f"  -> DP UASi = {res.metric_UASi:.2f}")
+            # logger.info(f"  -> DP LASi = {res.metric_LASi:.2f}")
 
 
 if __name__ == "__main__":
