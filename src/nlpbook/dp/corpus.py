@@ -421,6 +421,7 @@ class EvaluateResult(ResultData):
     num_answer: int
     num_predict: int
     num_evaluate: int
+    num_mismatched: int
     num_skipped: int
     num_shorter: int
     num_longer: int
@@ -441,11 +442,11 @@ class CLI:
     label_to_id = {label: i for i, label in enumerate(label_names)}
     id_to_label = {i: label for i, label in enumerate(label_names)}
     seq2_regex = {
-        'a': {"pattern": re.compile("([0-9]+)/([A-Z]{1,3}(_[A-Z]{1,3})?)"), "dep": 2, "head": 1, },
-        'b': {"pattern": re.compile("[^ ]+-([0-9]+)/([A-Z]{1,3}(_[A-Z]{1,3})?)"), "dep": 2, "head": 1, },
-        'c': {"pattern": re.compile("([A-Z]{1,3}(_[A-Z]{1,3})?)\(([0-9]+), ([0-9]+)\)"), "dep": 1, "head": 4, },
-        'd': {"pattern": re.compile("([A-Z]{1,3}(_[A-Z]{1,3})?)\([^ ]+-([0-9]+), [^ ]+-([0-9]+)\)"), "dep": 1, "head": 4, },
-        'e': {"pattern": re.compile("\([0-9]+/[0-9]+, ([0-9]+), ([A-Z]{1,3}(_[A-Z]{1,3})?)\)"), "dep": 2, "head": 1, },
+        'a': {"pattern": re.compile(r"([0-9]+)/([A-Z]{1,3}(_[A-Z]{1,3})?)"), "dep": 2, "head": 1, },
+        'b': {"pattern": re.compile(r"[^ ]*-?([0-9]+)/([A-Z]{1,3}(_[A-Z]{1,3})?)"), "dep": 2, "head": 1, },
+        'c': {"pattern": re.compile(r"([A-Z]{1,3}(_[A-Z]{1,3})?)\(([0-9]+), ([0-9]+)\)"), "dep": 1, "head": 4, },
+        'd': {"pattern": re.compile(r"([A-Z]{1,3}(_[A-Z]{1,3})?)\([^ ]*-?([0-9]+), [^ ]*-?([0-9]+)\)"), "dep": 1, "head": 4, },
+        'e': {"pattern": re.compile(r"\([0-9]+/[0-9]+, ([0-9]+), ([A-Z]{1,3}(_[A-Z]{1,3})?)\)"), "dep": 2, "head": 1, },
     }
 
     @classmethod
@@ -654,7 +655,7 @@ class CLI:
 
         with (
             JobTimer(f"python {args.env.current_file} {' '.join(args.env.command_args)}",
-                     rt=1, rb=1, rc='=', verbose=verbose > 0, args=args if debugging or verbose > 1 else None),
+                     rt=1, rb=1, mb=1, rc='=', verbose=verbose > 0, args=args if debugging or verbose > 1 else None),
             FileStreamer(args.input.file) as input_file,
             FileStreamer(args.output.file) as output_file,
         ):
@@ -680,27 +681,29 @@ class CLI:
             logger.info(f"Saved {num_output} sequence pairs to [{output_file.opt}]")
 
     @staticmethod
-    def to_dp_result(words: List[str], convert: CLI.ConvertOption) -> DPResult:
+    def to_dp_result(words: List[str], convert: CLI.ConvertOption) -> (DPResult, int):
         heads = [-1] * len(words)
         types = [-1] * len(words)
         assert convert.seq2_type in CLI.seq2_regex, f"Unsupported convert option: {convert}"
         regex = CLI.seq2_regex[convert.seq2_type]
+        num_mismatch = 0
         for i, x in enumerate(words):
-            m = regex["pattern"].search(x)
+            m = regex['pattern'].search(x)
             if m:
-                dep = m.group(regex["dep"])
-                head = m.group(regex["head"])
+                dep = m.group(regex['dep'])
+                head = m.group(regex['head'])
                 dep_id = CLI.label_to_id.get(dep, 0) if dep else 0
                 head_id = int(head)
                 heads[i] = head_id
                 types[i] = dep_id
             else:
-                logger.warning(f'Not found: string={x}, pattern={regex["pattern"]}')
+                logger.warning(f"Not found: pattern={regex['pattern']}, string={x}")
+                num_mismatch += 1
                 heads[i] = 0
                 types[i] = 0
         result = DPResult(torch.tensor(heads), torch.tensor(types))
         assert result.heads.shape == result.types.shape, f"result.heads.shape != result.types.shape: {result.heads.shape} != {result.types.shape}"
-        return result
+        return result, num_mismatch
 
     @staticmethod
     @main.command()
@@ -713,7 +716,7 @@ class CLI:
             debugging: bool = typer.Option(default=False),
             verbose: int = typer.Option(default=1),
             # data
-            input_inter: int = typer.Option(default=5000),
+            input_inter: int = typer.Option(default=10000),
             refer_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev-s2s=W1a.tsv"),
             input_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev-s2s=W1a-pred.out"),
             output_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev-s2s=W1a-eval.json"),
@@ -776,7 +779,7 @@ class CLI:
 
         with (
             JobTimer(f"python {args.env.current_file} {' '.join(args.env.command_args)}",
-                     rt=1, rb=1, rc='=', verbose=verbose > 0, args=args if debugging or verbose > 1 else None),
+                     rt=1, rb=1, mb=1, rc='=', verbose=verbose > 0, args=args if debugging or verbose > 1 else None),
             FileStreamer(args.refer.file) as refer_file,
             FileStreamer(args.input.file) as input_file,
             FileStreamer(args.output.file) as output_file,
@@ -794,7 +797,8 @@ class CLI:
             golds, preds = [], []
             gold_heads, pred_heads = [], []
             gold_types, pred_types = [], []
-            num_skipped, num_shorter, num_longer = 0, 0, 0
+            num_mismatched, num_skipped = 0, 0
+            num_shorter, num_longer = 0, 0
             for i, (a, b) in enumerate(progress):
                 if i > 0 and i % interval == 0:
                     logger.info(progress)
@@ -826,8 +830,10 @@ class CLI:
                 if debugging:
                     logger.info(f"-- pred_words({len(pred_words)}): {pred_words}")
                     logger.info(f"-- gold_words({len(gold_words)}): {gold_words}")
-                pred_words = CLI.to_dp_result(pred_words, args.convert)
-                gold_words = CLI.to_dp_result(gold_words, args.convert)
+                pred_words, pred_mismatch = CLI.to_dp_result(pred_words, args.convert)
+                gold_words, gold_mismatch = CLI.to_dp_result(gold_words, args.convert)
+                assert gold_mismatch == 0, f"gold_mismatch != 0: gold_mismatch={gold_mismatch}"
+                num_mismatched += pred_mismatch
                 if debugging:
                     logger.info(f"-> pred_words({'x'.join(map(str, pred_words.heads.shape))}): heads={pred_words.heads.tolist()}, types={pred_words.types.tolist()}")
                     logger.info(f"-> gold_words({'x'.join(map(str, gold_words.heads.shape))}): heads={gold_words.heads.tolist()}, types={gold_words.types.tolist()}")
@@ -870,6 +876,7 @@ class CLI:
                 num_answer=len(refer_items),
                 num_predict=len(input_items),
                 num_evaluate=len(preds),
+                num_mismatched=num_mismatched,
                 num_skipped=num_skipped,
                 num_shorter=num_shorter,
                 num_longer=num_longer,
@@ -879,19 +886,9 @@ class CLI:
                 metric_LASi=DP_LAS_MicroF1.compute(),
             )
             output_file.fp.write(res.to_json(indent=2))
-            logger.info(f"  -> s2s_type={res.s2s_type}")
-            logger.info(f"  -> file_answer={res.file_answer}")
-            logger.info(f"  -> file_predict={res.file_predict}")
-            logger.info(f"  -> num_answer={res.num_answer}")
-            logger.info(f"  -> num_predict={res.num_predict}")
-            logger.info(f"  -> num_evaluate={res.num_evaluate}")
-            logger.info(f"  -> num_skipped={res.num_skipped}")
-            logger.info(f"  -> num_shorter={res.num_shorter}")
-            logger.info(f"  -> num_longer={res.num_longer}")
-            logger.info(f"  -> DP UASa = {res.metric_UASa:.2f}")
-            logger.info(f"  -> DP LASa = {res.metric_LASa:.2f}")
-            logger.info(f"  -> DP UASi = {res.metric_UASi:.2f}")
-            logger.info(f"  -> DP LASi = {res.metric_LASi:.2f}")
+            logger.info(f"  -> s2s_type : {res.s2s_type}")
+            logger.info(f"  -> num      : eval={res.num_evaluate}, miss={res.num_mismatched}, skip={res.num_skipped}, long={res.num_longer}, short={res.num_shorter}")
+            logger.info(f"  -> metric   : UASa={res.metric_UASa:.2f}, LASa={res.metric_LASa:.2f}, UASi={res.metric_UASi:.2f}, LASi={res.metric_LASi:.2f}")
 
 
 if __name__ == "__main__":
