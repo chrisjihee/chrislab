@@ -413,6 +413,23 @@ class DPParsedExample(DataClassJsonMixin):
         return cls(example_id=example_id, sentence=sentence, words=words)
 
 
+@dataclass
+class EvaluateResult(ResultData):
+    s2s_type: str
+    file_answer: str
+    file_predict: str
+    num_answer: int
+    num_predict: int
+    num_evaluate: int
+    num_skipped: int
+    num_shorter: int
+    num_longer: int
+    metric_UASa: float
+    metric_LASa: float
+    metric_UASi: float
+    metric_LASi: float
+
+
 class CLI:
     main = AppTyper()
     LINE_SEP = "<LF>"
@@ -489,22 +506,6 @@ class CLI:
                 to_dataframe(columns=columns, raw=self.refer.index, data_prefix="refer.index") if self.refer.index else None,
                 to_dataframe(columns=columns, raw=self.convert, data_prefix="convert"),
             ]).reset_index(drop=True)
-
-    @dataclass
-    class EvaluateResult(ResultData):
-        s2s_type: str
-        file_answer: str
-        file_predict: str
-        num_answer: int
-        num_predict: int
-        num_evaluate: int
-        num_skipped: int
-        num_shorter: int
-        num_longer: int
-        metric_UASa: float
-        metric_LASa: float
-        metric_UASi: float
-        metric_LASi: float
 
     @staticmethod
     def to_str(s: StringIO):
@@ -862,7 +863,7 @@ class CLI:
             DP_UAS_MicroF1.update(preds, golds)
             DP_LAS_MicroF1.update(preds, golds)
 
-            res = CLI.EvaluateResult(
+            res = EvaluateResult(
                 s2s_type=args.convert.s2s_type,
                 file_answer=str(refer_file.opt),
                 file_predict=str(input_file.opt),
