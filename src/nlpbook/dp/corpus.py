@@ -770,12 +770,6 @@ class CLI:
             FileStreamer(args.input.file) as input_file,
             FileStreamer(args.output.file) as output_file,
         ):
-            print(refer_file.opt)
-            print(input_file.opt)
-            # for x in refer_file:
-            #     print(x)
-            # for x in input_file:
-            #     print(x)
             refer_items = [x.strip() for x in [x.split("\t")[1] for x in refer_file] if len(x.strip()) > 0]
             input_items = [x.strip() for x in [x for x in input_file] if len(x.strip()) > 0]
             logger.info(f"Load {len(input_items)} items from [{input_file.opt}]")
