@@ -18,7 +18,7 @@ from transformers.tokenization_utils_base import PaddingStrategy, TruncationStra
 
 from chrisbase.data import AppTyper, ProjectEnv, InputOption, FileOption, IOArguments, OutputOption, JobTimer, FileStreamer, OptionData, ResultData
 from chrisbase.io import hr, LoggingFormat
-from chrisbase.util import mute_tqdm_cls, LF, HT
+from chrisbase.util import mute_tqdm_cls, LF, HT, NO
 from chrisbase.util import to_dataframe
 from nlpbook.arguments import TesterArguments, TrainerArguments
 from nlpbook.metrics import DPResult, DP_UAS_MacroF1, DP_LAS_MacroF1, DP_UAS_MicroF1, DP_LAS_MicroF1
@@ -417,6 +417,8 @@ class CLI:
     main = AppTyper()
     LINE_SEP = "<LF>"
     WORD_SEP = "▁"
+    LABEL_PROMPT_1 = "Dependency Relation: "
+    LABEL_PROMPT_2 = "Dependency Relations: "
     label_names = DPCorpus.get_dep_labels()
     label_ids = [i for i, _ in enumerate(label_names)]
     label_to_id = {label: i for i, label in enumerate(label_names)}
@@ -428,6 +430,14 @@ class CLI:
         'd': {"pattern": re.compile("([A-Z]{1,3}(_[A-Z]{1,3})?)\([^ ]+-([0-9]+), [^ ]+-([0-9]+)\)"), "dep": 1, "head": 4, },
         'e': {"pattern": re.compile("\([0-9]+/[0-9]+, ([0-9]+), ([A-Z]{1,3}(_[A-Z]{1,3})?)\)"), "dep": 2, "head": 1, },
     }
+
+    @classmethod
+    def strip_label_prompt(cls, x: str):
+        x = x.replace(cls.LINE_SEP, LF)
+        x = x.replace(cls.LABEL_PROMPT_1, NO)
+        x = x.replace(cls.LABEL_PROMPT_2, NO)
+        x = x.strip()
+        return x
 
     @dataclass
     class ConvertOption(OptionData):
@@ -580,11 +590,11 @@ class CLI:
             relations.append(unit2)
         if convert.seq1_type.startswith('S'):
             with (StringIO() as s):
-                print(f"Dependency Relations: {CLI.WORD_SEP.join(relations)}", file=s)
+                print(CLI.LABEL_PROMPT_2 + CLI.WORD_SEP.join(relations), file=s)
                 print(f"Word Count: {len(example.words) - 1}", file=s)
                 return [CLI.to_str(s)]
         else:
-            return [f"Dependency Relation: {relation}" for relation in relations]
+            return [CLI.LABEL_PROMPT_1 + relation for relation in relations]
 
     @staticmethod
     @main.command()
@@ -703,11 +713,11 @@ class CLI:
             verbose: int = typer.Option(default=1),
             # data
             input_inter: int = typer.Option(default=5000),
-            refer_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev-s2s=S0a.tsv"),
-            input_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev-s2s=S0a-pred.out"),
-            output_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev-s2s=S0a-eval.json"),
+            refer_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev-s2s=W1a.tsv"),
+            input_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev-s2s=W1a-pred.out"),
+            output_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev-s2s=W1a-eval.json"),
             # convert
-            s2s_type: str = typer.Option(default="S0a"),
+            s2s_type: str = typer.Option(default="W1a"),
             # evaluate
             skip_longer: bool = typer.Option(default=True),
             skip_shorter: bool = typer.Option(default=True),
@@ -787,8 +797,8 @@ class CLI:
             for i, (a, b) in enumerate(progress):
                 if i > 0 and i % interval == 0:
                     logger.info(progress)
-                pred_words = a.replace(CLI.LINE_SEP, LF).strip().splitlines()[0].split(CLI.WORD_SEP)
-                gold_words = b.replace(CLI.LINE_SEP, LF).strip().splitlines()[0].split(CLI.WORD_SEP)
+                pred_words = CLI.strip_label_prompt(a).splitlines()[0].split(CLI.WORD_SEP)
+                gold_words = CLI.strip_label_prompt(b).splitlines()[0].split(CLI.WORD_SEP)
                 if len(pred_words) < len(gold_words):
                     num_shorter += 1
                     if args.evaluate.skip_shorter:
