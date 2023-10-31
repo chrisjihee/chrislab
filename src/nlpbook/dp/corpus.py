@@ -424,8 +424,9 @@ class CLI:
     seq2_regex = {
         'a': {"pattern": re.compile("([0-9]+)/([A-Z]{1,3}(_[A-Z]{1,3})?)"), "dep": 2, "head": 1, },
         'b': {"pattern": re.compile("[^ ]+-([0-9]+)/([A-Z]{1,3}(_[A-Z]{1,3})?)"), "dep": 2, "head": 1, },
-        'c': {"pattern": re.compile("([A-Z]{1,3}(_[A-Z]{1,3})?)\([^ ]+-([0-9]+), [^ ]+-([0-9]+)\)"), "dep": 1, "head": 4, },
-        'd': {"pattern": re.compile("\([0-9]+/[0-9]+, ([0-9]+), ([A-Z]{1,3}(_[A-Z]{1,3})?)\)"), "dep": 2, "head": 1, },
+        'c': {"pattern": re.compile("([A-Z]{1,3}(_[A-Z]{1,3})?)\(([0-9]+), ([0-9]+)\)"), "dep": 1, "head": 4, },
+        'd': {"pattern": re.compile("([A-Z]{1,3}(_[A-Z]{1,3})?)\([^ ]+-([0-9]+), [^ ]+-([0-9]+)\)"), "dep": 1, "head": 4, },
+        'e': {"pattern": re.compile("\([0-9]+/[0-9]+, ([0-9]+), ([A-Z]{1,3}(_[A-Z]{1,3})?)\)"), "dep": 2, "head": 1, },
     }
 
     @dataclass
@@ -768,122 +769,125 @@ class CLI:
             FileStreamer(args.input.file) as input_file,
             FileStreamer(args.output.file) as output_file,
         ):
-            print(refer_file.opt.strict)
+            print(refer_file.opt)
+            print(input_file.opt)
             # for x in refer_file:
             #     print(x)
-            # refer_items = [x.replace(CLI.LINE_SEP, LF).strip() for x in [x.split("Dependency Relations: ")[1] for x in refer_file] if len(x.strip()) > 0]
-            # input_items = [x.strip() for x in input_file.path.read_text().split("Dependency Relations: ") if len(x.strip()) > 0]
-            # logger.info(f"Load {len(input_items)} items from [{input_file.opt}]")
-            # logger.info(f"Load {len(refer_items)} items from [{refer_file.opt}]")
-            # assert len(input_items) == len(refer_items), f"Length of input_items and refer_items are different: {len(input_items)} != {len(refer_items)}"
-            # progress, interval = (
-            #     tqdm(zip(input_items, refer_items), total=len(input_items), unit="item", pre="*", desc="evaluating"),
-            #     args.input.inter,
-            # )
-            #
-            # golds, preds = [], []
-            # gold_heads, pred_heads = [], []
-            # gold_types, pred_types = [], []
-            # num_skipped, num_shorter, num_longer = 0, 0, 0
-            # for i, (a, b) in enumerate(progress):
-            #     if i > 0 and i % interval == 0:
-            #         logger.info(progress)
-            #     pred_words = a.strip().splitlines()[0].split(CLI.WORD_SEP)
-            #     gold_words = b.strip().splitlines()[0].split(CLI.WORD_SEP)
-            #     if len(pred_words) < len(gold_words):
-            #         num_shorter += 1
-            #         if args.evaluate.skip_shorter:
-            #             num_skipped += 1
-            #             continue
-            #         else:
-            #             logger.warning(f"[{i:04d}] Shorter pred_words({len(pred_words)}): {pred_words}")
-            #             logger.warning(f"[{i:04d}]         gold_words({len(gold_words)}): {gold_words}")
-            #             pred_words = pred_words + (
-            #                     [pred_words[-1]] * (len(gold_words) - len(pred_words))
-            #             )
-            #             logger.warning(f"[{i:04d}]      -> pred_words({len(pred_words)}): {pred_words}")
-            #     if len(pred_words) > len(gold_words):
-            #         num_longer += 1
-            #         if args.evaluate.skip_longer:
-            #             num_skipped += 1
-            #             continue
-            #         else:
-            #             logger.warning(f"[{i:04d}]  Longer pred_words({len(pred_words)}): {pred_words}")
-            #             logger.warning(f"[{i:04d}]         gold_words({len(gold_words)}): {gold_words}")
-            #             pred_words = pred_words[:len(gold_words)]
-            #             logger.warning(f"[{i:04d}]      -> pred_words({len(pred_words)}): {pred_words}")
-            #     assert len(pred_words) == len(gold_words), f"Length of pred_words and gold_words are different: {len(pred_words)} != {len(gold_words)}"
-            #     if debugging:
-            #         logger.info(f"-- pred_words({len(pred_words)}): {pred_words}")
-            #         logger.info(f"-- gold_words({len(gold_words)}): {gold_words}")
-            #     pred_words = CLI.to_dp_result(pred_words, args.convert)
-            #     gold_words = CLI.to_dp_result(gold_words, args.convert)
-            #     if debugging:
-            #         logger.info(f"-> pred_words({'x'.join(map(str, pred_words.heads.shape))}): heads={pred_words.heads.tolist()}, types={pred_words.types.tolist()}")
-            #         logger.info(f"-> gold_words({'x'.join(map(str, gold_words.heads.shape))}): heads={gold_words.heads.tolist()}, types={gold_words.types.tolist()}")
-            #         logger.info("")
-            #     assert gold_words.heads.shape == pred_words.heads.shape, f"gold_res.heads.shape != pred_res.heads.shape: {gold_words.heads.shape} != {pred_words.heads.shape}"
-            #     assert gold_words.types.shape == pred_words.types.shape, f"gold_res.types.shape != pred_res.types.shape: {gold_words.types.shape} != {pred_words.types.shape}"
-            #     golds.append(gold_words)
-            #     preds.append(pred_words)
-            #     gold_types.extend(gold_words.types.tolist())
-            #     pred_types.extend(pred_words.types.tolist())
-            #     gold_heads.extend(gold_words.heads.tolist())
-            #     pred_heads.extend(pred_words.heads.tolist())
-            # logger.info(progress)
-            # assert len(golds) == len(preds), f"Length of golds and preds are different: {len(golds)} != {len(preds)}"
-            #
-            # if debugging:
-            #     res1 = classification_report(gold_types, pred_types, labels=CLI.label_ids, target_names=CLI.label_names, digits=4, zero_division=1)
-            #     logger.info(hr(c='-'))
-            #     for line in res1.splitlines():
-            #         logger.info(line)
-            #     res2 = classification_report(gold_heads, pred_heads, digits=4, zero_division=1)
-            #     logger.info(hr(c='-'))
-            #     for line in res2.splitlines():
-            #         logger.info(line)
-            #     logger.info(hr(c='-'))
-            #
-            # DP_UAS_MacroF1.reset()
-            # DP_LAS_MacroF1.reset()
-            # DP_UAS_MicroF1.reset()
-            # DP_LAS_MicroF1.reset()
-            # DP_UAS_MacroF1.update(preds, golds)
-            # DP_LAS_MacroF1.update(preds, golds)
-            # DP_UAS_MicroF1.update(preds, golds)
-            # DP_LAS_MicroF1.update(preds, golds)
-            #
-            # res = CLI.EvaluateResult(
-            #     seq1_type=seq1_type,
-            #     seq2_type=seq2_type,
-            #     file_answer=str(refer_file.opt),
-            #     file_predict=str(input_file.opt),
-            #     num_answer=len(refer_items),
-            #     num_predict=len(input_items),
-            #     num_evaluate=len(preds),
-            #     num_skipped=num_skipped,
-            #     num_shorter=num_shorter,
-            #     num_longer=num_longer,
-            #     metric_UASa=DP_UAS_MacroF1.compute(),
-            #     metric_LASa=DP_LAS_MacroF1.compute(),
-            #     metric_UASi=DP_UAS_MicroF1.compute(),
-            #     metric_LASi=DP_LAS_MicroF1.compute(),
-            # )
-            # output_file.fp.write(res.to_json(indent=2))
-            # logger.info(f"  -> seq1_type={res.seq1_type}")
-            # logger.info(f"  -> seq2_type={res.seq2_type}")
-            # logger.info(f"  -> file_answer={res.file_answer}")
-            # logger.info(f"  -> file_predict={res.file_predict}")
-            # logger.info(f"  -> num_answer={res.num_answer}")
-            # logger.info(f"  -> num_predict={res.num_predict}")
-            # logger.info(f"  -> num_evaluate={res.num_evaluate}")
-            # logger.info(f"  -> num_skipped={res.num_skipped}")
-            # logger.info(f"  -> num_shorter={res.num_shorter}")
-            # logger.info(f"  -> num_longer={res.num_longer}")
-            # logger.info(f"  -> DP UASa = {res.metric_UASa:.2f}")
-            # logger.info(f"  -> DP LASa = {res.metric_LASa:.2f}")
-            # logger.info(f"  -> DP UASi = {res.metric_UASi:.2f}")
-            # logger.info(f"  -> DP LASi = {res.metric_LASi:.2f}")
+            # for x in input_file:
+            #     print(x)
+            refer_items = [x.replace(CLI.LINE_SEP, LF).strip() for x in [x.split("Dependency Relations: ")[1] for x in refer_file] if len(x.strip()) > 0]
+            input_items = [x.replace(CLI.LINE_SEP, LF).strip() for x in input_file.path.read_text().split("Dependency Relations: ") if len(x.strip()) > 0]
+            logger.info(f"Load {len(input_items)} items from [{input_file.opt}]")
+            logger.info(f"Load {len(refer_items)} items from [{refer_file.opt}]")
+            assert len(input_items) == len(refer_items), f"Length of input_items and refer_items are different: {len(input_items)} != {len(refer_items)}"
+            progress, interval = (
+                tqdm(zip(input_items, refer_items), total=len(input_items), unit="item", pre="*", desc="evaluating"),
+                args.input.inter,
+            )
+
+            golds, preds = [], []
+            gold_heads, pred_heads = [], []
+            gold_types, pred_types = [], []
+            num_skipped, num_shorter, num_longer = 0, 0, 0
+            for i, (a, b) in enumerate(progress):
+                if i > 0 and i % interval == 0:
+                    logger.info(progress)
+                pred_words = a.strip().splitlines()[0].split(CLI.WORD_SEP)
+                gold_words = b.strip().splitlines()[0].split(CLI.WORD_SEP)
+                if len(pred_words) < len(gold_words):
+                    num_shorter += 1
+                    if args.evaluate.skip_shorter:
+                        num_skipped += 1
+                        continue
+                    else:
+                        logger.warning(f"[{i:04d}] Shorter pred_words({len(pred_words)}): {pred_words}")
+                        logger.warning(f"[{i:04d}]         gold_words({len(gold_words)}): {gold_words}")
+                        pred_words = pred_words + (
+                                [pred_words[-1]] * (len(gold_words) - len(pred_words))
+                        )
+                        logger.warning(f"[{i:04d}]      -> pred_words({len(pred_words)}): {pred_words}")
+                if len(pred_words) > len(gold_words):
+                    num_longer += 1
+                    if args.evaluate.skip_longer:
+                        num_skipped += 1
+                        continue
+                    else:
+                        logger.warning(f"[{i:04d}]  Longer pred_words({len(pred_words)}): {pred_words}")
+                        logger.warning(f"[{i:04d}]         gold_words({len(gold_words)}): {gold_words}")
+                        pred_words = pred_words[:len(gold_words)]
+                        logger.warning(f"[{i:04d}]      -> pred_words({len(pred_words)}): {pred_words}")
+                assert len(pred_words) == len(gold_words), f"Length of pred_words and gold_words are different: {len(pred_words)} != {len(gold_words)}"
+                if debugging:
+                    logger.info(f"-- pred_words({len(pred_words)}): {pred_words}")
+                    logger.info(f"-- gold_words({len(gold_words)}): {gold_words}")
+                pred_words = CLI.to_dp_result(pred_words, args.convert)
+                gold_words = CLI.to_dp_result(gold_words, args.convert)
+                if debugging:
+                    logger.info(f"-> pred_words({'x'.join(map(str, pred_words.heads.shape))}): heads={pred_words.heads.tolist()}, types={pred_words.types.tolist()}")
+                    logger.info(f"-> gold_words({'x'.join(map(str, gold_words.heads.shape))}): heads={gold_words.heads.tolist()}, types={gold_words.types.tolist()}")
+                    logger.info("")
+                assert gold_words.heads.shape == pred_words.heads.shape, f"gold_res.heads.shape != pred_res.heads.shape: {gold_words.heads.shape} != {pred_words.heads.shape}"
+                assert gold_words.types.shape == pred_words.types.shape, f"gold_res.types.shape != pred_res.types.shape: {gold_words.types.shape} != {pred_words.types.shape}"
+                golds.append(gold_words)
+                preds.append(pred_words)
+                gold_types.extend(gold_words.types.tolist())
+                pred_types.extend(pred_words.types.tolist())
+                gold_heads.extend(gold_words.heads.tolist())
+                pred_heads.extend(pred_words.heads.tolist())
+            logger.info(progress)
+            assert len(golds) == len(preds), f"Length of golds and preds are different: {len(golds)} != {len(preds)}"
+
+            if debugging:
+                res1 = classification_report(gold_types, pred_types, labels=CLI.label_ids, target_names=CLI.label_names, digits=4, zero_division=1)
+                logger.info(hr(c='-'))
+                for line in res1.splitlines():
+                    logger.info(line)
+                res2 = classification_report(gold_heads, pred_heads, digits=4, zero_division=1)
+                logger.info(hr(c='-'))
+                for line in res2.splitlines():
+                    logger.info(line)
+                logger.info(hr(c='-'))
+
+            DP_UAS_MacroF1.reset()
+            DP_LAS_MacroF1.reset()
+            DP_UAS_MicroF1.reset()
+            DP_LAS_MicroF1.reset()
+            DP_UAS_MacroF1.update(preds, golds)
+            DP_LAS_MacroF1.update(preds, golds)
+            DP_UAS_MicroF1.update(preds, golds)
+            DP_LAS_MicroF1.update(preds, golds)
+
+            res = CLI.EvaluateResult(
+                seq1_type=seq1_type,
+                seq2_type=seq2_type,
+                file_answer=str(refer_file.opt),
+                file_predict=str(input_file.opt),
+                num_answer=len(refer_items),
+                num_predict=len(input_items),
+                num_evaluate=len(preds),
+                num_skipped=num_skipped,
+                num_shorter=num_shorter,
+                num_longer=num_longer,
+                metric_UASa=DP_UAS_MacroF1.compute(),
+                metric_LASa=DP_LAS_MacroF1.compute(),
+                metric_UASi=DP_UAS_MicroF1.compute(),
+                metric_LASi=DP_LAS_MicroF1.compute(),
+            )
+            output_file.fp.write(res.to_json(indent=2))
+            logger.info(f"  -> seq1_type={res.seq1_type}")
+            logger.info(f"  -> seq2_type={res.seq2_type}")
+            logger.info(f"  -> file_answer={res.file_answer}")
+            logger.info(f"  -> file_predict={res.file_predict}")
+            logger.info(f"  -> num_answer={res.num_answer}")
+            logger.info(f"  -> num_predict={res.num_predict}")
+            logger.info(f"  -> num_evaluate={res.num_evaluate}")
+            logger.info(f"  -> num_skipped={res.num_skipped}")
+            logger.info(f"  -> num_shorter={res.num_shorter}")
+            logger.info(f"  -> num_longer={res.num_longer}")
+            logger.info(f"  -> DP UASa = {res.metric_UASa:.2f}")
+            logger.info(f"  -> DP LASa = {res.metric_LASa:.2f}")
+            logger.info(f"  -> DP UASi = {res.metric_UASi:.2f}")
+            logger.info(f"  -> DP LASi = {res.metric_LASi:.2f}")
 
 
 if __name__ == "__main__":
