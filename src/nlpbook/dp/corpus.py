@@ -431,8 +431,13 @@ class CLI:
 
     @dataclass
     class ConvertOption(OptionData):
-        seq1_type: str = field()
-        seq2_type: str = field()
+        s2s_type: str = field()
+        seq1_type: str = field(init=False)
+        seq2_type: str = field(init=False)
+
+        def __post_init__(self):
+            self.seq1_type = self.s2s_type[:2]
+            self.seq2_type = self.s2s_type[-1:]
 
     @dataclass
     class ConvertArguments(IOArguments):
@@ -477,8 +482,7 @@ class CLI:
 
     @dataclass
     class EvaluateResult(ResultData):
-        seq1_type: str
-        seq2_type: str
+        s2s_type: str
         file_answer: str
         file_predict: str
         num_answer: int
@@ -597,8 +601,7 @@ class CLI:
             input_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev.tsv"),
             output_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev.tsv"),
             # convert
-            seq1_type: str = typer.Option(default='S0'),
-            seq2_type: str = typer.Option(default='a'),
+            s2s_type: str = typer.Option(default="S0a"),
     ):
         env = ProjectEnv(
             project=project,
@@ -626,8 +629,7 @@ class CLI:
             ),
         )
         convert_opt = CLI.ConvertOption(
-            seq1_type=seq1_type,
-            seq2_type=seq2_type,
+            s2s_type=s2s_type,
         )
         args = CLI.ConvertArguments(
             env=env,
@@ -682,6 +684,7 @@ class CLI:
                 heads[i] = head_id
                 types[i] = dep_id
             else:
+                logger.warning(f'Not found: string={x}, pattern={regex["pattern"]}')
                 heads[i] = 0
                 types[i] = 0
         result = DPResult(torch.tensor(heads), torch.tensor(types))
@@ -704,8 +707,7 @@ class CLI:
             input_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev-s2s=S0a-pred.out"),
             output_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev-s2s=S0a-eval.json"),
             # convert
-            seq1_type: str = typer.Option(default='S0'),
-            seq2_type: str = typer.Option(default='a'),
+            s2s_type: str = typer.Option(default="S0a"),
             # evaluate
             skip_longer: bool = typer.Option(default=True),
             skip_shorter: bool = typer.Option(default=True),
@@ -742,8 +744,7 @@ class CLI:
             ),
         )
         convert_opt = CLI.ConvertOption(
-            seq1_type=seq1_type,
-            seq2_type=seq2_type,
+            s2s_type=s2s_type,
         )
         evaluate_opt = CLI.EvaluateOption(
             skip_longer=skip_longer,
@@ -775,8 +776,8 @@ class CLI:
             #     print(x)
             # for x in input_file:
             #     print(x)
-            refer_items = [x.replace(CLI.LINE_SEP, LF).strip() for x in [x.split("Dependency Relations: ")[1] for x in refer_file] if len(x.strip()) > 0]
-            input_items = [x.replace(CLI.LINE_SEP, LF).strip() for x in input_file.path.read_text().split("Dependency Relations: ") if len(x.strip()) > 0]
+            refer_items = [x.strip() for x in [x.split("\t")[1] for x in refer_file] if len(x.strip()) > 0]
+            input_items = [x.strip() for x in [x for x in input_file] if len(x.strip()) > 0]
             logger.info(f"Load {len(input_items)} items from [{input_file.opt}]")
             logger.info(f"Load {len(refer_items)} items from [{refer_file.opt}]")
             assert len(input_items) == len(refer_items), f"Length of input_items and refer_items are different: {len(input_items)} != {len(refer_items)}"
@@ -792,8 +793,8 @@ class CLI:
             for i, (a, b) in enumerate(progress):
                 if i > 0 and i % interval == 0:
                     logger.info(progress)
-                pred_words = a.strip().splitlines()[0].split(CLI.WORD_SEP)
-                gold_words = b.strip().splitlines()[0].split(CLI.WORD_SEP)
+                pred_words = a.replace(CLI.LINE_SEP, LF).strip().splitlines()[0].split(CLI.WORD_SEP)
+                gold_words = b.replace(CLI.LINE_SEP, LF).strip().splitlines()[0].split(CLI.WORD_SEP)
                 if len(pred_words) < len(gold_words):
                     num_shorter += 1
                     if args.evaluate.skip_shorter:
@@ -858,8 +859,7 @@ class CLI:
             DP_LAS_MicroF1.update(preds, golds)
 
             res = CLI.EvaluateResult(
-                seq1_type=seq1_type,
-                seq2_type=seq2_type,
+                s2s_type=args.convert.s2s_type,
                 file_answer=str(refer_file.opt),
                 file_predict=str(input_file.opt),
                 num_answer=len(refer_items),
@@ -874,8 +874,7 @@ class CLI:
                 metric_LASi=DP_LAS_MicroF1.compute(),
             )
             output_file.fp.write(res.to_json(indent=2))
-            logger.info(f"  -> seq1_type={res.seq1_type}")
-            logger.info(f"  -> seq2_type={res.seq2_type}")
+            logger.info(f"  -> s2s_type={res.s2s_type}")
             logger.info(f"  -> file_answer={res.file_answer}")
             logger.info(f"  -> file_predict={res.file_predict}")
             logger.info(f"  -> num_answer={res.num_answer}")
