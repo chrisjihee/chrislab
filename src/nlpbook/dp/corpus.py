@@ -418,6 +418,8 @@ class EvaluateResult(ResultData):
     s2s_type: str
     file_answer: str
     file_predict: str
+    cate_predict: str
+    post_predict: str
     num_answer: int
     num_predict: int
     num_evaluate: int
@@ -635,7 +637,7 @@ class CLI:
         output_file_name = Path(output_file_name)
         output_opt = OutputOption(
             file=FileOption(
-                name=output_file_name.with_stem(f"{output_file_name.stem}-s2s={seq1_type}{seq2_type}"),
+                name=output_file_name.with_stem(f"{output_file_name.stem}-s2s={s2s_type}"),
                 mode="w",
                 strict=True,
             ),
@@ -716,7 +718,7 @@ class CLI:
             debugging: bool = typer.Option(default=False),
             verbose: int = typer.Option(default=1),
             # data
-            input_inter: int = typer.Option(default=10000),
+            input_inter: int = typer.Option(default=50000),
             refer_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev-s2s=W1a.tsv"),
             input_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev-s2s=W1a-pred.out"),
             output_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev-s2s=W1a-eval.json"),
@@ -786,8 +788,8 @@ class CLI:
         ):
             refer_items = [x.strip() for x in [x.split("\t")[1] for x in refer_file] if len(x.strip()) > 0]
             input_items = [x.strip() for x in [x for x in input_file] if len(x.strip()) > 0]
-            logger.info(f"Load {len(input_items)} items from [{input_file.opt}]")
-            logger.info(f"Load {len(refer_items)} items from [{refer_file.opt}]")
+            logger.info(f"Load {len(refer_items)}  labelled items from [{refer_file.opt}]")
+            logger.info(f"Load {len(input_items)} predicted items from [{input_file.opt}]")
             assert len(input_items) == len(refer_items), f"Length of input_items and refer_items are different: {len(input_items)} != {len(refer_items)}"
             progress, interval = (
                 tqdm(zip(input_items, refer_items), total=len(input_items), unit="item", pre="*", desc="evaluating"),
@@ -873,6 +875,8 @@ class CLI:
                 s2s_type=args.convert.s2s_type,
                 file_answer=str(refer_file.opt),
                 file_predict=str(input_file.opt),
+                cate_predict=input_file.path.parent.name,
+                post_predict=input_file.path.stem.split("-")[-1],
                 num_answer=len(refer_items),
                 num_predict=len(input_items),
                 num_evaluate=len(preds),
@@ -889,6 +893,7 @@ class CLI:
             logger.info(f"  -> s2s_type : {res.s2s_type}")
             logger.info(f"  -> num      : eval={res.num_evaluate}, miss={res.num_mismatched}, skip={res.num_skipped}, long={res.num_longer}, short={res.num_shorter}")
             logger.info(f"  -> metric   : UASa={res.metric_UASa:.2f}, LASa={res.metric_LASa:.2f}, UASi={res.metric_UASi:.2f}, LASi={res.metric_LASi:.2f}")
+            logger.info(f"Save for {len(preds)} evaluated items to [{output_file.opt}]")
 
 
 if __name__ == "__main__":
