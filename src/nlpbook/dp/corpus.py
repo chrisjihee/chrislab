@@ -606,7 +606,6 @@ class CLI:
     def convert(
             # env
             project: str = typer.Option(default="DeepKNLU"),
-            job_name: str = typer.Option(default="convert"),
             output_home: str = typer.Option(default="output"),
             logging_file: str = typer.Option(default="logging.out"),
             debugging: bool = typer.Option(default=False),
@@ -620,7 +619,6 @@ class CLI:
     ):
         env = ProjectEnv(
             project=project,
-            job_name=job_name,
             debugging=debugging,
             output_home=output_home,
             logging_file=logging_file,
@@ -712,7 +710,6 @@ class CLI:
     def evaluate(
             # env
             project: str = typer.Option(default="DeepKNLU"),
-            job_name: str = typer.Option(default="evaluate"),
             output_home: str = typer.Option(default="output"),
             logging_file: str = typer.Option(default="logging.out"),
             debugging: bool = typer.Option(default=False),
@@ -730,7 +727,6 @@ class CLI:
     ):
         env = ProjectEnv(
             project=project,
-            job_name=job_name,
             debugging=debugging,
             output_home=output_home,
             logging_file=logging_file,

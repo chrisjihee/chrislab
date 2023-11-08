@@ -497,6 +497,35 @@ class CLI:
             logger.info(progress)
             logger.info(f"Saved {num_output} sequence pairs to [{output_file.opt}]")
 
+    @staticmethod
+    @main.command()
+    def evaluate(
+            # env
+            project: str = typer.Option(default="DeepKNLU"),
+            output_home: str = typer.Option(default="output"),
+            logging_file: str = typer.Option(default="logging.out"),
+            debugging: bool = typer.Option(default=False),
+            verbose: int = typer.Option(default=1),
+            # data
+            input_inter: int = typer.Option(default=50000),
+            refer_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev-s2s=S0a.tsv"),
+            input_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev-s2s=S0a-pred.out"),
+            output_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev-s2s=S0a-eval.json"),
+            # convert
+            s2s_type: str = typer.Option(default="S0a"),
+            # evaluate
+            skip_longer: bool = typer.Option(default=True),
+            skip_shorter: bool = typer.Option(default=True),
+    ):
+        env = ProjectEnv(
+            project=project,
+            debugging=debugging,
+            output_home=output_home,
+            logging_file=logging_file,
+            msg_level=logging.DEBUG if debugging else logging.INFO,
+            msg_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_24,
+        )
+
 
 if __name__ == "__main__":
     CLI.main()
