@@ -661,7 +661,6 @@ class CLI:
             FileStreamer(args.input.file) as input_file,
             FileStreamer(args.output.file) as output_file,
         ):
-            input_file.path.read_text()
             input_chunks = [x for x in input_file.path.read_text().split("\n\n") if len(x.strip()) > 0]
             logger.info(f"Load {len(input_chunks)} sentences from [{input_file.opt}]")
             progress, interval = (

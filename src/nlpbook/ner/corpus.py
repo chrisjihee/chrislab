@@ -5,13 +5,38 @@ from pathlib import Path
 from typing import List, Optional, ClassVar, Dict
 
 import torch
+import typer
 from dataclasses_json import DataClassJsonMixin
 from torch.utils.data.dataset import Dataset
 from transformers import PreTrainedTokenizerFast, BatchEncoding, CharSpan
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
+from chrisbase.data import AppTyper, ProjectEnv, InputOption, FileOption, IOArguments, OutputOption, JobTimer, FileStreamer, OptionData, ResultData
 
-from chrisbase.io import make_parent_dir, files, merge_dicts, hr
+from chrisbase.io import make_parent_dir, files, merge_dicts, hr, LoggingFormat
 from nlpbook.arguments import MLArguments
+
+import logging
+import re
+from dataclasses import dataclass, field
+from io import StringIO
+from pathlib import Path
+from typing import List, Optional, Dict, ClassVar
+
+import pandas as pd
+import torch
+import typer
+from dataclasses_json import DataClassJsonMixin
+from sklearn.metrics import classification_report
+from torch.utils.data.dataset import Dataset
+from transformers import PreTrainedTokenizerFast, BatchEncoding
+from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
+
+from chrisbase.data import AppTyper, ProjectEnv, InputOption, FileOption, IOArguments, OutputOption, JobTimer, FileStreamer, OptionData, ResultData
+from chrisbase.io import hr, LoggingFormat
+from chrisbase.util import mute_tqdm_cls, LF, HT, NO
+from chrisbase.util import to_dataframe
+from nlpbook.arguments import TesterArguments, TrainerArguments
+from nlpbook.metrics import DPResult, DP_UAS_MacroF1, DP_LAS_MacroF1, DP_UAS_MicroF1, DP_LAS_MicroF1
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +62,22 @@ class EntityInText(DataClassJsonMixin):
         for i in range(self.offset[0] + 1, self.offset[1]):
             offset_list.append((i, f"I-{self.label}"))
         return dict(offset_list)
+
+
+@dataclass
+class NERTaggedExample(DataClassJsonMixin):
+    example_id: str = field(default_factory=str)
+    origin: str = field(default_factory=str)
+    tagged: str = field(default_factory=str)
+
+    @classmethod
+    def from_tsv(cls, tsv: str):
+        meta = [x.split('\t') for x in tsv.strip().splitlines() if x.startswith('#')][-1]
+        chars = [x.split('\t') for x in tsv.strip().splitlines() if not x.startswith('#')]
+        example_id = re.sub(r"^##+", "", meta[0]).strip()
+        tagged = meta[1].strip()
+        origin = ''.join([x[0] for x in chars])
+        return cls(example_id=example_id, origin=origin, tagged=tagged)
 
 
 @dataclass
@@ -367,45 +408,154 @@ class NERCorpusConverter:
                 out2.close()
 
 
+class CLI:
+    main = AppTyper()
+
+    @dataclass
+    class ConvertOption(OptionData):
+        s2s_type: str = field()
+        seq1_type: str = field(init=False)
+        seq2_type: str = field(init=False)
+
+        def __post_init__(self):
+            self.seq1_type = self.s2s_type[:2]
+            self.seq2_type = self.s2s_type[-1:]
+
+    @dataclass
+    class ConvertArguments(IOArguments):
+        convert: "CLI.ConvertOption" = field()
+
+        def __post_init__(self):
+            super().__post_init__()
+
+        def dataframe(self, columns=None) -> pd.DataFrame:
+            if not columns:
+                columns = [self.data_type, "value"]
+            return pd.concat([
+                super().dataframe(columns=columns),
+                to_dataframe(columns=columns, raw=self.convert, data_prefix="convert"),
+            ]).reset_index(drop=True)
+
+    @staticmethod
+    @main.command()
+    def convert(
+            # env
+            project: str = typer.Option(default="DeepKNLU"),
+            job_name: str = typer.Option(default="convert"),
+            output_home: str = typer.Option(default="output"),
+            logging_file: str = typer.Option(default="logging.out"),
+            debugging: bool = typer.Option(default=False),
+            verbose: int = typer.Option(default=1),
+            # data
+            input_inter: int = typer.Option(default=5000),
+            input_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev.tsv"),
+            output_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev-s2s.tsv"),
+            # convert
+            s2s_type: str = typer.Option(default="S0a"),
+    ):
+        env = ProjectEnv(
+            project=project,
+            job_name=job_name,
+            debugging=debugging,
+            output_home=output_home,
+            logging_file=logging_file,
+            msg_level=logging.DEBUG if debugging else logging.INFO,
+            msg_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_24,
+        )
+        input_opt = InputOption(
+            inter=input_inter,
+            file=FileOption(
+                name=input_file_name,
+                mode="r",
+                strict=True,
+            ),
+        )
+        output_file_name = Path(output_file_name)
+        output_opt = OutputOption(
+            file=FileOption(
+                name=output_file_name.with_stem(f"{output_file_name.stem}={s2s_type}"),
+                mode="w",
+                strict=True,
+            ),
+        )
+        convert_opt = CLI.ConvertOption(
+            s2s_type=s2s_type,
+        )
+        args = CLI.ConvertArguments(
+            env=env,
+            input=input_opt,
+            output=output_opt,
+            convert=convert_opt,
+        )
+        tqdm = mute_tqdm_cls()
+        assert args.input.file, "input.file is required"
+        assert args.output.file, "output.file is required"
+
+        with (
+            JobTimer(f"python {args.env.current_file} {' '.join(args.env.command_args)}",
+                     rt=1, rb=1, mb=1, rc='=', verbose=verbose > 0, args=args if debugging or verbose > 1 else None),
+            FileStreamer(args.input.file) as input_file,
+            FileStreamer(args.output.file) as output_file,
+        ):
+            input_chunks = [x for x in input_file.path.read_text().split("\n\n") if len(x.strip()) > 0]
+            logger.info(f"Load {len(input_chunks)} sentences from [{input_file.opt}]")
+            # print(f"input_chunks: {len(input_chunks)}")
+            # print(f"input_chunks[0]: {input_chunks[0]}")
+            progress, interval = (
+                tqdm(input_chunks, total=len(input_chunks), unit="sent", pre="*", desc="converting"),
+                args.input.inter,
+            )
+            num_output = 0
+            for i, x in enumerate(progress):
+                if i > 0 and i % interval == 0:
+                    logger.info(progress)
+                example = NERTaggedExample.from_tsv(x)
+                print(f"example: {example}")
+                exit(1)
+
+
 if __name__ == "__main__":
-    class RunOption:
-        run1: bool = False
-        run2: bool = False
-        run3_v1: bool = True
-        run3_v2: bool = True
-        run3_v3: bool = True
+    CLI.main()
 
-
-    if RunOption.run1:
-        for path in files("data/kmou-ner-full/*.txt"):
-            print(f"[FILE]: {path}")
-            NERCorpusConverter.convert_from_kmou_format(path, path.with_suffix(".jsonl"), debug=True)
-
-    if RunOption.run2:
-        for path in files("data/klue-ner/*.tsv"):
-            print(f"[FILE]: {path}")
-            NERCorpusConverter.convert_from_klue_format(path, path.with_suffix(".jsonl"), debug=True)
-
-    if RunOption.run3_v1:
-        for path in files("data/klue-ner-mini/*_dev.jsonl") + files("data/klue-ner/*_dev.jsonl"):
-            print(f"[FILE]: {path}")
-            NERCorpusConverter.convert_to_seq2seq_format_v1(path, path.with_suffix(".input.seq2seq_v1.tsv"), path.with_suffix(".answer.seq2seq_v1.tsv"), debug=True)
-        for path in files("data/klue-ner-mini/*_train.jsonl") + files("data/klue-ner/*_train.jsonl"):
-            print(f"[FILE]: {path}")
-            NERCorpusConverter.convert_to_seq2seq_format_v1(path, path.with_suffix(".seq2seq_v1.tsv"), debug=True)
-
-    if RunOption.run3_v2:
-        for path in files("data/klue-ner-mini/*_dev.jsonl") + files("data/klue-ner/*_dev.jsonl"):
-            print(f"[FILE]: {path}")
-            NERCorpusConverter.convert_to_seq2seq_format_v2(path, path.with_suffix(".input.seq2seq_v2.tsv"), path.with_suffix(".answer.seq2seq_v2.tsv"), debug=True)
-        for path in files("data/klue-ner-mini/*_train.jsonl") + files("data/klue-ner/*_train.jsonl"):
-            print(f"[FILE]: {path}")
-            NERCorpusConverter.convert_to_seq2seq_format_v2(path, path.with_suffix(".seq2seq_v2.tsv"), debug=True)
-
-    if RunOption.run3_v3:
-        for path in files("data/klue-ner-mini/*_dev.jsonl") + files("data/klue-ner/*_dev.jsonl"):
-            print(f"[FILE]: {path}")
-            NERCorpusConverter.convert_to_seq2seq_format_v3(path, path.with_suffix(".input.seq2seq_v3.tsv"), path.with_suffix(".answer.seq2seq_v3.tsv"), debug=True)
-        for path in files("data/klue-ner-mini/*_train.jsonl") + files("data/klue-ner/*_train.jsonl"):
-            print(f"[FILE]: {path}")
-            NERCorpusConverter.convert_to_seq2seq_format_v3(path, path.with_suffix(".seq2seq_v3.tsv"), debug=True)
+# if __name__ == "__main__":
+#     class RunOption:
+#         run1: bool = False
+#         run2: bool = False
+#         run3_v1: bool = True
+#         run3_v2: bool = True
+#         run3_v3: bool = True
+#
+#
+#     if RunOption.run1:
+#         for path in files("data/kmou-ner-full/*.txt"):
+#             print(f"[FILE]: {path}")
+#             NERCorpusConverter.convert_from_kmou_format(path, path.with_suffix(".jsonl"), debug=True)
+#
+#     if RunOption.run2:
+#         for path in files("data/klue-ner/*.tsv"):
+#             print(f"[FILE]: {path}")
+#             NERCorpusConverter.convert_from_klue_format(path, path.with_suffix(".jsonl"), debug=True)
+#
+#     if RunOption.run3_v1:
+#         for path in files("data/klue-ner-mini/*_dev.jsonl") + files("data/klue-ner/*_dev.jsonl"):
+#             print(f"[FILE]: {path}")
+#             NERCorpusConverter.convert_to_seq2seq_format_v1(path, path.with_suffix(".input.seq2seq_v1.tsv"), path.with_suffix(".answer.seq2seq_v1.tsv"), debug=True)
+#         for path in files("data/klue-ner-mini/*_train.jsonl") + files("data/klue-ner/*_train.jsonl"):
+#             print(f"[FILE]: {path}")
+#             NERCorpusConverter.convert_to_seq2seq_format_v1(path, path.with_suffix(".seq2seq_v1.tsv"), debug=True)
+#
+#     if RunOption.run3_v2:
+#         for path in files("data/klue-ner-mini/*_dev.jsonl") + files("data/klue-ner/*_dev.jsonl"):
+#             print(f"[FILE]: {path}")
+#             NERCorpusConverter.convert_to_seq2seq_format_v2(path, path.with_suffix(".input.seq2seq_v2.tsv"), path.with_suffix(".answer.seq2seq_v2.tsv"), debug=True)
+#         for path in files("data/klue-ner-mini/*_train.jsonl") + files("data/klue-ner/*_train.jsonl"):
+#             print(f"[FILE]: {path}")
+#             NERCorpusConverter.convert_to_seq2seq_format_v2(path, path.with_suffix(".seq2seq_v2.tsv"), debug=True)
+#
+#     if RunOption.run3_v3:
+#         for path in files("data/klue-ner-mini/*_dev.jsonl") + files("data/klue-ner/*_dev.jsonl"):
+#             print(f"[FILE]: {path}")
+#             NERCorpusConverter.convert_to_seq2seq_format_v3(path, path.with_suffix(".input.seq2seq_v3.tsv"), path.with_suffix(".answer.seq2seq_v3.tsv"), debug=True)
+#         for path in files("data/klue-ner-mini/*_train.jsonl") + files("data/klue-ner/*_train.jsonl"):
+#             print(f"[FILE]: {path}")
+#             NERCorpusConverter.convert_to_seq2seq_format_v3(path, path.with_suffix(".seq2seq_v3.tsv"), debug=True)
