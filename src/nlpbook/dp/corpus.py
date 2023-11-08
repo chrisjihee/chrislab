@@ -435,6 +435,7 @@ class EvaluateResult(ResultData):
 
 class CLI:
     main = AppTyper()
+    task = "Dependency Parsing"
     LINE_SEP = "<LF>"
     WORD_SEP = "▁"
     LABEL_PROMPT_1 = "Dependency Relation: "
@@ -529,7 +530,7 @@ class CLI:
             return word_to_lemma(word) + f"/{ls[0]}:{ps[0]}/" + (f"{ls[-1]}:{ps[-1]}" if len(ps) > 1 else "NONE")
 
         with StringIO() as s:
-            print("Task: Dependency Parsing", file=s)
+            print(f"Task: {CLI.task}", file=s)
             print('', file=s)
             print(f"Input: {' '.join(word['form'] for word in example.words[1:])}", file=s)
             if convert.seq1_type == 'S0':

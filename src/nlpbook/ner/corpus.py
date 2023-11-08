@@ -72,16 +72,17 @@ class NERTaggedExample(DataClassJsonMixin):
 
     @classmethod
     def from_tsv(cls, tsv: str):
-        meta = [x.split('\t') for x in tsv.strip().splitlines() if x.startswith('#')][-1]
-        chars = [x.split('\t') for x in tsv.strip().splitlines() if not x.startswith('#')]
+        lines = tsv.strip().splitlines()
+        meta = [x.split('\t') for x in lines if x.startswith('#')][-1]
+        chars = [x.split('\t') for x in lines if not x.startswith('#')]
         example_id = re.sub(r"^##+", "", meta[0]).strip()
         tagged = meta[1].strip()
-        origin = ''.join([x[0] for x in chars])
+        origin = ''.join(x[0] for x in chars)
         return cls(example_id=example_id, origin=origin, tagged=tagged)
 
 
 @dataclass
-class NERRawExample(DataClassJsonMixin):
+class NERParsedExample(DataClassJsonMixin):
     origin: str = field(default_factory=str)
     entity_list: List[EntityInText] = field(default_factory=list)
     character_list: List[tuple[str, str]] = field(default_factory=list)
@@ -99,11 +100,43 @@ class NERRawExample(DataClassJsonMixin):
         tagged_text += self.origin[cursor:]
         return tagged_text
 
+    @classmethod
+    def from_tagged(cls, origin: str, tagged: str, debug: bool = False) -> Optional["NERParsedExample"]:
+        entity_list: List[EntityInText] = []
+        if debug:
+            logging.debug(f"* origin: {origin}")
+            logging.debug(f"  tagged: {tagged}")
+        restored = tagged[:]
+        no_problem = True
+        offset_labels = {i: "O" for i in range(len(origin))}
+        while True:
+            match: re.Match = EntityInText.pattern.search(restored)
+            if not match:
+                break
+            entity, restored = EntityInText.from_match(match, restored)
+            extracted = origin[entity.offset[0]:entity.offset[1]]
+            if entity.text == extracted:
+                entity_list.append(entity)
+                offset_labels = merge_dicts(offset_labels, entity.to_offset_lable_dict())
+            else:
+                no_problem = False
+            if debug:
+                logging.debug(f"  = {entity} -> {extracted}")
+                logging.debug(f"    {offset_labels}")
+        if debug:
+            logging.debug(f"  --------------------")
+        character_list = [(origin[i], offset_labels[i]) for i in range(len(origin))]
+        if restored != origin:
+            no_problem = False
+        return cls(origin=origin,
+                   entity_list=entity_list,
+                   character_list=character_list) if no_problem else None
+
 
 @dataclass
 class NEREncodedExample:
     idx: int
-    raw: NERRawExample
+    raw: NERParsedExample
     encoded: BatchEncoding
     label_ids: Optional[List[int]] = None
 
@@ -124,7 +157,7 @@ class NERCorpus:
             logger.info(f"Extracting labels from {train_data_path}")
             with train_data_path.open(encoding="utf-8") as inp:
                 for line in inp.readlines():
-                    for x in NERRawExample.from_json(line).entity_list:
+                    for x in NERParsedExample.from_json(line).entity_list:
                         if x.label not in ner_tags:
                             ner_tags.append(x.label)
             b_tags = [f"B-{ner_tag}" for ner_tag in ner_tags]
@@ -137,7 +170,7 @@ class NERCorpus:
             labels = label_map_path.read_text(encoding="utf-8").splitlines()
         return labels
 
-    def read_raw_examples(self, split: str) -> List[NERRawExample]:
+    def read_raw_examples(self, split: str) -> List[NERParsedExample]:
         assert self.args.data.home, f"No data_home: {self.args.data.home}"
         assert self.args.data.name, f"No data_name: {self.args.data.name}"
         data_file_dict: dict = self.args.data.files.to_dict()
@@ -150,7 +183,7 @@ class NERCorpus:
         examples = []
         with data_path.open(encoding="utf-8") as inp:
             for line in inp.readlines():
-                examples.append(NERRawExample.from_json(line))
+                examples.append(NERParsedExample.from_json(line))
         logger.info(f"Loaded {len(examples)} examples from {data_path}")
         return examples
 
@@ -163,7 +196,7 @@ class NERCorpus:
 
     def raw_examples_to_encoded_examples(
             self,
-            raw_examples: List[NERRawExample],
+            raw_examples: List[NERParsedExample],
             tokenizer: PreTrainedTokenizerFast,
             label_list: List[str],
     ) -> List[NEREncodedExample]:
@@ -174,7 +207,7 @@ class NERCorpus:
 
         encoded_examples: List[NEREncodedExample] = []
         for idx, raw_example in enumerate(raw_examples):
-            raw_example: NERRawExample = raw_example
+            raw_example: NERParsedExample = raw_example
             offset_to_label: Dict[int, str] = raw_example.get_offset_label_dict()
             logger.debug(hr())
             logger.debug(f"offset_to_label = {offset_to_label}")
@@ -244,7 +277,7 @@ class NERCorpus:
 class NERDataset(Dataset):
     def __init__(self, split: str, tokenizer: PreTrainedTokenizerFast, corpus: NERCorpus):
         self.corpus: NERCorpus = corpus
-        examples: List[NERRawExample] = self.corpus.read_raw_examples(split)
+        examples: List[NERParsedExample] = self.corpus.read_raw_examples(split)
         self.label_list: List[str] = self.corpus.get_labels()
         self._label_to_id: Dict[str, int] = {label: i for i, label in enumerate(self.label_list)}
         self._id_to_label: Dict[int, str] = {i: label for i, label in enumerate(self.label_list)}
@@ -268,42 +301,12 @@ class NERDataset(Dataset):
 
 
 class NERCorpusConverter:
-    @staticmethod
-    def parse_tagged(origin: str, tagged: str, debug: bool = False) -> Optional[NERRawExample]:
-        entity_list: List[EntityInText] = []
-        if debug:
-            print(f"* origin: {origin}")
-            print(f"  tagged: {tagged}")
-        restored = tagged[:]
-        no_problem = True
-        offset_labels = {i: "O" for i in range(len(origin))}
-        while True:
-            match: re.Match = EntityInText.pattern.search(restored)
-            if not match:
-                break
-            entity, restored = EntityInText.from_match(match, restored)
-            extracted = origin[entity.offset[0]:entity.offset[1]]
-            if entity.text == extracted:
-                entity_list.append(entity)
-                offset_labels = merge_dicts(offset_labels, entity.to_offset_lable_dict())
-            else:
-                no_problem = False
-            if debug:
-                print(f"  = {entity} -> {extracted}")
-                # print(f"    {offset_labels}")
-        if debug:
-            print(f"  --------------------")
-        character_list = [(origin[i], offset_labels[i]) for i in range(len(origin))]
-        if restored != origin:
-            no_problem = False
-        return NERRawExample(origin, entity_list, character_list) if no_problem else None
-
     @classmethod
     def convert_from_kmou_format(cls, infile: str | Path, outfile: str | Path, debug: bool = False):
         with Path(infile).open(encoding="utf-8") as inp, Path(outfile).open("w", encoding="utf-8") as out:
             for line in inp.readlines():
                 origin, tagged = line.strip().split("\u241E")
-                parsed: Optional[NERRawExample] = cls.parse_tagged(origin, tagged, debug=debug)
+                parsed: Optional[NERParsedExample] = NERParsedExample.from_tagged(origin, tagged, debug=debug)
                 if parsed:
                     out.write(parsed.to_json(ensure_ascii=False) + "\n")
 
@@ -324,7 +327,7 @@ class NERCorpusConverter:
 
                 origin = ''.join(x.split("\t")[0] for x in body_lines)
                 tagged = head_lines[-1].split("\t")[1].strip()
-                parsed: Optional[NERRawExample] = cls.parse_tagged(origin, tagged, debug=debug)
+                parsed: Optional[NERParsedExample] = NERParsedExample.from_tagged(origin, tagged, debug=debug)
                 if parsed:
                     character_list_from_head = parsed.character_list
                     character_list_from_body = [tuple(x.split("\t")) for x in body_lines]
@@ -346,7 +349,7 @@ class NERCorpusConverter:
             out1 = Path(outfile1).open("w", encoding="utf-8") if outfile1 else None
             out2 = Path(outfile2).open("w", encoding="utf-8") if outfile2 else None
             for line in inp.readlines():
-                example = NERRawExample.from_json(line)
+                example = NERParsedExample.from_json(line)
                 seq1 = example.origin
                 seq2 = ' '.join([f"{c}/{t}" for c, t in example.character_list if c != ' '])
                 if out1 and out2:
@@ -367,7 +370,7 @@ class NERCorpusConverter:
             out1 = Path(outfile1).open("w", encoding="utf-8") if outfile1 else None
             out2 = Path(outfile2).open("w", encoding="utf-8") if outfile2 else None
             for line in inp.readlines():
-                example = NERRawExample.from_json(line)
+                example = NERParsedExample.from_json(line)
                 seq1 = example.origin
                 seq2 = example.to_tagged_text(lambda e: f"<{e.text}:{e.label}>")
                 if out1 and out2:
@@ -388,7 +391,7 @@ class NERCorpusConverter:
             out1 = Path(outfile1).open("w", encoding="utf-8") if outfile1 else None
             out2 = Path(outfile2).open("w", encoding="utf-8") if outfile2 else None
             for line in inp.readlines():
-                example = NERRawExample.from_json(line)
+                example = NERParsedExample.from_json(line)
                 s = example.origin
                 n = 0
                 for c, t in example.character_list:
@@ -410,6 +413,8 @@ class NERCorpusConverter:
 
 class CLI:
     main = AppTyper()
+    task = "Named Entity Recognition"
+    LINE_SEP = "<LF>"
 
     @dataclass
     class ConvertOption(OptionData):
@@ -436,6 +441,37 @@ class CLI:
                 to_dataframe(columns=columns, raw=self.convert, data_prefix="convert"),
             ]).reset_index(drop=True)
 
+        def to_seq1(self, example: NERParsedExample):
+            forms = []
+            for idx, (char, _) in enumerate(example.character_list, start=1):
+                if char.strip():
+                    forms.append(f'{idx}/{char}')
+
+            with StringIO() as s:
+                print(f"Task: {CLI.task}", file=s)
+                print('', file=s)
+                print(f"Input: {example.origin}", file=s)
+
+                if self.convert.seq1_type == 'S0':
+                    return [CLI.to_str(s)]
+
+                elif self.convert.seq1_type in ('S1', 'C1'):
+                    print(f"Forms: {LF.join(forms)}", file=s)
+                    if self.convert.seq1_type == 'S1':
+                        return [CLI.to_str(s)]
+                    elif self.convert.seq1_type == 'C1':
+                        return [CLI.to_str(s) + f"Target: {form}" + CLI.LINE_SEP for form in forms]
+                    else:
+                        raise NotImplementedError(f"Unsupported convert: {self.convert}")
+
+                else:
+                    raise NotImplementedError(f"Unsupported convert: {self.convert}")
+
+    @staticmethod
+    def to_str(s: StringIO):
+        s.seek(0)
+        return s.read().replace(LF, CLI.LINE_SEP)
+
     @staticmethod
     @main.command()
     def convert(
@@ -451,7 +487,7 @@ class CLI:
             input_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev.tsv"),
             output_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev-s2s.tsv"),
             # convert
-            s2s_type: str = typer.Option(default="S0a"),
+            s2s_type: str = typer.Option(default="C1a"),
     ):
         env = ProjectEnv(
             project=project,
@@ -499,8 +535,6 @@ class CLI:
         ):
             input_chunks = [x for x in input_file.path.read_text().split("\n\n") if len(x.strip()) > 0]
             logger.info(f"Load {len(input_chunks)} sentences from [{input_file.opt}]")
-            # print(f"input_chunks: {len(input_chunks)}")
-            # print(f"input_chunks[0]: {input_chunks[0]}")
             progress, interval = (
                 tqdm(input_chunks, total=len(input_chunks), unit="sent", pre="*", desc="converting"),
                 args.input.inter,
@@ -510,7 +544,12 @@ class CLI:
                 if i > 0 and i % interval == 0:
                     logger.info(progress)
                 example = NERTaggedExample.from_tsv(x)
+                example = NERParsedExample.from_tagged(example.origin, example.tagged, debug=True)
+                if not example:
+                    continue
                 print(f"example: {example}")
+                seq1s = args.to_seq1(example)
+                print(f"seq1s: {seq1s}")
                 exit(1)
 
 
