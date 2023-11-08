@@ -15,7 +15,7 @@ from transformers import PreTrainedTokenizerFast, BatchEncoding
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
 
 from chrisbase.data import AppTyper, ProjectEnv, InputOption, FileOption, IOArguments, OutputOption, JobTimer, FileStreamer, OptionData
-from chrisbase.io import hr, LoggingFormat
+from chrisbase.io import hr, LoggingFormat, file_size
 from chrisbase.io import make_parent_dir, merge_dicts
 from chrisbase.util import mute_tqdm_cls, LF, HT
 from chrisbase.util import to_dataframe
@@ -373,6 +373,17 @@ class CLI:
                         sub_labels.append(f"{i}({c}/{t})")
                     elif self.convert.seq2_type == 'd':
                         sub_labels.append(f"{t}({i}/{c})")
+                    elif self.convert.seq2_type == 'e':
+                        sub_labels.append(f"{i}/{c}=>{t}")
+                    elif self.convert.seq2_type == 'f':
+                        if t != 'O':
+                            sub_labels.append(f"{i}({c}/{t})")
+                    elif self.convert.seq2_type == 'g':
+                        if t != 'O':
+                            sub_labels.append(f"{t}({i}/{c})")
+                    elif self.convert.seq2_type == 'h':
+                        if t != 'O':
+                            sub_labels.append(f"{i}/{c}=>{t}")
                     elif self.convert.seq2_type == 'm':
                         pass
                     else:
@@ -408,12 +419,10 @@ class CLI:
                     seq2 = [CLI.to_str(s)]
             else:
                 if len(sub_labels) != len(seq1):
-                    logger.warning("Different length of sub_labels and seq1: %d != %d", len(sub_labels), len(seq1))
                     return []
                 seq2 = [CLI.EACH_PROMPT + label for label in sub_labels]
 
             if len(seq1) != len(seq2):
-                logger.warning("Different length of seq1 and seq2: %d != %d", len(seq1), len(seq2))
                 return []
             return zip(seq1, seq2)
 
@@ -500,6 +509,9 @@ class CLI:
                     num_output += 1
             logger.info(progress)
             logger.info(f"Saved {num_output} sequence pairs to [{output_file.opt}]")
+            if file_size(output_file.path) == 0:
+                logger.info(f"Remove empty output file: [{output_file.opt}]")
+                output_file.path.unlink()
 
     @staticmethod
     @main.command()
