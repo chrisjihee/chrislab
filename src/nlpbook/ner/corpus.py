@@ -324,75 +324,6 @@ class NERCorpusConverter:
                                 print(f"  = {a[0]}:{a[1]} <=> {b[0]}:{b[1]}")
                         print(f"  ====================")
 
-    @classmethod
-    def convert_to_seq2seq_format_v1(cls, infile: str | Path, outfile1: str | Path, outfile2: str | Path = None, debug: bool = False):
-        # TODO:
-        #  1) 문장 -> 글자+태그
-        with Path(infile).open(encoding="utf-8") as inp:
-            out1 = Path(outfile1).open("w", encoding="utf-8") if outfile1 else None
-            out2 = Path(outfile2).open("w", encoding="utf-8") if outfile2 else None
-            for line in inp.readlines():
-                example = NERParsedExample.from_json(line)
-                seq1 = example.origin
-                seq2 = ' '.join([f"{c}/{t}" for c, t in example.character_list if c != ' '])
-                if out1 and out2:
-                    out1.write(f"{seq1}\n")
-                    out2.write(f"{seq2}\n")
-                elif out1:
-                    out1.write(f"{seq1}\t{seq2}\n")
-            if out1:
-                out1.close()
-            if out2:
-                out2.close()
-
-    @classmethod
-    def convert_to_seq2seq_format_v2(cls, infile: str | Path, outfile1: str | Path, outfile2: str | Path = None, debug: bool = False):
-        # TODO:
-        #  2) 문장 -> 문장 내에 개체명을 레이블한 결과
-        with Path(infile).open(encoding="utf-8") as inp:
-            out1 = Path(outfile1).open("w", encoding="utf-8") if outfile1 else None
-            out2 = Path(outfile2).open("w", encoding="utf-8") if outfile2 else None
-            for line in inp.readlines():
-                example = NERParsedExample.from_json(line)
-                seq1 = example.origin
-                seq2 = example.to_tagged_text(lambda e: f"<{e.text}:{e.label}>")
-                if out1 and out2:
-                    out1.write(f"{seq1}\n")
-                    out2.write(f"{seq2}\n")
-                elif out1:
-                    out1.write(f"{seq1}\t{seq2}\n")
-            if out1:
-                out1.close()
-            if out2:
-                out2.close()
-
-    @classmethod
-    def convert_to_seq2seq_format_v3(cls, infile: str | Path, outfile1: str | Path, outfile2: str | Path = None, debug: bool = False):
-        # TODO:
-        #  3) 문장 + 오프셋 -> 해당 오프셋 글자에 대한 태그 (학습데이터 많아짐)
-        with Path(infile).open(encoding="utf-8") as inp:
-            out1 = Path(outfile1).open("w", encoding="utf-8") if outfile1 else None
-            out2 = Path(outfile2).open("w", encoding="utf-8") if outfile2 else None
-            for line in inp.readlines():
-                example = NERParsedExample.from_json(line)
-                s = example.origin
-                n = 0
-                for c, t in example.character_list:
-                    n += 1
-                    if c == ' ':
-                        continue
-                    seq1 = f"질문: 문장에서 {n}번째 글자인 <{c}>의 개체명 태그는? 문장: {s}"
-                    seq2 = t
-                    if out1 and out2:
-                        out1.write(f"{seq1}\n")
-                        out2.write(f"{seq2}\n")
-                    elif out1:
-                        out1.write(f"{seq1}\t{seq2}\n")
-            if out1:
-                out1.close()
-            if out2:
-                out2.close()
-
 
 class CLI:
     main = AppTyper()
@@ -492,7 +423,6 @@ class CLI:
     def convert(
             # env
             project: str = typer.Option(default="DeepKNLU"),
-            job_name: str = typer.Option(default="convert"),
             output_home: str = typer.Option(default="output"),
             logging_file: str = typer.Option(default="logging.out"),
             debugging: bool = typer.Option(default=False),
@@ -502,11 +432,10 @@ class CLI:
             input_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev.tsv"),
             output_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev-s2s.tsv"),
             # convert
-            s2s_type: str = typer.Option(default="C1a"),
+            s2s_type: str = typer.Option(default="S0a"),
     ):
         env = ProjectEnv(
             project=project,
-            job_name=job_name,
             debugging=debugging,
             output_home=output_home,
             logging_file=logging_file,
@@ -571,46 +500,3 @@ class CLI:
 
 if __name__ == "__main__":
     CLI.main()
-
-# if __name__ == "__main__":
-#     class RunOption:
-#         run1: bool = False
-#         run2: bool = False
-#         run3_v1: bool = True
-#         run3_v2: bool = True
-#         run3_v3: bool = True
-#
-#
-#     if RunOption.run1:
-#         for path in files("data/kmou-ner-full/*.txt"):
-#             print(f"[FILE]: {path}")
-#             NERCorpusConverter.convert_from_kmou_format(path, path.with_suffix(".jsonl"), debug=True)
-#
-#     if RunOption.run2:
-#         for path in files("data/klue-ner/*.tsv"):
-#             print(f"[FILE]: {path}")
-#             NERCorpusConverter.convert_from_klue_format(path, path.with_suffix(".jsonl"), debug=True)
-#
-#     if RunOption.run3_v1:
-#         for path in files("data/klue-ner-mini/*_dev.jsonl") + files("data/klue-ner/*_dev.jsonl"):
-#             print(f"[FILE]: {path}")
-#             NERCorpusConverter.convert_to_seq2seq_format_v1(path, path.with_suffix(".input.seq2seq_v1.tsv"), path.with_suffix(".answer.seq2seq_v1.tsv"), debug=True)
-#         for path in files("data/klue-ner-mini/*_train.jsonl") + files("data/klue-ner/*_train.jsonl"):
-#             print(f"[FILE]: {path}")
-#             NERCorpusConverter.convert_to_seq2seq_format_v1(path, path.with_suffix(".seq2seq_v1.tsv"), debug=True)
-#
-#     if RunOption.run3_v2:
-#         for path in files("data/klue-ner-mini/*_dev.jsonl") + files("data/klue-ner/*_dev.jsonl"):
-#             print(f"[FILE]: {path}")
-#             NERCorpusConverter.convert_to_seq2seq_format_v2(path, path.with_suffix(".input.seq2seq_v2.tsv"), path.with_suffix(".answer.seq2seq_v2.tsv"), debug=True)
-#         for path in files("data/klue-ner-mini/*_train.jsonl") + files("data/klue-ner/*_train.jsonl"):
-#             print(f"[FILE]: {path}")
-#             NERCorpusConverter.convert_to_seq2seq_format_v2(path, path.with_suffix(".seq2seq_v2.tsv"), debug=True)
-#
-#     if RunOption.run3_v3:
-#         for path in files("data/klue-ner-mini/*_dev.jsonl") + files("data/klue-ner/*_dev.jsonl"):
-#             print(f"[FILE]: {path}")
-#             NERCorpusConverter.convert_to_seq2seq_format_v3(path, path.with_suffix(".input.seq2seq_v3.tsv"), path.with_suffix(".answer.seq2seq_v3.tsv"), debug=True)
-#         for path in files("data/klue-ner-mini/*_train.jsonl") + files("data/klue-ner/*_train.jsonl"):
-#             print(f"[FILE]: {path}")
-#             NERCorpusConverter.convert_to_seq2seq_format_v3(path, path.with_suffix(".seq2seq_v3.tsv"), debug=True)
