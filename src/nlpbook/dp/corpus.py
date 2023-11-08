@@ -613,7 +613,7 @@ class CLI:
             # data
             input_inter: int = typer.Option(default=5000),
             input_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev.tsv"),
-            output_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev.tsv"),
+            output_file_name: str = typer.Option(default="data/klue-dp/klue-dp-v1.1_dev-s2s.tsv"),
             # convert
             s2s_type: str = typer.Option(default="S0a"),
     ):
@@ -637,7 +637,7 @@ class CLI:
         output_file_name = Path(output_file_name)
         output_opt = OutputOption(
             file=FileOption(
-                name=output_file_name.with_stem(f"{output_file_name.stem}-s2s={s2s_type}"),
+                name=output_file_name.with_stem(f"{output_file_name.stem}={s2s_type}"),
                 mode="w",
                 strict=True,
             ),
