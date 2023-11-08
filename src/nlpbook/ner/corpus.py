@@ -407,10 +407,14 @@ class CLI:
                         print(f"Label Count: {len(sub_labels)}", file=s)
                     seq2 = [CLI.to_str(s)]
             else:
-                assert len(sub_labels) == len(seq1), f"len(sub_labels) != len(seq1): {len(sub_labels)} != {len(seq1)}"
+                if len(sub_labels) != len(seq1):
+                    logger.warning("Different length of sub_labels and seq1: %d != %d", len(sub_labels), len(seq1))
+                    return []
                 seq2 = [CLI.EACH_PROMPT + label for label in sub_labels]
 
-            assert len(seq1) == len(seq2), f"len(seq1) != len(seq2): {len(seq1)} != {len(seq2)}"
+            if len(seq1) != len(seq2):
+                logger.warning("Different length of seq1 and seq2: %d != %d", len(seq1), len(seq2))
+                return []
             return zip(seq1, seq2)
 
     @staticmethod
