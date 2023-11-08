@@ -1,23 +1,6 @@
 import logging
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import List, Optional, ClassVar, Dict
-
-import torch
-import typer
-from dataclasses_json import DataClassJsonMixin
-from torch.utils.data.dataset import Dataset
-from transformers import PreTrainedTokenizerFast, BatchEncoding, CharSpan
-from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
-from chrisbase.data import AppTyper, ProjectEnv, InputOption, FileOption, IOArguments, OutputOption, JobTimer, FileStreamer, OptionData, ResultData
-
-from chrisbase.io import make_parent_dir, files, merge_dicts, hr, LoggingFormat
-from nlpbook.arguments import MLArguments
-
-import logging
-import re
-from dataclasses import dataclass, field
 from io import StringIO
 from pathlib import Path
 from typing import List, Optional, Dict, ClassVar
@@ -26,17 +9,17 @@ import pandas as pd
 import torch
 import typer
 from dataclasses_json import DataClassJsonMixin
-from sklearn.metrics import classification_report
 from torch.utils.data.dataset import Dataset
+from transformers import CharSpan
 from transformers import PreTrainedTokenizerFast, BatchEncoding
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
 
-from chrisbase.data import AppTyper, ProjectEnv, InputOption, FileOption, IOArguments, OutputOption, JobTimer, FileStreamer, OptionData, ResultData
+from chrisbase.data import AppTyper, ProjectEnv, InputOption, FileOption, IOArguments, OutputOption, JobTimer, FileStreamer, OptionData
 from chrisbase.io import hr, LoggingFormat
-from chrisbase.util import mute_tqdm_cls, LF, HT, NO
+from chrisbase.io import make_parent_dir, merge_dicts
+from chrisbase.util import mute_tqdm_cls, LF, HT
 from chrisbase.util import to_dataframe
-from nlpbook.arguments import TesterArguments, TrainerArguments
-from nlpbook.metrics import DPResult, DP_UAS_MacroF1, DP_LAS_MacroF1, DP_UAS_MicroF1, DP_LAS_MicroF1
+from nlpbook.arguments import MLArguments
 
 logger = logging.getLogger(__name__)
 
@@ -415,6 +398,9 @@ class CLI:
     main = AppTyper()
     task = "Named Entity Recognition"
     LINE_SEP = "<LF>"
+    EACH_SEP = "▁"
+    MAIN_PROMPT = f"{task} on Sentence: "
+    EACH_PROMPT = f"{task} on Character: "
 
     @dataclass
     class ConvertOption(OptionData):
@@ -441,11 +427,25 @@ class CLI:
                 to_dataframe(columns=columns, raw=self.convert, data_prefix="convert"),
             ]).reset_index(drop=True)
 
-        def to_seq1(self, example: NERParsedExample):
-            forms = []
-            for idx, (char, _) in enumerate(example.character_list, start=1):
-                if char.strip():
-                    forms.append(f'{idx}/{char}')
+        def to_seq_pairs(self, example: NERParsedExample):
+            main_label = example.to_tagged_text(lambda e: f"<{e.text}:{e.label}>")
+            sub_forms = []
+            sub_labels = []
+            for i, (c, t) in enumerate(example.character_list, start=1):
+                if c.strip():
+                    sub_forms.append(f'{i}/{c}')
+                    if self.convert.seq2_type == 'a':
+                        sub_labels.append(f"{t}")
+                    elif self.convert.seq2_type == 'b':
+                        sub_labels.append(f"{c}/{t}")
+                    elif self.convert.seq2_type == 'c':
+                        sub_labels.append(f"{i}({c}/{t})")
+                    elif self.convert.seq2_type == 'd':
+                        sub_labels.append(f"{t}({i}/{c})")
+                    elif self.convert.seq2_type == 'm':
+                        pass
+                    else:
+                        raise NotImplementedError(f"Unsupported convert: {self.convert}")
 
             with StringIO() as s:
                 print(f"Task: {CLI.task}", file=s)
@@ -453,19 +453,34 @@ class CLI:
                 print(f"Input: {example.origin}", file=s)
 
                 if self.convert.seq1_type == 'S0':
-                    return [CLI.to_str(s)]
+                    seq1 = [CLI.to_str(s)]
 
                 elif self.convert.seq1_type in ('S1', 'C1'):
-                    print(f"Forms: {LF.join(forms)}", file=s)
+                    print(f"Forms: {LF.join(sub_forms)}", file=s)
                     if self.convert.seq1_type == 'S1':
-                        return [CLI.to_str(s)]
+                        seq1 = [CLI.to_str(s)]
                     elif self.convert.seq1_type == 'C1':
-                        return [CLI.to_str(s) + f"Target: {form}" + CLI.LINE_SEP for form in forms]
+                        seq1 = [CLI.to_str(s) + f"Target: {form}" + CLI.LINE_SEP for form in sub_forms]
                     else:
                         raise NotImplementedError(f"Unsupported convert: {self.convert}")
 
                 else:
                     raise NotImplementedError(f"Unsupported convert: {self.convert}")
+
+            if self.convert.seq1_type.startswith('S'):
+                with StringIO() as s:
+                    if self.convert.seq2_type == 'm':
+                        print(CLI.MAIN_PROMPT + main_label, file=s)
+                    else:
+                        print(CLI.MAIN_PROMPT + CLI.EACH_SEP.join(sub_labels), file=s)
+                        print(f"Label Count: {len(sub_labels)}", file=s)
+                    seq2 = [CLI.to_str(s)]
+            else:
+                assert len(sub_labels) == len(seq1), f"len(sub_labels) != len(seq1): {len(sub_labels)} != {len(seq1)}"
+                seq2 = [CLI.EACH_PROMPT + label for label in sub_labels]
+
+            assert len(seq1) == len(seq2), f"len(seq1) != len(seq2): {len(seq1)} != {len(seq2)}"
+            return zip(seq1, seq2)
 
     @staticmethod
     def to_str(s: StringIO):
@@ -547,10 +562,11 @@ class CLI:
                 example = NERParsedExample.from_tagged(example.origin, example.tagged, debug=True)
                 if not example:
                     continue
-                print(f"example: {example}")
-                seq1s = args.to_seq1(example)
-                print(f"seq1s: {seq1s}")
-                exit(1)
+                for seq1, seq2 in args.to_seq_pairs(example):
+                    output_file.fp.write(seq1 + HT + seq2 + LF)
+                    num_output += 1
+            logger.info(progress)
+            logger.info(f"Saved {num_output} sequence pairs to [{output_file.opt}]")
 
 
 if __name__ == "__main__":
