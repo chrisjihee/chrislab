@@ -426,6 +426,32 @@ class CLI:
                 return []
             return zip(seq1, seq2)
 
+    @dataclass
+    class EvaluateOption(OptionData):
+        skip_longer: bool = field()
+        skip_shorter: bool = field()
+
+    @dataclass
+    class EvaluateArguments(IOArguments):
+        refer: InputOption = field()
+        convert: "CLI.ConvertOption" = field()
+        evaluate: "CLI.EvaluateOption" = field()
+
+        def __post_init__(self):
+            super().__post_init__()
+
+        def dataframe(self, columns=None) -> pd.DataFrame:
+            if not columns:
+                columns = [self.data_type, "value"]
+            return pd.concat([
+                super().dataframe(columns=columns),
+                to_dataframe(columns=columns, raw=self.refer, data_prefix="refer", data_exclude=["file", "table", "index"]),
+                to_dataframe(columns=columns, raw=self.refer.file, data_prefix="refer.file") if self.refer.file else None,
+                to_dataframe(columns=columns, raw=self.refer.table, data_prefix="refer.table") if self.refer.table else None,
+                to_dataframe(columns=columns, raw=self.refer.index, data_prefix="refer.index") if self.refer.index else None,
+                to_dataframe(columns=columns, raw=self.convert, data_prefix="convert"),
+            ]).reset_index(drop=True)
+
     @staticmethod
     def to_str(s: StringIO):
         s.seek(0)
@@ -513,6 +539,7 @@ class CLI:
                 logger.info(f"Remove empty output file: [{output_file.opt}]")
                 output_file.path.unlink()
 
+    # nlpbook.ner.corpus evaluate --input-file-name output/klue-ner=GBST-KEByT5-Base=S0a=B4/klue-ner-v1.1_dev-s2s=S0a-1969.out --refer-file-name data/klue-ner/klue-ner-v1.1_dev-s2s=S0a.tsv --output-file-name output/klue-ner=GBST-KEByT5-Base=S0a=B4/klue-ner-v1.1_dev-s2s=S0a-1969-eval.json --s2s-type S0a --verbose 0
     @staticmethod
     @main.command()
     def evaluate(
@@ -525,8 +552,8 @@ class CLI:
             # data
             input_inter: int = typer.Option(default=50000),
             refer_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev-s2s=S0a.tsv"),
-            input_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev-s2s=S0a-pred.out"),
-            output_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev-s2s=S0a-eval.json"),
+            input_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=S0a=B4/klue-ner-v1.1_dev-s2s=S0a-1969.out"),
+            output_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=S0a=B4/klue-ner-v1.1_dev-s2s=S0a-1969-eval.json"),
             # convert
             s2s_type: str = typer.Option(default="S0a"),
             # evaluate
@@ -541,6 +568,66 @@ class CLI:
             msg_level=logging.DEBUG if debugging else logging.INFO,
             msg_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_24,
         )
+        refer_opt = InputOption(
+            file=FileOption(
+                name=refer_file_name,
+                mode="r",
+                strict=True,
+            ),
+        )
+        input_opt = InputOption(
+            inter=input_inter,
+            file=FileOption(
+                name=input_file_name,
+                mode="r",
+                strict=True,
+            ),
+        )
+        output_opt = OutputOption(
+            file=FileOption(
+                name=output_file_name,
+                mode="w",
+                strict=True,
+            ),
+        )
+        convert_opt = CLI.ConvertOption(
+            s2s_type=s2s_type,
+        )
+        evaluate_opt = CLI.EvaluateOption(
+            skip_longer=skip_longer,
+            skip_shorter=skip_shorter,
+        )
+        args = CLI.EvaluateArguments(
+            env=env,
+            input=input_opt,
+            refer=refer_opt,
+            output=output_opt,
+            convert=convert_opt,
+            evaluate=evaluate_opt,
+        )
+        tqdm = mute_tqdm_cls()
+        assert args.refer.file, "refer.file is required"
+        assert args.input.file, "input.file is required"
+        assert args.output.file, "output.file is required"
+
+        with (
+            JobTimer(f"python {args.env.current_file} {' '.join(args.env.command_args)}",
+                     rt=1, rb=1, mb=1, rc='=', verbose=verbose > 0, args=args if debugging or verbose > 1 else None),
+            FileStreamer(args.refer.file) as refer_file,
+            FileStreamer(args.input.file) as input_file,
+            FileStreamer(args.output.file) as output_file,
+        ):
+            refer_items = [x.strip() for x in [x.split("\t")[1] for x in refer_file] if len(x.strip()) > 0]
+            input_items = [x.strip() for x in [x for x in input_file] if len(x.strip()) > 0]
+            logger.info(f"Load {len(refer_items)}  labelled items from [{refer_file.opt}]")
+            logger.info(f"Load {len(input_items)} predicted items from [{input_file.opt}]")
+            assert len(input_items) == len(refer_items), f"Length of input_items and refer_items are different: {len(input_items)} != {len(refer_items)}"
+            progress, interval = (
+                tqdm(zip(input_items, refer_items), total=len(input_items), unit="item", pre="*", desc="evaluating"),
+                args.input.inter,
+            )
+
+            golds, preds = [], []
 
 
 if __name__ == "__main__":
