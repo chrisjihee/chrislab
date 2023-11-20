@@ -15,13 +15,14 @@ from transformers import PreTrainedTokenizerFast, BatchEncoding
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
 
 from chrisbase.data import AppTyper, ProjectEnv, InputOption, FileOption, IOArguments, OutputOption, JobTimer, FileStreamer, OptionData
-from chrisbase.io import hr, LoggingFormat, file_size, cwd
+from chrisbase.io import hr, LoggingFormat, file_size, configure_unit_logger
 from chrisbase.io import make_parent_dir, merge_dicts
 from chrisbase.util import mute_tqdm_cls, LF, HT, NO
 from chrisbase.util import to_dataframe
-from nlpbook.arguments import MLArguments, TrainerArguments
+from nlpbook.arguments import MLArguments
 
 logger = logging.getLogger(__name__)
+configure_unit_logger(fmt=LoggingFormat.CHECK_24)
 
 
 @dataclass
@@ -137,11 +138,12 @@ class NERCorpus:
                              data_path: str | Path = "klue-ner/klue-ner-v1.1_dev.jsonl",
                              label_path: str | Path = "klue-ner/label_map.txt") -> List[str]:
         label_path = make_parent_dir(label_path).absolute()
-        if not label_path.exists():
-            data_path0 = data_path
-            data_path = Path(data_path).absolute()
-            data_path = data_path if data_path.exists() else None
-            assert data_path, f"No data_path: {data_path0}"
+        data_path = Path(data_path).absolute()
+        assert data_path.exists() and data_path.is_file() or label_path.exists() and label_path.is_file(), f"No data_path or label_path: {data_path}, {label_path}"
+        if label_path.exists():
+            labels = label_path.read_text().splitlines()
+            logger.info(f"Loaded {len(labels)} labels from {label_path}")
+        else:
             logger.info(f"Extracting labels from {data_path}")
             ner_tags = []
             with data_path.open() as inp:
@@ -156,8 +158,6 @@ class NERCorpus:
             logger.info(f"Saved {len(labels)} labels to {label_path}")
             with label_path.open("w") as f:
                 f.writelines([x + "\n" for x in labels])
-        else:
-            labels = label_path.read_text().splitlines()
         return labels
 
     def get_labels(self) -> List[str]:
@@ -350,7 +350,7 @@ class CLI:
     EACH_SEP = "▁"
     MAIN_PROMPT = f"{task} on Sentence: "
     EACH_PROMPT = f"{task} on Character: "
-    cwdcwd = cwd()
+    # cwdcwd = cwd()
     label_names = NERCorpus.get_labels_from_data(data_path="klue-ner/klue-ner-v1.1_dev.jsonl",
                                                  label_path="klue-ner/label_map.txt")
     label_ids = [i for i, _ in enumerate(label_names)]
