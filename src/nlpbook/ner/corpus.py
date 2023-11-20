@@ -2,6 +2,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from io import StringIO
+from itertools import chain
 from pathlib import Path
 from typing import List, Optional, Dict, ClassVar
 
@@ -348,9 +349,9 @@ class CLI:
     task = "Named Entity Recognition"
     LINE_SEP = "<LF>"
     EACH_SEP = "▁"
-    MAIN_PROMPT = f"{task} on Sentence: "
-    EACH_PROMPT = f"{task} on Character: "
-    # cwdcwd = cwd()
+    INPUT_PROMPT = "Input: "
+    LABEL_MAIN_PROMPT = f"{task} on Sentence: "
+    LABEL_EACH_PROMPT = f"{task} on Character: "
     label_names = NERCorpus.get_labels_from_data(data_path="klue-ner/klue-ner-v1.1_dev.jsonl",
                                                  label_path="klue-ner/label_map.txt")
     label_ids = [i for i, _ in enumerate(label_names)]
@@ -360,8 +361,8 @@ class CLI:
     @classmethod
     def strip_label_prompt(cls, x: str):
         x = x.replace(cls.LINE_SEP, LF)
-        x = x.replace(cls.MAIN_PROMPT, NO)
-        x = x.replace(cls.EACH_PROMPT, NO)
+        x = x.replace(cls.LABEL_MAIN_PROMPT, NO)
+        x = x.replace(cls.LABEL_EACH_PROMPT, NO)
         x = x.strip()
         return x
 
@@ -444,15 +445,15 @@ class CLI:
             if self.convert.seq1_type.startswith('S'):
                 with StringIO() as s:
                     if self.convert.seq2_type == 'm':
-                        print(CLI.MAIN_PROMPT + main_label, file=s)
+                        print(CLI.LABEL_MAIN_PROMPT + main_label, file=s)
                     else:
-                        print(CLI.MAIN_PROMPT + CLI.EACH_SEP.join(sub_labels), file=s)
+                        print(CLI.LABEL_MAIN_PROMPT + CLI.EACH_SEP.join(sub_labels), file=s)
                         print(f"Label Count: {len(sub_labels)}", file=s)
                     seq2 = [CLI.to_str(s)]
             else:
                 if len(sub_labels) != len(seq1):
                     return []
-                seq2 = [CLI.EACH_PROMPT + label for label in sub_labels]
+                seq2 = [CLI.LABEL_EACH_PROMPT + label for label in sub_labels]
 
             if len(seq1) != len(seq2):
                 return []
@@ -572,9 +573,10 @@ class CLI:
                 output_file.path.unlink()
 
     @staticmethod
-    def repr_to_labels(units: List[str], convert: "CLI.ConvertOption"):
-        print(f"units: {units}")
-        print(f"convert: {convert}")
+    def repr_to_labels(pred_units: List[str], gold_units: List[str], convert: "CLI.ConvertOption"):
+        logger.info(f"pred_units: {pred_units}")
+        logger.info(f"gold_units: {gold_units}")
+        logger.info(f"convert: {convert}")
         exit(1)
         heads = [-1] * len(units)
         types = [-1] * len(units)
@@ -599,7 +601,6 @@ class CLI:
         assert result.heads.shape == result.types.shape, f"result.heads.shape != result.types.shape: {result.heads.shape} != {result.types.shape}"
         return result, num_mismatch
 
-    # nlpbook.ner.corpus evaluate --input-file-name output/klue-ner=GBST-KEByT5-Base=S0a=B4/klue-ner-v1.1_dev-s2s=S0a-1969.out --refer-file-name data/klue-ner/klue-ner-v1.1_dev-s2s=S0a.tsv --output-file-name output/klue-ner=GBST-KEByT5-Base=S0a=B4/klue-ner-v1.1_dev-s2s=S0a-1969-eval.json --s2s-type S0a --verbose 0
     @staticmethod
     @main.command()
     def evaluate(
@@ -611,11 +612,11 @@ class CLI:
             verbose: int = typer.Option(default=1),
             # data
             input_inter: int = typer.Option(default=50000),
-            refer_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev-s2s=S0a.tsv"),
-            input_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=S0a=B4/klue-ner-v1.1_dev-s2s=S0a-1969.out"),
-            output_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=S0a=B4/klue-ner-v1.1_dev-s2s=S0a-1969-eval.json"),
+            refer_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev-s2s=S0b.tsv"),
+            input_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=S0b=B4/klue-ner-v1.1_dev-s2s=S0b-last.out"),
+            output_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=S0b=B4/klue-ner-v1.1_dev-s2s=S0b-last-eval.json"),
             # convert
-            s2s_type: str = typer.Option(default="S0a"),
+            s2s_type: str = typer.Option(default="S0b"),
             # evaluate
             skip_longer: bool = typer.Option(default=True),
             skip_shorter: bool = typer.Option(default=True),
@@ -677,24 +678,34 @@ class CLI:
             FileStreamer(args.input.file) as input_file,
             FileStreamer(args.output.file) as output_file,
         ):
-            refer_items = [x.strip() for x in [x.split("\t")[1] for x in refer_file] if len(x.strip()) > 0]
-            input_items = [x.strip() for x in [x for x in input_file] if len(x.strip()) > 0]
-            logger.info(f"Load {len(refer_items)}  labelled items from [{refer_file.opt}]")
-            logger.info(f"Load {len(input_items)} predicted items from [{input_file.opt}]")
-            assert len(input_items) == len(refer_items), f"Length of input_items and refer_items are different: {len(input_items)} != {len(refer_items)}"
+            refer_inputs, refer_labels = [], []
+            for refer_item in refer_file:
+                refer_input, refer_label = refer_item.split("\t")
+                if len(refer_input.strip()) > 0 and len(refer_label.strip()) > 0:
+                    refer_input = list(chain.from_iterable(CLI.strip_label_prompt(refer_input.split(CLI.INPUT_PROMPT)[-1]).strip().split()))
+                    refer_label = CLI.strip_label_prompt(refer_label).splitlines()[0].split(CLI.EACH_SEP)
+                    assert len(refer_input) == len(refer_label), f"Length of refer_input and refer_label are different: {len(refer_input)} != {len(refer_label)}"
+                    refer_inputs.append(refer_input)
+                    refer_labels.append(refer_label)
+            input_labels = []
+            for input_label in input_file:
+                input_label = CLI.strip_label_prompt(input_label).splitlines()[0].split(CLI.EACH_SEP)
+                input_labels.append(input_label)
+            logger.info(f"Load {len(refer_labels)} referring items from [{refer_file.opt}]")
+            logger.info(f"Load {len(input_labels)} predicted items from [{input_file.opt}]")
+            assert len(refer_inputs) == len(refer_labels), f"Length of refer_inputs and refer_labels are different: {len(refer_inputs)} != {len(refer_labels)}"
+            assert len(input_labels) == len(refer_labels), f"Length of input_labels and refer_labels are different: {len(input_labels)} != {len(refer_labels)}"
             progress, interval = (
-                tqdm(zip(input_items, refer_items), total=len(input_items), unit="item", pre="*", desc="evaluating"),
+                tqdm(zip(input_labels, refer_labels), total=len(input_labels), unit="item", pre="*", desc="evaluating"),
                 args.input.inter,
             )
 
             golds, preds = [], []
             num_mismatched, num_skipped = 0, 0
             num_shorter, num_longer = 0, 0
-            for i, (a, b) in enumerate(progress):
+            for i, (pred_units, gold_units) in enumerate(progress):
                 if i > 0 and i % interval == 0:
                     logger.info(progress)
-                pred_units = CLI.strip_label_prompt(a).splitlines()[0].split(CLI.EACH_SEP)
-                gold_units = CLI.strip_label_prompt(b).splitlines()[0].split(CLI.EACH_SEP)
                 if len(pred_units) < len(gold_units):
                     num_shorter += 1
                     if args.evaluate.skip_shorter:
@@ -722,7 +733,8 @@ class CLI:
                     logger.info(f"-- pred_units({len(pred_units)}): {pred_units}")
                     logger.info(f"-- gold_units({len(gold_units)}): {gold_units}")
 
-                pred_units, pred_mismatch = CLI.repr_to_labels(pred_units, args.convert)
+                logger.info(CLI.label_names)
+                pred_units, pred_mismatch = CLI.repr_to_labels(pred_units, gold_units, args.convert)
                 exit(1)
                 gold_units, gold_mismatch = CLI.repr_to_labels(gold_units, args.convert)
                 assert gold_mismatch == 0, f"gold_mismatch != 0: gold_mismatch={gold_mismatch}"
