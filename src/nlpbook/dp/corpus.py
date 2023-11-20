@@ -437,9 +437,9 @@ class CLI:
     main = AppTyper()
     task = "Dependency Parsing"
     LINE_SEP = "<LF>"
-    WORD_SEP = "▁"
-    LABEL_PROMPT_1 = "Dependency Relation: "
-    LABEL_PROMPT_2 = "Dependency Relations: "
+    EACH_SEP = "▁"
+    MAIN_PROMPT = "Dependency Relation: "
+    EACH_PROMPT = "Dependency Relations: "
     label_names = DPCorpus.get_dep_labels()
     label_ids = [i for i, _ in enumerate(label_names)]
     label_to_id = {label: i for i, label in enumerate(label_names)}
@@ -455,8 +455,8 @@ class CLI:
     @classmethod
     def strip_label_prompt(cls, x: str):
         x = x.replace(cls.LINE_SEP, LF)
-        x = x.replace(cls.LABEL_PROMPT_1, NO)
-        x = x.replace(cls.LABEL_PROMPT_2, NO)
+        x = x.replace(cls.MAIN_PROMPT, NO)
+        x = x.replace(cls.EACH_PROMPT, NO)
         x = x.strip()
         return x
 
@@ -595,11 +595,11 @@ class CLI:
             relations.append(unit2)
         if convert.seq1_type.startswith('S'):
             with (StringIO() as s):
-                print(CLI.LABEL_PROMPT_2 + CLI.WORD_SEP.join(relations), file=s)
+                print(CLI.EACH_PROMPT + CLI.EACH_SEP.join(relations), file=s)
                 print(f"Word Count: {len(example.words) - 1}", file=s)
                 return [CLI.to_str(s)]
         else:
-            return [CLI.LABEL_PROMPT_1 + relation for relation in relations]
+            return [CLI.MAIN_PROMPT + relation for relation in relations]
 
     @staticmethod
     @main.command()
@@ -800,50 +800,50 @@ class CLI:
             for i, (a, b) in enumerate(progress):
                 if i > 0 and i % interval == 0:
                     logger.info(progress)
-                pred_words = CLI.strip_label_prompt(a).splitlines()[0].split(CLI.WORD_SEP)
-                gold_words = CLI.strip_label_prompt(b).splitlines()[0].split(CLI.WORD_SEP)
-                if len(pred_words) < len(gold_words):
+                pred_units = CLI.strip_label_prompt(a).splitlines()[0].split(CLI.EACH_SEP)
+                gold_units = CLI.strip_label_prompt(b).splitlines()[0].split(CLI.EACH_SEP)
+                if len(pred_units) < len(gold_units):
                     num_shorter += 1
                     if args.evaluate.skip_shorter:
                         num_skipped += 1
                         continue
                     else:
-                        logger.warning(f"[{i:04d}] Shorter pred_words({len(pred_words)}): {pred_words}")
-                        logger.warning(f"[{i:04d}]         gold_words({len(gold_words)}): {gold_words}")
-                        pred_words = pred_words + (
-                                [pred_words[-1]] * (len(gold_words) - len(pred_words))
+                        logger.warning(f"[{i:04d}] Shorter pred_units({len(pred_units)}): {pred_units}")
+                        logger.warning(f"[{i:04d}]         gold_units({len(gold_units)}): {gold_units}")
+                        pred_units = pred_units + (
+                                [pred_units[-1]] * (len(gold_units) - len(pred_units))
                         )
-                        logger.warning(f"[{i:04d}]      -> pred_words({len(pred_words)}): {pred_words}")
-                if len(pred_words) > len(gold_words):
+                        logger.warning(f"[{i:04d}]      -> pred_units({len(pred_units)}): {pred_units}")
+                if len(pred_units) > len(gold_units):
                     num_longer += 1
                     if args.evaluate.skip_longer:
                         num_skipped += 1
                         continue
                     else:
-                        logger.warning(f"[{i:04d}]  Longer pred_words({len(pred_words)}): {pred_words}")
-                        logger.warning(f"[{i:04d}]         gold_words({len(gold_words)}): {gold_words}")
-                        pred_words = pred_words[:len(gold_words)]
-                        logger.warning(f"[{i:04d}]      -> pred_words({len(pred_words)}): {pred_words}")
-                assert len(pred_words) == len(gold_words), f"Length of pred_words and gold_words are different: {len(pred_words)} != {len(gold_words)}"
+                        logger.warning(f"[{i:04d}]  Longer pred_units({len(pred_units)}): {pred_units}")
+                        logger.warning(f"[{i:04d}]         gold_units({len(gold_units)}): {gold_units}")
+                        pred_units = pred_units[:len(gold_units)]
+                        logger.warning(f"[{i:04d}]      -> pred_units({len(pred_units)}): {pred_units}")
+                assert len(pred_units) == len(gold_units), f"Length of pred_units and gold_units are different: {len(pred_units)} != {len(gold_units)}"
                 if debugging:
-                    logger.info(f"-- pred_words({len(pred_words)}): {pred_words}")
-                    logger.info(f"-- gold_words({len(gold_words)}): {gold_words}")
-                pred_words, pred_mismatch = CLI.to_dp_result(pred_words, args.convert)
-                gold_words, gold_mismatch = CLI.to_dp_result(gold_words, args.convert)
+                    logger.info(f"-- pred_units({len(pred_units)}): {pred_units}")
+                    logger.info(f"-- gold_units({len(gold_units)}): {gold_units}")
+                pred_units, pred_mismatch = CLI.to_dp_result(pred_units, args.convert)
+                gold_units, gold_mismatch = CLI.to_dp_result(gold_units, args.convert)
                 assert gold_mismatch == 0, f"gold_mismatch != 0: gold_mismatch={gold_mismatch}"
                 num_mismatched += pred_mismatch
                 if debugging:
-                    logger.info(f"-> pred_words({'x'.join(map(str, pred_words.heads.shape))}): heads={pred_words.heads.tolist()}, types={pred_words.types.tolist()}")
-                    logger.info(f"-> gold_words({'x'.join(map(str, gold_words.heads.shape))}): heads={gold_words.heads.tolist()}, types={gold_words.types.tolist()}")
+                    logger.info(f"-> pred_units({'x'.join(map(str, pred_units.heads.shape))}): heads={pred_units.heads.tolist()}, types={pred_units.types.tolist()}")
+                    logger.info(f"-> gold_units({'x'.join(map(str, gold_units.heads.shape))}): heads={gold_units.heads.tolist()}, types={gold_units.types.tolist()}")
                     logger.info("")
-                assert gold_words.heads.shape == pred_words.heads.shape, f"gold_res.heads.shape != pred_res.heads.shape: {gold_words.heads.shape} != {pred_words.heads.shape}"
-                assert gold_words.types.shape == pred_words.types.shape, f"gold_res.types.shape != pred_res.types.shape: {gold_words.types.shape} != {pred_words.types.shape}"
-                golds.append(gold_words)
-                preds.append(pred_words)
-                gold_types.extend(gold_words.types.tolist())
-                pred_types.extend(pred_words.types.tolist())
-                gold_heads.extend(gold_words.heads.tolist())
-                pred_heads.extend(pred_words.heads.tolist())
+                assert gold_units.heads.shape == pred_units.heads.shape, f"gold_res.heads.shape != pred_res.heads.shape: {gold_units.heads.shape} != {pred_units.heads.shape}"
+                assert gold_units.types.shape == pred_units.types.shape, f"gold_res.types.shape != pred_res.types.shape: {gold_units.types.shape} != {pred_units.types.shape}"
+                golds.append(gold_units)
+                preds.append(pred_units)
+                gold_types.extend(gold_units.types.tolist())
+                pred_types.extend(pred_units.types.tolist())
+                gold_heads.extend(gold_units.heads.tolist())
+                pred_heads.extend(pred_units.heads.tolist())
             logger.info(progress)
             assert len(golds) == len(preds), f"Length of golds and preds are different: {len(golds)} != {len(preds)}"
 

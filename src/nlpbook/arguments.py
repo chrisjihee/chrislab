@@ -39,7 +39,7 @@ class DataOption(OptionData):
 
     def __post_init__(self):
         if self.home:
-            self.home = Path(self.home)
+            self.home = Path(self.home).absolute()
 
 
 @dataclass
@@ -50,7 +50,7 @@ class ModelOption(OptionData):
     seq_len: int = field(default=128)  # maximum total input sequence length after tokenization
 
     def __post_init__(self):
-        self.home = Path(self.home)
+        self.home = Path(self.home).absolute()
 
 
 @dataclass
@@ -102,12 +102,14 @@ class MLArguments(CommonArguments):
 
     def __post_init__(self):
         super().__post_init__()
-        if not self.env.logging_file.stem.endswith(self.tag):
-            self.env.logging_file = self.env.logging_file.with_stem(f"{self.env.logging_file.stem}-{self.tag}")
-        if not self.env.argument_file.stem.endswith(self.tag):
-            self.env.argument_file = self.env.argument_file.with_stem(f"{self.env.argument_file.stem}-{self.tag}")
+        if self.env.logging_file:
+            if not self.env.logging_file.stem.endswith(self.tag):
+                self.env.logging_file = self.env.logging_file.with_stem(f"{self.env.logging_file.stem}-{self.tag}")
+        if self.env.argument_file:
+            if not self.env.argument_file.stem.endswith(self.tag):
+                self.env.argument_file = self.env.argument_file.with_stem(f"{self.env.argument_file.stem}-{self.tag}")
 
-        if self.data and self.model:
+        if self.data and self.model and self.model.home and self.data.name:
             self.env.output_home = self.model.home / self.data.name
         elif self.data:
             self.env.output_home = self.data.home
@@ -316,7 +318,7 @@ class TrainerArguments(TesterArguments):
             num_check: int = 2,
             # model
             pretrained: str = "klue/roberta-small",
-            model_home: str = "finetuning",
+            model_home: str = "output",
             model_name: str = None,
             seq_len: int = 128,
             # hardware

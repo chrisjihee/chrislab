@@ -15,11 +15,11 @@ from transformers import PreTrainedTokenizerFast, BatchEncoding
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
 
 from chrisbase.data import AppTyper, ProjectEnv, InputOption, FileOption, IOArguments, OutputOption, JobTimer, FileStreamer, OptionData
-from chrisbase.io import hr, LoggingFormat, file_size
+from chrisbase.io import hr, LoggingFormat, file_size, cwd
 from chrisbase.io import make_parent_dir, merge_dicts
-from chrisbase.util import mute_tqdm_cls, LF, HT
+from chrisbase.util import mute_tqdm_cls, LF, HT, NO
 from chrisbase.util import to_dataframe
-from nlpbook.arguments import MLArguments
+from nlpbook.arguments import MLArguments, TrainerArguments
 
 logger = logging.getLogger(__name__)
 
@@ -132,26 +132,44 @@ class NERCorpus:
     def num_labels(self) -> int:
         return len(self.get_labels())
 
-    def get_labels(self) -> List[str]:
-        label_map_path = make_parent_dir(self.args.env.output_home / "label_map.txt")
-        if not label_map_path.exists():
+    @classmethod
+    def get_labels_from_data(cls,
+                             data_path: str | Path = "klue-ner/klue-ner-v1.1_dev.jsonl",
+                             label_path: str | Path = "klue-ner/label_map.txt") -> List[str]:
+        label_path = make_parent_dir(label_path).absolute()
+        if not label_path.exists():
+            data_path0 = data_path
+            data_path = Path(data_path).absolute()
+            data_path = data_path if data_path.exists() else None
+            assert data_path, f"No data_path: {data_path0}"
+            logger.info(f"Extracting labels from {data_path}")
             ner_tags = []
-            train_data_path = self.args.data.home / self.args.data.name / self.args.data.files.train
-            logger.info(f"Extracting labels from {train_data_path}")
-            with train_data_path.open(encoding="utf-8") as inp:
+            with data_path.open() as inp:
                 for line in inp.readlines():
                     for x in NERParsedExample.from_json(line).entity_list:
                         if x.label not in ner_tags:
                             ner_tags.append(x.label)
+            ner_tags = sorted(ner_tags)
             b_tags = [f"B-{ner_tag}" for ner_tag in ner_tags]
             i_tags = [f"I-{ner_tag}" for ner_tag in ner_tags]
             labels = ["O"] + b_tags + i_tags
-            logger.info(f"Saved {len(labels)} labels to {label_map_path}")
-            with label_map_path.open("w", encoding="utf-8") as f:
+            logger.info(f"Saved {len(labels)} labels to {label_path}")
+            with label_path.open("w") as f:
                 f.writelines([x + "\n" for x in labels])
         else:
-            labels = label_map_path.read_text(encoding="utf-8").splitlines()
+            labels = label_path.read_text().splitlines()
         return labels
+
+    def get_labels(self) -> List[str]:
+        label_path = make_parent_dir(self.args.env.output_home / "label_map.txt")
+        train_data_path = self.args.data.home / self.args.data.name / self.args.data.files.train if self.args.data.files.train else None
+        valid_data_path = self.args.data.home / self.args.data.name / self.args.data.files.valid if self.args.data.files.valid else None
+        test_data_path = self.args.data.home / self.args.data.name / self.args.data.files.test if self.args.data.files.test else None
+        train_data_path = train_data_path if train_data_path and train_data_path.exists() else None
+        valid_data_path = valid_data_path if valid_data_path and valid_data_path.exists() else None
+        test_data_path = test_data_path if test_data_path and test_data_path.exists() else None
+        data_path = train_data_path or valid_data_path or test_data_path
+        return self.get_labels_from_data(data_path=data_path, label_path=label_path)
 
     def read_raw_examples(self, split: str) -> List[NERParsedExample]:
         assert self.args.data.home, f"No data_home: {self.args.data.home}"
@@ -332,6 +350,20 @@ class CLI:
     EACH_SEP = "▁"
     MAIN_PROMPT = f"{task} on Sentence: "
     EACH_PROMPT = f"{task} on Character: "
+    cwdcwd = cwd()
+    label_names = NERCorpus.get_labels_from_data(data_path="klue-ner/klue-ner-v1.1_dev.jsonl",
+                                                 label_path="klue-ner/label_map.txt")
+    label_ids = [i for i, _ in enumerate(label_names)]
+    label_to_id = {label: i for i, label in enumerate(label_names)}
+    id_to_label = {i: label for i, label in enumerate(label_names)}
+
+    @classmethod
+    def strip_label_prompt(cls, x: str):
+        x = x.replace(cls.LINE_SEP, LF)
+        x = x.replace(cls.MAIN_PROMPT, NO)
+        x = x.replace(cls.EACH_PROMPT, NO)
+        x = x.strip()
+        return x
 
     @dataclass
     class ConvertOption(OptionData):
@@ -539,6 +571,34 @@ class CLI:
                 logger.info(f"Remove empty output file: [{output_file.opt}]")
                 output_file.path.unlink()
 
+    @staticmethod
+    def repr_to_labels(units: List[str], convert: "CLI.ConvertOption"):
+        print(f"units: {units}")
+        print(f"convert: {convert}")
+        exit(1)
+        heads = [-1] * len(units)
+        types = [-1] * len(units)
+        assert convert.seq2_type in CLI.seq2_regex, f"Unsupported convert option: {convert}"
+        regex = CLI.seq2_regex[convert.seq2_type]
+        num_mismatch = 0
+        for i, x in enumerate(units):
+            m = regex['pattern'].search(x)
+            if m:
+                dep = m.group(regex['dep'])
+                head = m.group(regex['head'])
+                dep_id = CLI.label_to_id.get(dep, 0) if dep else 0
+                head_id = int(head)
+                heads[i] = head_id
+                types[i] = dep_id
+            else:
+                logger.warning(f"Not found: pattern={regex['pattern']}, string={x}")
+                num_mismatch += 1
+                heads[i] = 0
+                types[i] = 0
+        result = DPResult(torch.tensor(heads), torch.tensor(types))
+        assert result.heads.shape == result.types.shape, f"result.heads.shape != result.types.shape: {result.heads.shape} != {result.types.shape}"
+        return result, num_mismatch
+
     # nlpbook.ner.corpus evaluate --input-file-name output/klue-ner=GBST-KEByT5-Base=S0a=B4/klue-ner-v1.1_dev-s2s=S0a-1969.out --refer-file-name data/klue-ner/klue-ner-v1.1_dev-s2s=S0a.tsv --output-file-name output/klue-ner=GBST-KEByT5-Base=S0a=B4/klue-ner-v1.1_dev-s2s=S0a-1969-eval.json --s2s-type S0a --verbose 0
     @staticmethod
     @main.command()
@@ -547,7 +607,7 @@ class CLI:
             project: str = typer.Option(default="DeepKNLU"),
             output_home: str = typer.Option(default="output"),
             logging_file: str = typer.Option(default="logging.out"),
-            debugging: bool = typer.Option(default=False),
+            debugging: bool = typer.Option(default=True),
             verbose: int = typer.Option(default=1),
             # data
             input_inter: int = typer.Option(default=50000),
@@ -628,6 +688,46 @@ class CLI:
             )
 
             golds, preds = [], []
+            num_mismatched, num_skipped = 0, 0
+            num_shorter, num_longer = 0, 0
+            for i, (a, b) in enumerate(progress):
+                if i > 0 and i % interval == 0:
+                    logger.info(progress)
+                pred_units = CLI.strip_label_prompt(a).splitlines()[0].split(CLI.EACH_SEP)
+                gold_units = CLI.strip_label_prompt(b).splitlines()[0].split(CLI.EACH_SEP)
+                if len(pred_units) < len(gold_units):
+                    num_shorter += 1
+                    if args.evaluate.skip_shorter:
+                        num_skipped += 1
+                        continue
+                    else:
+                        logger.warning(f"[{i:04d}] Shorter pred_units({len(pred_units)}): {pred_units}")
+                        logger.warning(f"[{i:04d}]         gold_units({len(gold_units)}): {gold_units}")
+                        pred_units = pred_units + (
+                                [pred_units[-1]] * (len(gold_units) - len(pred_units))
+                        )
+                        logger.warning(f"[{i:04d}]      -> pred_units({len(pred_units)}): {pred_units}")
+                if len(pred_units) > len(gold_units):
+                    num_longer += 1
+                    if args.evaluate.skip_longer:
+                        num_skipped += 1
+                        continue
+                    else:
+                        logger.warning(f"[{i:04d}]  Longer pred_units({len(pred_units)}): {pred_units}")
+                        logger.warning(f"[{i:04d}]         gold_units({len(gold_units)}): {gold_units}")
+                        pred_units = pred_units[:len(gold_units)]
+                        logger.warning(f"[{i:04d}]      -> pred_units({len(pred_units)}): {pred_units}")
+                assert len(pred_units) == len(gold_units), f"Length of pred_units and gold_units are different: {len(pred_units)} != {len(gold_units)}"
+                if debugging:
+                    logger.info(f"-- pred_units({len(pred_units)}): {pred_units}")
+                    logger.info(f"-- gold_units({len(gold_units)}): {gold_units}")
+
+                pred_units, pred_mismatch = CLI.repr_to_labels(pred_units, args.convert)
+                exit(1)
+                gold_units, gold_mismatch = CLI.repr_to_labels(gold_units, args.convert)
+                assert gold_mismatch == 0, f"gold_mismatch != 0: gold_mismatch={gold_mismatch}"
+
+                exit(1)
 
 
 if __name__ == "__main__":
