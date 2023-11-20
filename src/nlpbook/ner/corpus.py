@@ -357,6 +357,16 @@ class CLI:
     label_ids = [i for i, _ in enumerate(label_names)]
     label_to_id = {label: i for i, label in enumerate(label_names)}
     id_to_label = {i: label for i, label in enumerate(label_names)}
+    seq2_regex = {  # fullmatch version
+        'a': re.compile(r"(?P<label>[BIO](-[A-Z]{2,3})?)"),
+        'b': re.compile(r"[^ ]*/*(?P<label>[BIO](-[A-Z]{2,3})?)"),
+        'c': re.compile(r"(?P<index>[0-9]+)\(*[^ ]*/*(?P<label>[BIO](-[A-Z]{2,3})?)\)*"),
+        'd': re.compile(r"(?P<label>[BIO](-[A-Z]{2,3})?)\(*(?P<index>[0-9]+)/*[^ ]*\)*"),
+        'e': re.compile(r"(?P<index>[0-9]+)/*[^ ]*=*>*(?P<label>[BIO](-[A-Z]{2,3})?)"),
+        'f': re.compile(r"(?P<index>[0-9]+)\(*[^ ]*/*(?P<label>[BIO](-[A-Z]{2,3})?)\)*"),
+        'g': re.compile(r"(?P<label>[BIO](-[A-Z]{2,3})?)\(*(?P<index>[0-9]+)/*[^ ]*\)*"),
+        'h': re.compile(r"(?P<index>[0-9]+)/*[^ ]*=*>*(?P<label>[BIO](-[A-Z]{2,3})?)"),
+    }
 
     @classmethod
     def strip_label_prompt(cls, x: str):
@@ -573,33 +583,44 @@ class CLI:
                 output_file.path.unlink()
 
     @staticmethod
-    def repr_to_labels(pred_units: List[str], gold_units: List[str], convert: "CLI.ConvertOption"):
-        logger.info(f"pred_units: {pred_units}")
-        logger.info(f"gold_units: {gold_units}")
+    def repr_to_labels(pred_units: List[str], gold_units: List[str], user_input: List[str], convert: "CLI.ConvertOption"):
+        logger.info(f"pred_units: {len(pred_units)} {pred_units}")
+        logger.info(f"gold_units: {len(gold_units)} {gold_units}")
+        logger.info(f"user_input: {len(user_input)} {user_input}")
         logger.info(f"convert: {convert}")
-        exit(1)
-        heads = [-1] * len(units)
-        types = [-1] * len(units)
+
+        def match_labels(units: List[str], regex: re.Pattern):
+            label_ids = [0] * len(user_input)
+            num_mismatch = 0
+            for i, x in enumerate(units, start=1):
+                # search or match or fullmatch
+                m: re.Match = regex.fullmatch(x)
+                if m:
+                    g = m.groupdict()
+                    label = g['label']
+                    index = int(g['index']) if 'index' in g else i
+                    label_id = CLI.label_to_id.get(label, 0) if label else 0
+                    label_ids[index - 1] = label_id
+                else:
+                    logger.warning(f"Not found: regex={regex}, string={x}")
+                    num_mismatch += 1
+            return label_ids, num_mismatch
+
         assert convert.seq2_type in CLI.seq2_regex, f"Unsupported convert option: {convert}"
-        regex = CLI.seq2_regex[convert.seq2_type]
-        num_mismatch = 0
-        for i, x in enumerate(units):
-            m = regex['pattern'].search(x)
-            if m:
-                dep = m.group(regex['dep'])
-                head = m.group(regex['head'])
-                dep_id = CLI.label_to_id.get(dep, 0) if dep else 0
-                head_id = int(head)
-                heads[i] = head_id
-                types[i] = dep_id
-            else:
-                logger.warning(f"Not found: pattern={regex['pattern']}, string={x}")
-                num_mismatch += 1
-                heads[i] = 0
-                types[i] = 0
-        result = DPResult(torch.tensor(heads), torch.tensor(types))
-        assert result.heads.shape == result.types.shape, f"result.heads.shape != result.types.shape: {result.heads.shape} != {result.types.shape}"
-        return result, num_mismatch
+        pred_label_ids, pred_mismatch = match_labels(pred_units, CLI.seq2_regex[convert.seq2_type])
+        gold_label_ids, gold_mismatch = match_labels(gold_units, CLI.seq2_regex[convert.seq2_type])
+
+        logger.info(f"pred_mismatch: {pred_mismatch}")
+        logger.info(f"gold_mismatch: {gold_mismatch}")
+        logger.info(f"pred_label_ids: {len(pred_label_ids)} {pred_label_ids}")
+        logger.info(f"gold_label_ids: {len(gold_label_ids)} {gold_label_ids}")
+        assert gold_mismatch == 0, f"gold_mismatch != 0: gold_mismatch={gold_mismatch}"
+        exit(1)
+
+        pred_tensor = torch.tensor(pred_label_ids)
+        gold_tensor = torch.tensor(gold_label_ids)
+        assert pred_tensor.shape == gold_tensor.shape, f"Shape mismatch: {pred_tensor.shape} != {gold_tensor.shape}"
+        return pred_tensor, gold_tensor
 
     @staticmethod
     @main.command()
@@ -696,14 +717,14 @@ class CLI:
             assert len(refer_inputs) == len(refer_labels), f"Length of refer_inputs and refer_labels are different: {len(refer_inputs)} != {len(refer_labels)}"
             assert len(input_labels) == len(refer_labels), f"Length of input_labels and refer_labels are different: {len(input_labels)} != {len(refer_labels)}"
             progress, interval = (
-                tqdm(zip(input_labels, refer_labels), total=len(input_labels), unit="item", pre="*", desc="evaluating"),
+                tqdm(zip(input_labels, refer_labels, refer_inputs), total=len(input_labels), unit="item", pre="*", desc="evaluating"),
                 args.input.inter,
             )
 
             golds, preds = [], []
             num_mismatched, num_skipped = 0, 0
             num_shorter, num_longer = 0, 0
-            for i, (pred_units, gold_units) in enumerate(progress):
+            for i, (pred_units, gold_units, user_input) in enumerate(progress):
                 if i > 0 and i % interval == 0:
                     logger.info(progress)
                 if len(pred_units) < len(gold_units):
@@ -734,11 +755,7 @@ class CLI:
                     logger.info(f"-- gold_units({len(gold_units)}): {gold_units}")
 
                 logger.info(CLI.label_names)
-                pred_units, pred_mismatch = CLI.repr_to_labels(pred_units, gold_units, args.convert)
-                exit(1)
-                gold_units, gold_mismatch = CLI.repr_to_labels(gold_units, args.convert)
-                assert gold_mismatch == 0, f"gold_mismatch != 0: gold_mismatch={gold_mismatch}"
-
+                pred_tensor, gold_tensor = CLI.repr_to_labels(pred_units, gold_units, user_input, args.convert)
                 exit(1)
 
 
