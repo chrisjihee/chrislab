@@ -2,7 +2,6 @@ import logging
 import re
 from dataclasses import dataclass, field
 from io import StringIO
-from itertools import chain
 from pathlib import Path
 from typing import List, Optional, Dict, ClassVar
 
@@ -30,18 +29,19 @@ configure_unit_logger(fmt=LoggingFormat.CHECK_24)
 
 @dataclass
 class EntityInText(DataClassJsonMixin):
-    pattern: ClassVar[re.Pattern] = re.compile('<([^<>]+?):([A-Z]{2,3})>')
+    pattern: ClassVar[re.Pattern] = re.compile('<(?P<text>[^<>]+?):(?P<label>[A-Z]{2,3})>')
     text: str
     label: str
     offset: tuple[int, int]
 
     @staticmethod
     def from_match(m: re.Match, s: str) -> tuple["EntityInText", str]:
-        x = m.group(1)
-        y = m.group(2)
+        g = m.groupdict()
+        x = g['text']
+        y = g['label']
         z = (m.start(), m.start() + len(x))
         e = EntityInText(text=x, label=y, offset=z)
-        s = s[:m.start()] + m.group(1) + s[m.end():]
+        s = s[:m.start()] + x + s[m.end():]
         return e, s
 
     def to_offset_lable_dict(self) -> Dict[int, str]:
@@ -603,7 +603,7 @@ class CLI:
                 output_file.path.unlink()
 
     @staticmethod
-    def units_to_label_ids(pred_units: List[str], gold_units: List[str], user_input: List[str], convert: "CLI.ConvertOption"):
+    def units_to_label_ids(pred_units: List[str], gold_units: List[str], user_input: str, convert: "CLI.ConvertOption"):
         def match_labels(regex: re.Pattern, unit_values: List[str]):
             every_label_ids = [-1] + [0 if len(x.strip()) > 0 else -1 for x in user_input]
             unit_indices = [i for i, x in enumerate(every_label_ids) if x >= 0]
@@ -623,10 +623,20 @@ class CLI:
             valid_label_ids = [x for x in every_label_ids if x >= 0]
             return valid_label_ids, num_mismatch
 
-        assert convert.seq2_type in CLI.seq2_regex, f"Unsupported convert option: {convert}"
-        pred_label_ids, pred_mismatch = match_labels(CLI.seq2_regex[convert.seq2_type], pred_units)
-        gold_label_ids, gold_mismatch = match_labels(CLI.seq2_regex[convert.seq2_type], gold_units)
-        assert gold_mismatch == 0, f"gold_mismatch != 0: gold_mismatch={gold_mismatch}"
+        if convert.seq2_type == 'm':
+            pred_parsed: Optional[NERParsedExample] = NERParsedExample.from_tagged(user_input, pred_units[0])
+            if not pred_parsed:
+                return None, None, 0
+            gold_parsed: Optional[NERParsedExample] = NERParsedExample.from_tagged(user_input, gold_units[0])
+            assert gold_parsed, f"Failed to parse: user_input={user_input}, gold={gold_units[0]}"
+            pred_label_ids = [CLI.label_to_id[x[1]] for x in pred_parsed.character_list]
+            gold_label_ids = [CLI.label_to_id[x[1]] for x in gold_parsed.character_list]
+            pred_mismatch = 0
+        else:
+            assert convert.seq2_type in CLI.seq2_regex, f"Unsupported convert option: {convert}"
+            pred_label_ids, pred_mismatch = match_labels(CLI.seq2_regex[convert.seq2_type], pred_units)
+            gold_label_ids, gold_mismatch = match_labels(CLI.seq2_regex[convert.seq2_type], gold_units)
+            assert gold_mismatch == 0, f"gold_mismatch != 0: gold_mismatch={gold_mismatch}"
 
         pred_tensor = torch.tensor(pred_label_ids)
         gold_tensor = torch.tensor(gold_label_ids)
@@ -644,11 +654,11 @@ class CLI:
             verbose: int = typer.Option(default=1),
             # data
             input_inter: int = typer.Option(default=50000),
-            refer_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev-s2s=S0c.tsv"),
-            input_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=S0c=B4/klue-ner-v1.1_dev-s2s=S0c-last.out"),
-            output_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=S0c=B4/klue-ner-v1.1_dev-s2s=S0c-last-eval.json"),
+            refer_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev-s2s=S0m.tsv"),
+            input_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=S0m=B4/klue-ner-v1.1_dev-s2s=S0m-last.out"),
+            output_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=S0m=B4/klue-ner-v1.1_dev-s2s=S0m-last-eval.json"),
             # convert
-            s2s_type: str = typer.Option(default="S0c"),
+            s2s_type: str = typer.Option(default="S0m"),
             # evaluate
             skip_longer: bool = typer.Option(default=True),
             skip_shorter: bool = typer.Option(default=True),
@@ -714,7 +724,7 @@ class CLI:
             for refer_item in refer_file:
                 refer_input, refer_label = refer_item.split("\t")
                 if len(refer_input.strip()) > 0 and len(refer_label.strip()) > 0:
-                    refer_input = list([x.split(CLI.INPUT_PROMPT)[-1].strip() for x in CLI.strip_label_prompt(refer_input).splitlines() if CLI.INPUT_PROMPT in x][0])
+                    refer_input = [x.split(CLI.INPUT_PROMPT)[-1].strip() for x in CLI.strip_label_prompt(refer_input).splitlines() if CLI.INPUT_PROMPT in x][0]
                     refer_label = CLI.strip_label_prompt(refer_label).splitlines()[0].split(CLI.EACH_SEP)
                     refer_inputs.append(refer_input)
                     refer_labels.append(refer_label)
@@ -743,29 +753,19 @@ class CLI:
                     if args.evaluate.skip_shorter:
                         num_skipped += 1
                         continue
-                    else:
-                        logger.warning(f"[{i:04d}] Shorter pred_units({len(pred_units)}): {pred_units}")
-                        logger.warning(f"[{i:04d}]         gold_units({len(gold_units)}): {gold_units}")
-                        pred_units = pred_units + (
-                                [pred_units[-1]] * (len(gold_units) - len(pred_units))
-                        )
-                        logger.warning(f"[{i:04d}]      -> pred_units({len(pred_units)}): {pred_units}")
                 if len(pred_units) > len(gold_units):
                     num_longer += 1
                     if args.evaluate.skip_longer:
                         num_skipped += 1
                         continue
-                    else:
-                        logger.warning(f"[{i:04d}]  Longer pred_units({len(pred_units)}): {pred_units}")
-                        logger.warning(f"[{i:04d}]         gold_units({len(gold_units)}): {gold_units}")
-                        pred_units = pred_units[:len(gold_units)]
-                        logger.warning(f"[{i:04d}]      -> pred_units({len(pred_units)}): {pred_units}")
-                assert len(pred_units) == len(gold_units), f"Length of pred_units and gold_units are different: {len(pred_units)} != {len(gold_units)}"  # TODO: 다를 수 있음!
                 if debugging:
                     logger.info(f"-- pred_units({len(pred_units)}): {pred_units}")
                     logger.info(f"-- gold_units({len(gold_units)}): {gold_units}")
 
                 pred_tensor, gold_tensor, pred_mismatch = CLI.units_to_label_ids(pred_units, gold_units, user_input, args.convert)
+                if pred_tensor is None or gold_tensor is None:
+                    num_skipped += 1
+                    continue
                 num_mismatched += pred_mismatch
                 if debugging:
                     logger.info(f"-> pred_tensor({'x'.join(map(str, pred_tensor.shape))}): {pred_tensor.tolist()}")
