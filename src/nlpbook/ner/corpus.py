@@ -10,17 +10,19 @@ import pandas as pd
 import torch
 import typer
 from dataclasses_json import DataClassJsonMixin
+from sklearn.metrics import classification_report
 from torch.utils.data.dataset import Dataset
 from transformers import CharSpan
 from transformers import PreTrainedTokenizerFast, BatchEncoding
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
 
-from chrisbase.data import AppTyper, ProjectEnv, InputOption, FileOption, IOArguments, OutputOption, JobTimer, FileStreamer, OptionData
+from chrisbase.data import AppTyper, ProjectEnv, InputOption, FileOption, IOArguments, OutputOption, JobTimer, FileStreamer, OptionData, ResultData
 from chrisbase.io import hr, LoggingFormat, file_size, configure_unit_logger
 from chrisbase.io import make_parent_dir, merge_dicts
 from chrisbase.util import mute_tqdm_cls, LF, HT, NO
 from chrisbase.util import to_dataframe
 from nlpbook.arguments import MLArguments
+from nlpbook.metrics import NER_Char_MacroF1, NER_Entity_MacroF1
 
 logger = logging.getLogger(__name__)
 configure_unit_logger(fmt=LoggingFormat.CHECK_24)
@@ -344,6 +346,24 @@ class NERCorpusConverter:
                         print(f"  ====================")
 
 
+@dataclass
+class EvaluateResult(ResultData):
+    s2s_type: str
+    file_answer: str
+    file_predict: str
+    cate_predict: str
+    post_predict: str
+    num_answer: int
+    num_predict: int
+    num_evaluate: int
+    num_mismatched: int
+    num_skipped: int
+    num_shorter: int
+    num_longer: int
+    metric_F1c: float
+    metric_F1e: float
+
+
 class CLI:
     main = AppTyper()
     task = "Named Entity Recognition"
@@ -583,22 +603,16 @@ class CLI:
                 output_file.path.unlink()
 
     @staticmethod
-    def repr_to_labels(pred_units: List[str], gold_units: List[str], user_input: List[str], convert: "CLI.ConvertOption"):
-        logger.info(f"pred_units: {len(pred_units)} {pred_units}")
-        logger.info(f"gold_units: {len(gold_units)} {gold_units}")
-        logger.info(f"user_input: {len(user_input)} {user_input}")
-        logger.info(f"convert: {convert}")
-
+    def units_to_label_ids(pred_units: List[str], gold_units: List[str], user_input: List[str], convert: "CLI.ConvertOption"):
         def match_labels(units: List[str], regex: re.Pattern):
             label_ids = [0] * len(user_input)
             num_mismatch = 0
             for i, x in enumerate(units, start=1):
-                # search or match or fullmatch
-                m: re.Match = regex.fullmatch(x)
-                if m:
-                    g = m.groupdict()
-                    label = g['label']
-                    index = int(g['index']) if 'index' in g else i
+                match: re.Match = regex.fullmatch(x)  # search or match or fullmatch
+                if match:
+                    group = match.groupdict()
+                    label = group['label']
+                    index = int(group['index']) if 'index' in group else i
                     label_id = CLI.label_to_id.get(label, 0) if label else 0
                     label_ids[index - 1] = label_id
                 else:
@@ -609,18 +623,12 @@ class CLI:
         assert convert.seq2_type in CLI.seq2_regex, f"Unsupported convert option: {convert}"
         pred_label_ids, pred_mismatch = match_labels(pred_units, CLI.seq2_regex[convert.seq2_type])
         gold_label_ids, gold_mismatch = match_labels(gold_units, CLI.seq2_regex[convert.seq2_type])
-
-        logger.info(f"pred_mismatch: {pred_mismatch}")
-        logger.info(f"gold_mismatch: {gold_mismatch}")
-        logger.info(f"pred_label_ids: {len(pred_label_ids)} {pred_label_ids}")
-        logger.info(f"gold_label_ids: {len(gold_label_ids)} {gold_label_ids}")
         assert gold_mismatch == 0, f"gold_mismatch != 0: gold_mismatch={gold_mismatch}"
-        exit(1)
 
         pred_tensor = torch.tensor(pred_label_ids)
         gold_tensor = torch.tensor(gold_label_ids)
         assert pred_tensor.shape == gold_tensor.shape, f"Shape mismatch: {pred_tensor.shape} != {gold_tensor.shape}"
-        return pred_tensor, gold_tensor
+        return pred_tensor, gold_tensor, pred_mismatch
 
     @staticmethod
     @main.command()
@@ -721,9 +729,10 @@ class CLI:
                 args.input.inter,
             )
 
-            golds, preds = [], []
+            gold_label_ids, pred_label_ids = [], []
             num_mismatched, num_skipped = 0, 0
             num_shorter, num_longer = 0, 0
+            num_evaluated = 0
             for i, (pred_units, gold_units, user_input) in enumerate(progress):
                 if i > 0 and i % interval == 0:
                     logger.info(progress)
@@ -754,9 +763,51 @@ class CLI:
                     logger.info(f"-- pred_units({len(pred_units)}): {pred_units}")
                     logger.info(f"-- gold_units({len(gold_units)}): {gold_units}")
 
-                logger.info(CLI.label_names)
-                pred_tensor, gold_tensor = CLI.repr_to_labels(pred_units, gold_units, user_input, args.convert)
-                exit(1)
+                pred_tensor, gold_tensor, pred_mismatch = CLI.units_to_label_ids(pred_units, gold_units, user_input, args.convert)
+                num_mismatched += pred_mismatch
+                if debugging:
+                    logger.info(f"-> pred_tensor({'x'.join(map(str, pred_tensor.shape))}): {pred_tensor.tolist()}")
+                    logger.info(f"-> gold_tensor({'x'.join(map(str, gold_tensor.shape))}): {gold_tensor.tolist()}")
+                    logger.info("")
+                assert gold_tensor.shape == pred_tensor.shape, f"gold_tensor.shape != pred_tensor.shape: {gold_tensor.shape} != {pred_tensor.shape}"
+                gold_label_ids.extend(gold_tensor.tolist())
+                pred_label_ids.extend(pred_tensor.tolist())
+                num_evaluated += 1
+            logger.info(progress)
+            assert len(gold_label_ids) == len(pred_label_ids), f"Length of gold_label_ids and pred_label_ids are different: {len(gold_label_ids)} != {len(pred_label_ids)}"
+
+            if debugging:
+                res1 = classification_report(gold_label_ids, pred_label_ids, labels=CLI.label_ids, target_names=CLI.label_names, digits=4, zero_division=1)
+                logger.info(hr(c='-'))
+                for line in res1.splitlines():
+                    logger.info(line)
+
+            NER_Char_MacroF1.reset()
+            NER_Entity_MacroF1.reset()
+            NER_Char_MacroF1.update(pred_label_ids, gold_label_ids, CLI.label_names)
+            NER_Entity_MacroF1.update(pred_label_ids, gold_label_ids, CLI.label_names)
+
+            res = EvaluateResult(
+                s2s_type=args.convert.s2s_type,
+                file_answer=str(refer_file.opt),
+                file_predict=str(input_file.opt),
+                cate_predict=input_file.path.parent.name,
+                post_predict=input_file.path.stem.split("-")[-1],
+                num_answer=len(refer_labels),
+                num_predict=len(input_labels),
+                num_evaluate=num_evaluated,
+                num_mismatched=num_mismatched,
+                num_skipped=num_skipped,
+                num_shorter=num_shorter,
+                num_longer=num_longer,
+                metric_F1c=NER_Char_MacroF1.compute(),
+                metric_F1e=NER_Entity_MacroF1.compute(),
+            )
+            output_file.fp.write(res.to_json(indent=2))
+            logger.info(f"  -> s2s_type : {res.s2s_type}")
+            logger.info(f"  -> num      : eval={res.num_evaluate}, miss={res.num_mismatched}, skip={res.num_skipped}, long={res.num_longer}, short={res.num_shorter}")
+            logger.info(f"  -> metric   : F1c={res.metric_F1c:.2f}, F1e={res.metric_F1e:.2f}")
+            logger.info(f"Save for {num_evaluated} evaluated items to [{output_file.opt}]")
 
 
 if __name__ == "__main__":
