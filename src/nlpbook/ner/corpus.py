@@ -604,25 +604,28 @@ class CLI:
 
     @staticmethod
     def units_to_label_ids(pred_units: List[str], gold_units: List[str], user_input: List[str], convert: "CLI.ConvertOption"):
-        def match_labels(units: List[str], regex: re.Pattern):
-            label_ids = [0] * len(user_input)
+        def match_labels(regex: re.Pattern, unit_values: List[str]):
+            every_label_ids = [-1] + [0 if len(x.strip()) > 0 else -1 for x in user_input]
+            unit_indices = [i for i, x in enumerate(every_label_ids) if x >= 0]
             num_mismatch = 0
-            for i, x in enumerate(units, start=1):
+            for i, x in zip(unit_indices, unit_values):
                 match: re.Match = regex.fullmatch(x)  # search or match or fullmatch
                 if match:
                     group = match.groupdict()
                     label = group['label']
                     index = int(group['index']) if 'index' in group else i
                     label_id = CLI.label_to_id.get(label, 0) if label else 0
-                    label_ids[index - 1] = label_id
+                    if index in unit_indices:
+                        every_label_ids[index] = label_id
                 else:
                     logger.warning(f"Not found: regex={regex}, string={x}")
                     num_mismatch += 1
-            return label_ids, num_mismatch
+            valid_label_ids = [x for x in every_label_ids if x >= 0]
+            return valid_label_ids, num_mismatch
 
         assert convert.seq2_type in CLI.seq2_regex, f"Unsupported convert option: {convert}"
-        pred_label_ids, pred_mismatch = match_labels(pred_units, CLI.seq2_regex[convert.seq2_type])
-        gold_label_ids, gold_mismatch = match_labels(gold_units, CLI.seq2_regex[convert.seq2_type])
+        pred_label_ids, pred_mismatch = match_labels(CLI.seq2_regex[convert.seq2_type], pred_units)
+        gold_label_ids, gold_mismatch = match_labels(CLI.seq2_regex[convert.seq2_type], gold_units)
         assert gold_mismatch == 0, f"gold_mismatch != 0: gold_mismatch={gold_mismatch}"
 
         pred_tensor = torch.tensor(pred_label_ids)
@@ -641,11 +644,11 @@ class CLI:
             verbose: int = typer.Option(default=1),
             # data
             input_inter: int = typer.Option(default=50000),
-            refer_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev-s2s=S0b.tsv"),
-            input_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=S0b=B4/klue-ner-v1.1_dev-s2s=S0b-last.out"),
-            output_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=S0b=B4/klue-ner-v1.1_dev-s2s=S0b-last-eval.json"),
+            refer_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev-s2s=S0c.tsv"),
+            input_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=S0c=B4/klue-ner-v1.1_dev-s2s=S0c-last.out"),
+            output_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=S0c=B4/klue-ner-v1.1_dev-s2s=S0c-last-eval.json"),
             # convert
-            s2s_type: str = typer.Option(default="S0b"),
+            s2s_type: str = typer.Option(default="S0c"),
             # evaluate
             skip_longer: bool = typer.Option(default=True),
             skip_shorter: bool = typer.Option(default=True),
@@ -711,9 +714,8 @@ class CLI:
             for refer_item in refer_file:
                 refer_input, refer_label = refer_item.split("\t")
                 if len(refer_input.strip()) > 0 and len(refer_label.strip()) > 0:
-                    refer_input = list(chain.from_iterable(CLI.strip_label_prompt(refer_input.split(CLI.INPUT_PROMPT)[-1]).strip().split()))
+                    refer_input = list([x.split(CLI.INPUT_PROMPT)[-1].strip() for x in CLI.strip_label_prompt(refer_input).splitlines() if CLI.INPUT_PROMPT in x][0])
                     refer_label = CLI.strip_label_prompt(refer_label).splitlines()[0].split(CLI.EACH_SEP)
-                    assert len(refer_input) == len(refer_label), f"Length of refer_input and refer_label are different: {len(refer_input)} != {len(refer_label)}"
                     refer_inputs.append(refer_input)
                     refer_labels.append(refer_label)
             input_labels = []
@@ -758,7 +760,7 @@ class CLI:
                         logger.warning(f"[{i:04d}]         gold_units({len(gold_units)}): {gold_units}")
                         pred_units = pred_units[:len(gold_units)]
                         logger.warning(f"[{i:04d}]      -> pred_units({len(pred_units)}): {pred_units}")
-                assert len(pred_units) == len(gold_units), f"Length of pred_units and gold_units are different: {len(pred_units)} != {len(gold_units)}"
+                assert len(pred_units) == len(gold_units), f"Length of pred_units and gold_units are different: {len(pred_units)} != {len(gold_units)}"  # TODO: 다를 수 있음!
                 if debugging:
                     logger.info(f"-- pred_units({len(pred_units)}): {pred_units}")
                     logger.info(f"-- gold_units({len(gold_units)}): {gold_units}")
