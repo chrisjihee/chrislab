@@ -372,11 +372,18 @@ class CLI:
     INPUT_PROMPT = "Input: "
     LABEL_MAIN_PROMPT = f"{task} on Sentence: "
     LABEL_EACH_PROMPT = f"{task} on Character: "
-    label_names = NERCorpus.get_labels_from_data(data_path="data/klue-ner/klue-ner-v1.1_dev.jsonl",
-                                                 label_path="data/klue-ner/label_map.txt")
-    label_ids = [i for i, _ in enumerate(label_names)]
-    label_to_id = {label: i for i, label in enumerate(label_names)}
-    id_to_label = {i: label for i, label in enumerate(label_names)}
+    NER_LABELS = [
+        "O",
+        "B-PS", "I-PS",
+        "B-LC", "I-LC",
+        "B-OG", "I-OG",
+        "B-DT", "I-DT",
+        "B-TI", "I-TI",
+        "B-QT", "I-QT",
+    ]
+    label_ids = [i for i, _ in enumerate(NER_LABELS)]
+    label_to_id = {label: i for i, label in enumerate(NER_LABELS)}
+    id_to_label = {i: label for i, label in enumerate(NER_LABELS)}
     seq2_regex = {  # fullmatch version
         # TODO: check pattern /* -> /+ or /
         'a': re.compile(r"(?P<label>[BIO](-[A-Z]{2,3})?)"),
@@ -807,15 +814,15 @@ class CLI:
             assert len(gold_label_ids) == len(pred_label_ids), f"Length of gold_label_ids and pred_label_ids are different: {len(gold_label_ids)} != {len(pred_label_ids)}"
 
             if debugging:
-                res1 = classification_report(gold_label_ids, pred_label_ids, labels=CLI.label_ids, target_names=CLI.label_names, digits=4, zero_division=1)
+                res1 = classification_report(gold_label_ids, pred_label_ids, labels=CLI.label_ids, target_names=CLI.NER_LABELS, digits=4, zero_division=1)
                 logger.info(hr(c='-'))
                 for line in res1.splitlines():
                     logger.info(line)
 
             NER_Char_MacroF1.reset()
             NER_Entity_MacroF1.reset()
-            NER_Char_MacroF1.update(pred_label_ids, gold_label_ids, CLI.label_names)
-            NER_Entity_MacroF1.update(pred_label_ids, gold_label_ids, CLI.label_names)
+            NER_Char_MacroF1.update(pred_label_ids, gold_label_ids, CLI.NER_LABELS)
+            NER_Entity_MacroF1.update(pred_label_ids, gold_label_ids, CLI.NER_LABELS)
 
             res = EvaluateResult(
                 s2s_type=args.convert.s2s_type,
