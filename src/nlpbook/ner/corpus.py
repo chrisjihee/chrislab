@@ -678,11 +678,11 @@ class CLI:
             verbose: int = typer.Option(default=1),
             # data
             input_inter: int = typer.Option(default=500000),
-            refer_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev-s2s=C1e.tsv"),
-            input_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=C1e=B4/klue-ner-v1.1_dev-s2s=C1e-last.out"),
-            output_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=C1e=B4/klue-ner-v1.1_dev-s2s=C1e-last-eval.json"),
+            refer_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev-s2s=S1m.tsv"),
+            input_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=S1m=B4/klue-ner-v1.1_dev-s2s=S1m-last.out"),
+            output_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=S1m=B4/klue-ner-v1.1_dev-s2s=S1m-last-eval.json"),
             # convert
-            s2s_type: str = typer.Option(default="C1e"),
+            s2s_type: str = typer.Option(default="S1m"),
             # evaluate
             skip_longer: bool = typer.Option(default=True),
             skip_shorter: bool = typer.Option(default=True),
@@ -748,9 +748,10 @@ class CLI:
             for refer_item in refer_file:
                 refer_seq1, refer_seq2 = refer_item.split("\t")
                 if len(refer_seq1.strip()) > 0 and len(refer_seq2.strip()) > 0:
-                    refer_input = [x.split(CLI.INPUT_PROMPT)[-1].strip() for x in CLI.strip_label_prompt(refer_seq1).splitlines() if CLI.INPUT_PROMPT in x]
+                    refer_input = CLI.strip_label_prompt(refer_seq1).splitlines()
+                    refer_input = [x.split(CLI.INPUT_PROMPT)[-1].strip() for x in refer_input if CLI.INPUT_PROMPT in x]
                     refer_label = CLI.strip_label_prompt(refer_seq2).splitlines()
-                    refer_input = refer_input[0].split(CLI.EACH_SEP) if len(refer_input) > 0 else None
+                    refer_input = refer_input[0] if len(refer_input) > 0 else None
                     refer_label = refer_label[0].split(CLI.EACH_SEP) if len(refer_label) > 0 else None
                     refer_inputs.append(refer_input)
                     refer_labels.append(refer_label)
