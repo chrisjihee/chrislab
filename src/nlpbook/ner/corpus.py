@@ -393,6 +393,8 @@ class CLI:
         x = x.replace(cls.LINE_SEP, LF)
         x = x.replace(cls.LABEL_MAIN_PROMPT, NO)
         x = x.replace(cls.LABEL_EACH_PROMPT, NO)
+        x = x.replace(cls.LABEL_MAIN_PROMPT.strip(), NO)
+        x = x.replace(cls.LABEL_EACH_PROMPT.strip(), NO)
         x = x.strip()
         return x
 
@@ -675,11 +677,11 @@ class CLI:
             verbose: int = typer.Option(default=1),
             # data
             input_inter: int = typer.Option(default=50000),
-            refer_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev-s2s=C1a.tsv"),
-            input_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=C1a=B4/klue-ner-v1.1_dev-s2s=C1a-last.out"),
-            output_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=C1a=B4/klue-ner-v1.1_dev-s2s=C1a-last-eval.json"),
+            refer_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev-s2s=C1b.tsv"),
+            input_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=C1b=B4/klue-ner-v1.1_dev-s2s=C1b-last.out"),
+            output_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=C1b=B4/klue-ner-v1.1_dev-s2s=C1b-last-eval.json"),
             # convert
-            s2s_type: str = typer.Option(default="C1a"),
+            s2s_type: str = typer.Option(default="C1b"),
             # evaluate
             skip_longer: bool = typer.Option(default=True),
             skip_shorter: bool = typer.Option(default=True),
