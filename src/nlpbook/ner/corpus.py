@@ -138,8 +138,8 @@ class NERCorpus:
 
     @classmethod
     def get_labels_from_data(cls,
-                             data_path: str | Path = "klue-ner/klue-ner-v1.1_dev.jsonl",
-                             label_path: str | Path = "klue-ner/label_map.txt") -> List[str]:
+                             data_path: str | Path = "data/klue-ner/klue-ner-v1.1_dev.jsonl",
+                             label_path: str | Path = "data/klue-ner/label_map.txt") -> List[str]:
         label_path = make_parent_dir(label_path).absolute()
         data_path = Path(data_path).absolute()
         assert data_path.exists() and data_path.is_file() or label_path.exists() and label_path.is_file(), f"No data_path or label_path: {data_path}, {label_path}"
@@ -372,8 +372,8 @@ class CLI:
     INPUT_PROMPT = "Input: "
     LABEL_MAIN_PROMPT = f"{task} on Sentence: "
     LABEL_EACH_PROMPT = f"{task} on Character: "
-    label_names = NERCorpus.get_labels_from_data(data_path="klue-ner/klue-ner-v1.1_dev.jsonl",
-                                                 label_path="klue-ner/label_map.txt")
+    label_names = NERCorpus.get_labels_from_data(data_path="data/klue-ner/klue-ner-v1.1_dev.jsonl",
+                                                 label_path="data/klue-ner/label_map.txt")
     label_ids = [i for i, _ in enumerate(label_names)]
     label_to_id = {label: i for i, label in enumerate(label_names)}
     id_to_label = {i: label for i, label in enumerate(label_names)}
@@ -671,7 +671,7 @@ class CLI:
             project: str = typer.Option(default="DeepKNLU"),
             output_home: str = typer.Option(default="output"),
             logging_file: str = typer.Option(default="logging.out"),
-            debugging: bool = typer.Option(default=True),
+            debugging: bool = typer.Option(default=False),
             verbose: int = typer.Option(default=1),
             # data
             input_inter: int = typer.Option(default=50000),

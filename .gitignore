@@ -12,7 +12,6 @@ cache/
 *.ckpt
 model.ckpt*
 events.out.*
-label_map.*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
