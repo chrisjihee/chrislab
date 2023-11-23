@@ -378,6 +378,7 @@ class CLI:
     label_to_id = {label: i for i, label in enumerate(label_names)}
     id_to_label = {i: label for i, label in enumerate(label_names)}
     seq2_regex = {  # fullmatch version
+        # TODO: check pattern /* -> /+ or /
         'a': re.compile(r"(?P<label>[BIO](-[A-Z]{2,3})?)"),
         'b': re.compile(r"[^ ]*/*(?P<label>[BIO](-[A-Z]{2,3})?)"),
         'c': re.compile(r"(?P<index>[0-9]+)\(*[^ ]*/*(?P<label>[BIO](-[A-Z]{2,3})?)\)*"),
