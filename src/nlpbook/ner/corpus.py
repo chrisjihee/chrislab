@@ -603,13 +603,26 @@ class CLI:
                 output_file.path.unlink()
 
     @staticmethod
-    def units_to_label_ids(pred_units: List[str], gold_units: List[str], user_input: str, convert: "CLI.ConvertOption"):
-        def match_labels(regex: re.Pattern, unit_values: List[str]):
-            every_label_ids = [-1] + [0 if len(x.strip()) > 0 else -1 for x in user_input]
+    def units_to_label_ids(pred_units: List[str], gold_units: List[str], sentence: str, convert: "CLI.ConvertOption"):
+        def value_to_label(regex: re.Pattern, unit_value: str):
+            num_mismatch = 0
+            match: re.Match = regex.fullmatch(unit_value)  # search or match or fullmatch
+            if match:
+                group = match.groupdict()
+                label = group['label']
+                label_id = CLI.label_to_id.get(label, 0) if label else 0
+            else:
+                logger.warning(f"Not found: regex={regex}, string={unit_value}")
+                label_id = 0
+                num_mismatch += 1
+            return label_id, num_mismatch
+
+        def values_to_labels(regex: re.Pattern, unit_values: List[str]):
+            every_label_ids = [-1] + [0 if len(x.strip()) > 0 else -1 for x in sentence]
             unit_indices = [i for i, x in enumerate(every_label_ids) if x >= 0]
             num_mismatch = 0
-            for i, x in zip(unit_indices, unit_values):
-                match: re.Match = regex.fullmatch(x)  # search or match or fullmatch
+            for i, unit_value in zip(unit_indices, unit_values):
+                match: re.Match = regex.fullmatch(unit_value)  # search or match or fullmatch
                 if match:
                     group = match.groupdict()
                     label = group['label']
@@ -618,25 +631,33 @@ class CLI:
                     if index in unit_indices:
                         every_label_ids[index] = label_id
                 else:
-                    logger.warning(f"Not found: regex={regex}, string={x}")
+                    logger.warning(f"Not found: regex={regex}, string={unit_value}")
                     num_mismatch += 1
             valid_label_ids = [x for x in every_label_ids if x >= 0]
             return valid_label_ids, num_mismatch
 
-        if convert.seq2_type == 'm':
-            pred_parsed: Optional[NERParsedExample] = NERParsedExample.from_tagged(user_input, pred_units[0])
-            if not pred_parsed:
-                return None, None, 0
-            gold_parsed: Optional[NERParsedExample] = NERParsedExample.from_tagged(user_input, gold_units[0])
-            assert gold_parsed, f"Failed to parse: user_input={user_input}, gold={gold_units[0]}"
-            pred_label_ids = [CLI.label_to_id[x[1]] for x in pred_parsed.character_list]
-            gold_label_ids = [CLI.label_to_id[x[1]] for x in gold_parsed.character_list]
-            pred_mismatch = 0
+        if convert.seq1_type.startswith('S'):
+            if convert.seq2_type == 'm':
+                pred_parsed: Optional[NERParsedExample] = NERParsedExample.from_tagged(sentence, pred_units[0])
+                if not pred_parsed:
+                    return None, None, 0
+                gold_parsed: Optional[NERParsedExample] = NERParsedExample.from_tagged(sentence, gold_units[0])
+                assert gold_parsed, f"Failed to parse: sentence={sentence}, gold={gold_units[0]}"
+                pred_label_ids = [CLI.label_to_id[x[1]] for x in pred_parsed.character_list]
+                gold_label_ids = [CLI.label_to_id[x[1]] for x in gold_parsed.character_list]
+                pred_mismatch = 0
+            else:
+                assert convert.seq2_type in CLI.seq2_regex, f"Unsupported convert option: {convert}"
+                pred_label_ids, pred_mismatch = values_to_labels(CLI.seq2_regex[convert.seq2_type], pred_units)
+                gold_label_ids, gold_mismatch = values_to_labels(CLI.seq2_regex[convert.seq2_type], gold_units)
+                assert gold_mismatch == 0, f"gold_mismatch != 0: gold_mismatch={gold_mismatch}"
         else:
             assert convert.seq2_type in CLI.seq2_regex, f"Unsupported convert option: {convert}"
-            pred_label_ids, pred_mismatch = match_labels(CLI.seq2_regex[convert.seq2_type], pred_units)
-            gold_label_ids, gold_mismatch = match_labels(CLI.seq2_regex[convert.seq2_type], gold_units)
+            pred_label_id, pred_mismatch = value_to_label(CLI.seq2_regex[convert.seq2_type], pred_units[0])
+            gold_label_id, gold_mismatch = value_to_label(CLI.seq2_regex[convert.seq2_type], gold_units[0])
             assert gold_mismatch == 0, f"gold_mismatch != 0: gold_mismatch={gold_mismatch}"
+            pred_label_ids = [pred_label_id]
+            gold_label_ids = [gold_label_id]
 
         pred_tensor = torch.tensor(pred_label_ids)
         gold_tensor = torch.tensor(gold_label_ids)
@@ -654,11 +675,11 @@ class CLI:
             verbose: int = typer.Option(default=1),
             # data
             input_inter: int = typer.Option(default=50000),
-            refer_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev-s2s=S0m.tsv"),
-            input_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=S0m=B4/klue-ner-v1.1_dev-s2s=S0m-last.out"),
-            output_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=S0m=B4/klue-ner-v1.1_dev-s2s=S0m-last-eval.json"),
+            refer_file_name: str = typer.Option(default="data/klue-ner/klue-ner-v1.1_dev-s2s=C1a.tsv"),
+            input_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=C1a=B4/klue-ner-v1.1_dev-s2s=C1a-last.out"),
+            output_file_name: str = typer.Option(default="output/klue-ner=GBST-KEByT5-Base=C1a=B4/klue-ner-v1.1_dev-s2s=C1a-last-eval.json"),
             # convert
-            s2s_type: str = typer.Option(default="S0m"),
+            s2s_type: str = typer.Option(default="C1a"),
             # evaluate
             skip_longer: bool = typer.Option(default=True),
             skip_shorter: bool = typer.Option(default=True),
@@ -722,15 +743,18 @@ class CLI:
         ):
             refer_inputs, refer_labels = [], []
             for refer_item in refer_file:
-                refer_input, refer_label = refer_item.split("\t")
-                if len(refer_input.strip()) > 0 and len(refer_label.strip()) > 0:
-                    refer_input = [x.split(CLI.INPUT_PROMPT)[-1].strip() for x in CLI.strip_label_prompt(refer_input).splitlines() if CLI.INPUT_PROMPT in x][0]
-                    refer_label = CLI.strip_label_prompt(refer_label).splitlines()[0].split(CLI.EACH_SEP)
+                refer_seq1, refer_seq2 = refer_item.split("\t")
+                if len(refer_seq1.strip()) > 0 and len(refer_seq2.strip()) > 0:
+                    refer_input = [x.split(CLI.INPUT_PROMPT)[-1].strip() for x in CLI.strip_label_prompt(refer_seq1).splitlines() if CLI.INPUT_PROMPT in x]
+                    refer_label = CLI.strip_label_prompt(refer_seq2).splitlines()
+                    refer_input = refer_input[0].split(CLI.EACH_SEP) if len(refer_input) > 0 else None
+                    refer_label = refer_label[0].split(CLI.EACH_SEP) if len(refer_label) > 0 else None
                     refer_inputs.append(refer_input)
                     refer_labels.append(refer_label)
             input_labels = []
             for input_label in input_file:
-                input_label = CLI.strip_label_prompt(input_label).splitlines()[0].split(CLI.EACH_SEP)
+                input_label = CLI.strip_label_prompt(input_label).splitlines()
+                input_label = input_label[0].split(CLI.EACH_SEP) if len(input_label) > 0 else None
                 input_labels.append(input_label)
             logger.info(f"Load {len(refer_labels)} referring items from [{refer_file.opt}]")
             logger.info(f"Load {len(input_labels)} predicted items from [{input_file.opt}]")
