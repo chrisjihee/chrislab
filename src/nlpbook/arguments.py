@@ -1,5 +1,4 @@
 import logging
-import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -72,8 +71,10 @@ class HardwareOption(OptionData):
 
 @dataclass
 class LearningOption(OptionData):
+    training_fmt: str | None = field(default=None)
     validate_fmt: str | None = field(default=None)
-    validate_on: int | float = field(default=1.0)
+    training_int: float = field(default=0.1)
+    validate_int: float = field(default=1.0)
     save_by: str = field(default="min val_loss")
     num_save: int = field(default=5)
     epochs: int = field(default=1)
@@ -81,7 +82,8 @@ class LearningOption(OptionData):
     seed: int | None = field(default=None)  # random seed
 
     def __post_init__(self):
-        self.validate_on = math.fabs(self.validate_on)
+        self.training_int = abs(self.training_int)
+        self.validate_int = abs(self.validate_int)
 
 
 @dataclass
@@ -189,7 +191,7 @@ class ServerArguments(MLArguments):
                 job_name=job_name if job_name else pretrained.name,
                 debugging=debugging,
                 msg_level=logging.DEBUG if debugging else logging.INFO,
-                msg_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_36,
+                msg_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_40,
             ),
             data=DataOption(
                 home=data_home,
@@ -255,7 +257,7 @@ class TesterArguments(ServerArguments):
                 job_name=job_name if job_name else pretrained.name,
                 debugging=debugging,
                 msg_level=logging.DEBUG if debugging else logging.INFO,
-                msg_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_36,
+                msg_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_40,
             ),
             data=DataOption(
                 home=data_home,
@@ -328,8 +330,10 @@ class TrainerArguments(TesterArguments):
             device: List[int] = (0,),
             batch_size: int = 100,
             # learning
+            training_fmt: str = None,
+            training_int: float = 0.01,
             validate_fmt: str = None,
-            validate_on: float = 0.25,
+            validate_int: float = 0.25,
             num_save: int = 1,
             save_by: str = None,
             epochs: int = 1,
@@ -343,7 +347,7 @@ class TrainerArguments(TesterArguments):
                 job_name=job_name if job_name else pretrained.name,
                 debugging=debugging,
                 msg_level=logging.DEBUG if debugging else logging.INFO,
-                msg_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_36,
+                msg_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_40,
             ),
             data=DataOption(
                 home=data_home,
@@ -369,8 +373,10 @@ class TrainerArguments(TesterArguments):
                 batch_size=batch_size,
             ),
             learning=LearningOption(
+                training_fmt=training_fmt,
+                training_int=training_int,
                 validate_fmt=validate_fmt,
-                validate_on=validate_on,
+                validate_int=validate_int,
                 num_save=num_save,
                 save_by=save_by,
                 epochs=epochs,
