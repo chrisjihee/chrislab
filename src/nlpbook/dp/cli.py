@@ -77,7 +77,7 @@ def fabric_train(args_file: Path | str):
         err_hr(c='-')
 
         # Optimizer
-        optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning.lr)
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning.rate)
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
 
         # Fabric
@@ -107,10 +107,10 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: ModelForD
     metric_values: Dict[str, Any] = {}
     args.prog.global_step = 0
     args.prog.global_epoch = 0.0
-    for epoch in range(args.learning.epochs):
+    for epoch in range(args.learning.num_epochs):
         epoch_info = f"(Epoch {epoch + 1:02d})"
         metric_values["epoch"] = round(args.prog.global_epoch, 4)
-        metric_values["trained_rate"] = round(args.prog.global_epoch, 4) / args.learning.epochs
+        metric_values["trained_rate"] = round(args.prog.global_epoch, 4) / args.learning.num_epochs
         metric_values["lr"] = optimizer.param_groups[0]['lr']
         epoch_tqdm = time_tqdm if fabric.is_global_zero else mute_tqdm
         assert len(train_dataloader) > 0
@@ -161,7 +161,7 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: ModelForD
             loss = loss_arc + loss_type
 
             metric_values["epoch"] = round(args.prog.global_epoch, 4)
-            metric_values["trained_rate"] = round(args.prog.global_epoch, 4) / args.learning.epochs
+            metric_values["trained_rate"] = round(args.prog.global_epoch, 4) / args.learning.num_epochs
             metric_values["loss"] = loss.item()
 
             fabric.backward(loss)
@@ -172,7 +172,7 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: ModelForD
             model.eval()
             if batch_idx + 1 == len(train_dataloader) or (batch_idx + 1) % val_interval < 1:
                 validate(fabric, args, model, valid_dataloader, valid_dataset,
-                         metric_values=metric_values, print_result=args.learning.validate_fmt is not None)
+                         metric_values=metric_values, print_result=args.learning.checking_format is not None)
                 sorted_checkpoints = save_checkpoint(fabric, args, metric_values, model, optimizer,
                                                      sorted_checkpoints, sorting_reverse, sorting_metric)
             fabric.log_dict(step=args.prog.global_step, metrics=metric_values)
@@ -247,6 +247,6 @@ def validate(fabric: L.Fabric, args: TrainerArguments, model: ModelForDependency
         metric_values[f"val_{k}"] = metric_tool.compute()
 
     if print_result:
-        terms = [m.group(1) for m in term_pattern.finditer(args.learning.validate_fmt)]
+        terms = [m.group(1) for m in term_pattern.finditer(args.learning.checking_format)]
         terms = {term: metric_values[term] for term in terms}
-        fabric.print(' | ' + args.learning.validate_fmt.format(**terms))
+        fabric.print(' | ' + args.learning.checking_format.format(**terms))

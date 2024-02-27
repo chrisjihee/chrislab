@@ -24,8 +24,8 @@ def make_trainer(args: TrainerArguments) -> Trainer:
         log_every_n_steps=1,
         # enable_progress_bar=False,
         num_sanity_val_steps=0,
-        val_check_interval=args.learning.validate_on,
-        max_epochs=args.learning.epochs,
+        val_check_interval=args.learning.checking_epochs,
+        max_epochs=args.learning.num_epochs,
         callbacks=[checkpoint_callback],
     )
     return trainer

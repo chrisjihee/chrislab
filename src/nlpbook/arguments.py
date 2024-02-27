@@ -8,8 +8,8 @@ import pandas as pd
 import pytorch_lightning
 import transformers
 from dataclasses_json import DataClassJsonMixin
+from lightning.fabric.loggers import CSVLogger, TensorBoardLogger
 from pytorch_lightning.accelerators import Accelerator
-from pytorch_lightning.loggers import CSVLogger
 from pytorch_lightning.strategies import Strategy
 
 from chrisbase.data import ProjectEnv, OptionData, ResultData, CommonArguments
@@ -71,28 +71,36 @@ class HardwareOption(OptionData):
 
 @dataclass
 class LearningOption(OptionData):
-    training_fmt: str | None = field(default=None)
-    validate_fmt: str | None = field(default=None)
-    training_int: float = field(default=0.1)
-    validate_int: float = field(default=1.0)
-    save_by: str = field(default="min val_loss")
+    training_printing: float = field(default=0.1)
+    checking_printing: float = field(default=0.1)
+    checking_epochs: float = field(default=1.0)
+    training_format: str | None = field(default=None)
+    checking_format: str | None = field(default=None)
+    testing_format: str | None = field(default=None)
+    num_epochs: int = field(default=1)
     num_save: int = field(default=5)
-    epochs: int = field(default=1)
-    lr: float = field(default=5e-5)
+    save_by: str = field(default="min val_loss")
+    rate: float = field(default=5e-5)
     seed: int | None = field(default=None)  # random seed
 
     def __post_init__(self):
-        self.training_int = abs(self.training_int)
-        self.validate_int = abs(self.validate_int)
+        self.training_printing = abs(self.training_printing)
+        self.checking_printing = abs(self.checking_printing)
+        self.checking_epochs = abs(self.checking_epochs)
 
 
 @dataclass
 class ProgressChecker(ResultData):
     result: dict = field(init=False, default_factory=dict)
+    tb_logger: TensorBoardLogger = field(init=False, default=None)
     csv_logger: CSVLogger = field(init=False, default=None)
+    world_size: int = field(init=False, default=1)
+    node_rank: int = field(init=False, default=0)
+    local_rank: int = field(init=False, default=0)
+    global_rank: int = field(init=False, default=0)
     global_step: int = field(init=False, default=0)
     global_epoch: float = field(init=False, default=0.0)
-    epoch_per_step: float = field(init=False, default=0.0)
+    # epoch_per_step: float = field(init=False, default=0.0)  # TODO: Remove someday!
 
 
 @dataclass
@@ -330,14 +338,16 @@ class TrainerArguments(TesterArguments):
             device: List[int] = (0,),
             batch_size: int = 100,
             # learning
-            training_fmt: str = None,
-            training_int: float = 0.01,
-            validate_fmt: str = None,
-            validate_int: float = 0.25,
+            training_printing: float = 0.01,
+            checking_printing: float = 0.1,
+            checking_epochs: float = 0.25,
+            training_format: str = None,
+            checking_format: str = None,
+            testing_format: str = None,
+            num_epochs: int = 1,
             num_save: int = 1,
             save_by: str = None,
-            epochs: int = 1,
-            lr: float = 5e-5,
+            rate: float = 5e-5,
             seed: int = 7,
     ) -> "TrainerArguments":
         pretrained = Path(pretrained)
@@ -373,14 +383,16 @@ class TrainerArguments(TesterArguments):
                 batch_size=batch_size,
             ),
             learning=LearningOption(
-                training_fmt=training_fmt,
-                training_int=training_int,
-                validate_fmt=validate_fmt,
-                validate_int=validate_int,
+                training_printing=training_printing,
+                checking_printing=checking_printing,
+                checking_epochs=checking_epochs,
+                training_format=training_format,
+                checking_format=checking_format,
+                testing_format=testing_format,
+                num_epochs=num_epochs,
                 num_save=num_save,
                 save_by=save_by,
-                epochs=epochs,
-                lr=lr,
+                rate=rate,
                 seed=seed,
             ),
         )

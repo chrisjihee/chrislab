@@ -47,7 +47,8 @@ class NsmcCorpus:
         assert data_file_dict[split], f"No data_file for '{split}' split: {self.args.data.files}"
         data_path: Path = Path(self.args.data.home) / self.args.data.name / data_file_dict[split]
         assert data_path.exists() and data_path.is_file(), f"No data_text_path: {data_path}"
-        logger.info(f"Creating features from {data_path}")
+        if self.args.prog.local_rank == 0:
+            logger.info(f"Creating features from {data_path}")
         lines = list(csv.reader(open(data_path, "r", encoding="utf-8"), delimiter="\t", quotechar='"'))
         examples = []
         for (i, line) in enumerate(lines):
@@ -55,7 +56,8 @@ class NsmcCorpus:
                 continue
             _, text_a, label = line
             examples.append(ClassificationExample(text_a=text_a, text_b=None, label=label))
-        logger.info(f"Loaded {len(examples)} examples from {data_path}")
+        if self.args.prog.local_rank == 0:
+            logger.info(f"Loaded {len(examples)} examples from {data_path}")
         return examples
 
     def raw_examples_to_encoded_examples(
@@ -84,18 +86,18 @@ class NsmcCorpus:
             feature = ClassificationFeatures(**inputs, label=labels[i])
             encoded_examples.append(feature)
 
-        for i, raw_example in enumerate(raw_examples[: self.args.data.num_check]):
-            logger.info("  === [Example %d] ===" % (i + 1))
-            if raw_example.text_b is None:
-                logger.info("  = sentence : %s" % (raw_example.text_a))
-            else:
-                logger.info("  = sentence : %s" % (raw_example.text_a + " + " + raw_example.text_b))
-            logger.info("  = tokens   : %s" % " ".join(batch_encoding.tokens(i)))
-            logger.info("  = label    : %s" % (raw_example.label))
-            logger.info("  = features : %s" % encoded_examples[i])
-            logger.info("  === ")
-
-        logger.info(f"Converted {len(raw_examples)} raw examples to {len(encoded_examples)} encoded examples")
+        if self.args.prog.local_rank == 0:
+            for i, raw_example in enumerate(raw_examples[: self.args.data.num_check]):
+                logger.info("  === [Example %d] ===" % (i + 1))
+                if raw_example.text_b is None:
+                    logger.info("  = sentence : %s" % (raw_example.text_a))
+                else:
+                    logger.info("  = sentence : %s" % (raw_example.text_a + " + " + raw_example.text_b))
+                logger.info("  = tokens   : %s" % " ".join(batch_encoding.tokens(i)))
+                logger.info("  = label    : %s" % (raw_example.label))
+                logger.info("  = features : %s" % encoded_examples[i])
+                logger.info("  === ")
+            logger.info(f"Converted {len(raw_examples)} raw examples to {len(encoded_examples)} encoded examples")
         return encoded_examples
 
 

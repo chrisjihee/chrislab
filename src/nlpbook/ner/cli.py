@@ -73,7 +73,7 @@ def fabric_train(args_file: Path | str):
         err_hr(c='-')
 
         # Optimizer
-        optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning.lr)
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning.rate)
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
 
         # Fabric
@@ -97,10 +97,10 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: torch.nn.
     metrics: Dict[str, Any] = {}
     args.prog.global_step = 0
     args.prog.global_epoch = 0.0
-    for epoch in range(args.learning.epochs):
+    for epoch in range(args.learning.num_epochs):
         epoch_info = f"(Epoch {epoch + 1:02d})"
         metrics["epoch"] = round(args.prog.global_epoch, 4)
-        metrics["trained_rate"] = round(args.prog.global_epoch, 4) / args.learning.epochs
+        metrics["trained_rate"] = round(args.prog.global_epoch, 4) / args.learning.num_epochs
         metrics["lr"] = optimizer.param_groups[0]['lr']
         epoch_tqdm = time_tqdm if fabric.is_global_zero else mute_tqdm
         for batch_idx, batch in enumerate(epoch_tqdm(train_dataloader, position=fabric.global_rank, pre=epoch_info,
@@ -113,7 +113,7 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: torch.nn.
             preds: torch.Tensor = outputs.logits.argmax(dim=-1)
             acc: torch.Tensor = accuracy(preds, labels, ignore_index=0)
             metrics["epoch"] = round(args.prog.global_epoch, 4)
-            metrics["trained_rate"] = round(args.prog.global_epoch, 4) / args.learning.epochs
+            metrics["trained_rate"] = round(args.prog.global_epoch, 4) / args.learning.num_epochs
             metrics["loss"] = outputs.loss.item()
             metrics["acc"] = acc.item()
             fabric.backward(outputs.loss)
@@ -122,14 +122,14 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: torch.nn.
             optimizer.zero_grad()
             model.eval()
             if batch_idx + 1 == len(train_dataloader) or (batch_idx + 1) % val_interval < 1:
-                validate(fabric, args, model, valid_dataloader, valid_dataset, metrics=metrics, print_result=args.learning.validate_fmt is not None)
+                validate(fabric, args, model, valid_dataloader, valid_dataset, metrics=metrics, print_result=args.learning.checking_format is not None)
                 sorted_checkpoints = save_checkpoint(fabric, args, metrics, model, optimizer,
                                                      sorted_checkpoints, sorting_reverse, sorting_metric)
             fabric.log_dict(step=args.prog.global_step, metrics=metrics)
             model.train()
         scheduler.step()
         metrics["lr"] = optimizer.param_groups[0]['lr']
-        if epoch + 1 < args.learning.epochs:
+        if epoch + 1 < args.learning.num_epochs:
             out_hr('-')
 
 
@@ -176,9 +176,9 @@ def validate(fabric: L.Fabric, args: TrainerArguments, model: torch.nn.Module,
     metrics["val_F1c"] = klue_ner_char_macro_f1(preds=char_preds, labels=char_labels, label_list=valid_dataset.get_labels())
     metrics["val_F1e"] = klue_ner_entity_macro_f1(preds=char_preds, labels=char_labels, label_list=valid_dataset.get_labels())
     if print_result:
-        terms = [m.group(1) for m in TERM_IN_NAME_FORMAT.finditer(args.learning.validate_fmt)]
+        terms = [m.group(1) for m in TERM_IN_NAME_FORMAT.finditer(args.learning.checking_format)]
         terms = {term: metrics[term] for term in terms}
-        fabric.print(' | ' + args.learning.validate_fmt.format(**terms))
+        fabric.print(' | ' + args.learning.checking_format.format(**terms))
 
 
 @app.command()

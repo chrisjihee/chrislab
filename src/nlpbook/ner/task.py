@@ -64,7 +64,7 @@ class NERTask(LightningModule):
         self.log(name, value, batch_size=self.args.hardware.batch_size, sync_dist=True, prog_bar=True, logger=True)
 
     def configure_optimizers(self):
-        optimizer = AdamW(self.parameters(), lr=self.args.learning.lr)
+        optimizer = AdamW(self.parameters(), lr=self.args.learning.rate)
         scheduler = ExponentialLR(optimizer, gamma=0.9)
         return {
             'optimizer': optimizer,
