@@ -77,7 +77,7 @@ class LearningOption(OptionData):
     num_saving: int = field(default=3)
     num_epochs: int = field(default=1)
     check_rate_on_training: float = field(default=1.0)
-    print_rate_on_training: float = field(default=0.1)
+    print_rate_on_training: float = field(default=0.0334)
     print_rate_on_validate: float = field(default=0.334)
     print_rate_on_evaluate: float = field(default=0.334)
     print_step_on_training: int = field(default=-1)
@@ -347,8 +347,8 @@ class TrainerArguments(TesterArguments):
             saving_policy: str = None,
             num_saving: int = 1,
             num_epochs: int = 1,
-            check_rate_on_training: float = 0.25,
-            print_rate_on_training: float = 0.02,
+            check_rate_on_training: float = 0.2,
+            print_rate_on_training: float = 0.0334,
             print_rate_on_validate: float = 0.334,
             print_rate_on_evaluate: float = 0.334,
             print_step_on_training: int = -1,
