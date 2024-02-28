@@ -73,7 +73,7 @@ def fabric_train(args_file: Path | str):
         err_hr(c='-')
 
         # Optimizer
-        optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning.rate)
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning.learning_rate)
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
 
         # Fabric
@@ -92,8 +92,8 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: torch.nn.
     mute_tqdm = mute_tqdm_cls()
     val_interval: float = args.learning.validate_on * len(train_dataloader) if args.learning.validate_on <= 1.0 else args.learning.validate_on
     sorted_checkpoints: List[Tuple[float, Path]] = []
-    sorting_reverse: bool = not args.learning.save_by.split()[0].lower().startswith("min")
-    sorting_metric: str = args.learning.save_by.split()[-1]
+    sorting_reverse: bool = not args.learning.saving_policy.split()[0].lower().startswith("min")
+    sorting_metric: str = args.learning.saving_policy.split()[-1]
     metrics: Dict[str, Any] = {}
     args.prog.global_step = 0
     args.prog.global_epoch = 0.0
@@ -122,7 +122,7 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: torch.nn.
             optimizer.zero_grad()
             model.eval()
             if batch_idx + 1 == len(train_dataloader) or (batch_idx + 1) % val_interval < 1:
-                validate(fabric, args, model, valid_dataloader, valid_dataset, metrics=metrics, print_result=args.learning.checking_format is not None)
+                validate(fabric, args, model, valid_dataloader, valid_dataset, metrics=metrics, print_result=args.learning.tag_format_on_validate is not None)
                 sorted_checkpoints = save_checkpoint(fabric, args, metrics, model, optimizer,
                                                      sorted_checkpoints, sorting_reverse, sorting_metric)
             fabric.log_dict(step=args.prog.global_step, metrics=metrics)
@@ -176,9 +176,9 @@ def validate(fabric: L.Fabric, args: TrainerArguments, model: torch.nn.Module,
     metrics["val_F1c"] = klue_ner_char_macro_f1(preds=char_preds, labels=char_labels, label_list=valid_dataset.get_labels())
     metrics["val_F1e"] = klue_ner_entity_macro_f1(preds=char_preds, labels=char_labels, label_list=valid_dataset.get_labels())
     if print_result:
-        terms = [m.group(1) for m in TERM_IN_NAME_FORMAT.finditer(args.learning.checking_format)]
+        terms = [m.group(1) for m in TERM_IN_NAME_FORMAT.finditer(args.learning.tag_format_on_validate)]
         terms = {term: metrics[term] for term in terms}
-        fabric.print(' | ' + args.learning.checking_format.format(**terms))
+        fabric.print(' | ' + args.learning.tag_format_on_validate.format(**terms))
 
 
 @app.command()

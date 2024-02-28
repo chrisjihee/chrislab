@@ -71,22 +71,27 @@ class HardwareOption(OptionData):
 
 @dataclass
 class LearningOption(OptionData):
-    training_printing: float = field(default=0.1)
-    checking_printing: float = field(default=0.1)
-    checking_epochs: float = field(default=1.0)
-    training_format: str | None = field(default=None)
-    checking_format: str | None = field(default=None)
-    testing_format: str | None = field(default=None)
-    num_epochs: int = field(default=1)
-    num_save: int = field(default=5)
-    save_by: str = field(default="min val_loss")
-    rate: float = field(default=5e-5)
     seed: int | None = field(default=None)  # random seed
+    learning_rate: float = field(default=5e-5)
+    saving_policy: str = field(default="min val_loss")
+    num_saving: int = field(default=3)
+    num_epochs: int = field(default=1)
+    check_rate_on_training: float = field(default=1.0)
+    print_rate_on_training: float = field(default=0.1)
+    print_rate_on_validate: float = field(default=0.334)
+    print_rate_on_evaluate: float = field(default=0.334)
+    print_step_on_training: int = field(default=-1)
+    print_step_on_validate: int = field(default=-1)
+    print_step_on_evaluate: int = field(default=-1)
+    tag_format_on_training: str = field(default="")
+    tag_format_on_validate: str = field(default="")
+    tag_format_on_evaluate: str = field(default="")
 
     def __post_init__(self):
-        self.training_printing = abs(self.training_printing)
-        self.checking_printing = abs(self.checking_printing)
-        self.checking_epochs = abs(self.checking_epochs)
+        self.check_rate_on_training = abs(self.check_rate_on_training)
+        self.print_rate_on_training = abs(self.print_rate_on_training)
+        self.print_rate_on_validate = abs(self.print_rate_on_validate)
+        self.print_rate_on_evaluate = abs(self.print_rate_on_evaluate)
 
 
 @dataclass
@@ -338,16 +343,20 @@ class TrainerArguments(TesterArguments):
             device: List[int] = (0,),
             batch_size: int = 100,
             # learning
-            training_printing: float = 0.01,
-            checking_printing: float = 0.1,
-            checking_epochs: float = 0.25,
-            training_format: str = None,
-            checking_format: str = None,
-            testing_format: str = None,
+            learning_rate: float = 5e-5,
+            saving_policy: str = None,
+            num_saving: int = 1,
             num_epochs: int = 1,
-            num_save: int = 1,
-            save_by: str = None,
-            rate: float = 5e-5,
+            check_rate_on_training: float = 0.25,
+            print_rate_on_training: float = 0.02,
+            print_rate_on_validate: float = 0.334,
+            print_rate_on_evaluate: float = 0.334,
+            print_step_on_training: int = -1,
+            print_step_on_validate: int = -1,
+            print_step_on_evaluate: int = -1,
+            tag_format_on_training: str = "",
+            tag_format_on_validate: str = "",
+            tag_format_on_evaluate: str = "",
             seed: int = 7,
     ) -> "TrainerArguments":
         pretrained = Path(pretrained)
@@ -383,16 +392,20 @@ class TrainerArguments(TesterArguments):
                 batch_size=batch_size,
             ),
             learning=LearningOption(
-                training_printing=training_printing,
-                checking_printing=checking_printing,
-                checking_epochs=checking_epochs,
-                training_format=training_format,
-                checking_format=checking_format,
-                testing_format=testing_format,
-                num_epochs=num_epochs,
-                num_save=num_save,
-                save_by=save_by,
-                rate=rate,
                 seed=seed,
+                learning_rate=learning_rate,
+                saving_policy=saving_policy,
+                num_saving=num_saving,
+                num_epochs=num_epochs,
+                check_rate_on_training=check_rate_on_training,
+                print_rate_on_training=print_rate_on_training,
+                print_rate_on_validate=print_rate_on_validate,
+                print_rate_on_evaluate=print_rate_on_evaluate,
+                print_step_on_training=print_step_on_training,
+                print_step_on_validate=print_step_on_validate,
+                print_step_on_evaluate=print_step_on_evaluate,
+                tag_format_on_training=tag_format_on_training,
+                tag_format_on_validate=tag_format_on_validate,
+                tag_format_on_evaluate=tag_format_on_evaluate,
             ),
         )

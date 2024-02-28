@@ -42,7 +42,7 @@ def train(args_file: Path | str):
         # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained, do_lower_case=False, use_fast=True)
         # assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
         tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.model.pretrained, do_lower_case=False)
-        train_dataset = ClassificationDataset("train", args=args, corpus=corpus, tokenizer=tokenizer)
+        train_dataset = ClassificationDataset("train", args=args, data=corpus, tokenizer=tokenizer)
         train_dataloader = DataLoader(train_dataset,
                                       batch_size=args.hardware.batch_size,
                                       num_workers=args.hardware.cpu_workers,
@@ -51,7 +51,7 @@ def train(args_file: Path | str):
                                       drop_last=False)
         err_hr(c='-')
 
-        val_dataset = ClassificationDataset("valid", args=args, corpus=corpus, tokenizer=tokenizer)
+        val_dataset = ClassificationDataset("valid", args=args, data=corpus, tokenizer=tokenizer)
         val_dataloader = DataLoader(val_dataset,
                                     batch_size=args.hardware.batch_size,
                                     num_workers=args.hardware.cpu_workers,
@@ -102,7 +102,7 @@ def test(args_file: Path | str):
         # tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained, do_lower_case=False, use_fast=True)
         # assert isinstance(tokenizer, PreTrainedTokenizerFast), f"tokenizer is not PreTrainedTokenizerFast: {type(tokenizer)}"
         tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.model.pretrained, do_lower_case=False)
-        test_dataset = ClassificationDataset("test", args=args, corpus=corpus, tokenizer=tokenizer)
+        test_dataset = ClassificationDataset("test", args=args, data=corpus, tokenizer=tokenizer)
         test_dataloader = DataLoader(test_dataset,
                                      batch_size=args.hardware.batch_size,
                                      num_workers=args.hardware.cpu_workers,

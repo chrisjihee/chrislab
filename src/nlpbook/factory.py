@@ -10,9 +10,9 @@ def make_trainer(args: TrainerArguments) -> Trainer:
     checkpoint_callback = ModelCheckpoint(
         dirpath=args.env.output_home,
         filename=args.model.name,
-        save_top_k=args.learning.num_save,
-        monitor=args.learning.save_by.split()[1],
-        mode=args.learning.save_by.split()[0],
+        save_top_k=args.learning.num_saving,
+        monitor=args.learning.saving_policy.split()[1],
+        mode=args.learning.saving_policy.split()[0],
     )
     trainer = Trainer(
         logger=args.prog.csv_logger,
@@ -24,7 +24,7 @@ def make_trainer(args: TrainerArguments) -> Trainer:
         log_every_n_steps=1,
         # enable_progress_bar=False,
         num_sanity_val_steps=0,
-        val_check_interval=args.learning.checking_epochs,
+        val_check_interval=args.learning.check_rate_on_training,
         max_epochs=args.learning.num_epochs,
         callbacks=[checkpoint_callback],
     )

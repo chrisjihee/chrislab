@@ -77,7 +77,7 @@ def fabric_train(args_file: Path | str):
         err_hr(c='-')
 
         # Optimizer
-        optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning.rate)
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning.learning_rate)
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
 
         # Fabric
@@ -102,8 +102,8 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: ModelForD
     mute_tqdm = mute_tqdm_cls()
     val_interval: float = args.learning.validate_on * len(train_dataloader) if args.learning.validate_on <= 1.0 else args.learning.validate_on
     sorted_checkpoints: List[Tuple[float, Path]] = []
-    sorting_reverse: bool = not args.learning.save_by.split()[0].lower().startswith("min")
-    sorting_metric: str = args.learning.save_by.split()[-1]
+    sorting_reverse: bool = not args.learning.saving_policy.split()[0].lower().startswith("min")
+    sorting_metric: str = args.learning.saving_policy.split()[-1]
     metric_values: Dict[str, Any] = {}
     args.prog.global_step = 0
     args.prog.global_epoch = 0.0
@@ -172,7 +172,7 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: ModelForD
             model.eval()
             if batch_idx + 1 == len(train_dataloader) or (batch_idx + 1) % val_interval < 1:
                 validate(fabric, args, model, valid_dataloader, valid_dataset,
-                         metric_values=metric_values, print_result=args.learning.checking_format is not None)
+                         metric_values=metric_values, print_result=args.learning.tag_format_on_validate is not None)
                 sorted_checkpoints = save_checkpoint(fabric, args, metric_values, model, optimizer,
                                                      sorted_checkpoints, sorting_reverse, sorting_metric)
             fabric.log_dict(step=args.prog.global_step, metrics=metric_values)
@@ -247,6 +247,6 @@ def validate(fabric: L.Fabric, args: TrainerArguments, model: ModelForDependency
         metric_values[f"val_{k}"] = metric_tool.compute()
 
     if print_result:
-        terms = [m.group(1) for m in term_pattern.finditer(args.learning.checking_format)]
+        terms = [m.group(1) for m in term_pattern.finditer(args.learning.tag_format_on_validate)]
         terms = {term: metric_values[term] for term in terms}
-        fabric.print(' | ' + args.learning.checking_format.format(**terms))
+        fabric.print(' | ' + args.learning.tag_format_on_validate.format(**terms))
