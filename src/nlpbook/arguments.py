@@ -141,13 +141,13 @@ class MLArguments(CommonArguments):
     def dataframe(self, columns=None) -> pd.DataFrame:
         if not columns:
             columns = [self.data_type, "value"]
-        return pd.concat([
-            to_dataframe(columns=columns, raw=self.env, data_prefix="env"),
-            to_dataframe(columns=columns, raw=self.time, data_prefix="time"),
+        df = pd.concat([
+            super().dataframe(columns=columns),
             to_dataframe(columns=columns, raw=self.prog, data_prefix="prog"),
             to_dataframe(columns=columns, raw=self.data, data_prefix="data") if self.data else None,
             to_dataframe(columns=columns, raw=self.model, data_prefix="model") if self.model else None,
         ]).reset_index(drop=True)
+        return df
 
 
 @dataclass
@@ -233,10 +233,11 @@ class TesterArguments(ServerArguments):
     def dataframe(self, columns=None) -> pd.DataFrame:
         if not columns:
             columns = [self.data_type, "value"]
-        return pd.concat([
+        df = pd.concat([
             super().dataframe(columns=columns),
             to_dataframe(columns=columns, raw=self.hardware, data_prefix="hardware"),
         ]).reset_index(drop=True)
+        return df
 
     @staticmethod
     def from_args(
@@ -306,10 +307,11 @@ class TrainerArguments(TesterArguments):
     def dataframe(self, columns=None) -> pd.DataFrame:
         if not columns:
             columns = [self.data_type, "value"]
-        return pd.concat([
+        df = pd.concat([
             super().dataframe(columns=columns),
             to_dataframe(columns=columns, raw=self.learning, data_prefix="learning"),
         ]).reset_index(drop=True)
+        return df
 
     def set_seed(self) -> None:
         if self.learning.seed is not None:
