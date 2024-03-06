@@ -111,7 +111,7 @@ class ProgressChecker(ResultData):
 @dataclass
 class MLArguments(CommonArguments):
     tag = None
-    prog: ProgressChecker = field(default=ProgressChecker())
+    prog: ProgressChecker = field(default_factory=ProgressChecker)
     data: DataOption | None = field(default=None)
     model: ModelOption | None = field(default=None)
 
@@ -228,7 +228,7 @@ class ServerArguments(MLArguments):
 @dataclass
 class TesterArguments(ServerArguments):
     tag = "test"
-    hardware: HardwareOption = field(default=HardwareOption(), metadata={"help": "device information"})
+    hardware: HardwareOption = field(default_factory=HardwareOption, metadata={"help": "device information"})
 
     def dataframe(self, columns=None) -> pd.DataFrame:
         if not columns:
@@ -302,7 +302,7 @@ class TesterArguments(ServerArguments):
 @dataclass
 class TrainerArguments(TesterArguments):
     tag = "train"
-    learning: LearningOption = field(default=LearningOption())
+    learning: LearningOption = field(default_factory=LearningOption)
 
     def dataframe(self, columns=None) -> pd.DataFrame:
         if not columns:
