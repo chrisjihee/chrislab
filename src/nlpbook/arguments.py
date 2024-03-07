@@ -11,6 +11,7 @@ from dataclasses_json import DataClassJsonMixin
 from lightning.fabric.loggers import CSVLogger, TensorBoardLogger
 from pytorch_lightning.accelerators import Accelerator
 from pytorch_lightning.strategies import Strategy
+from transformers import PretrainedConfig
 
 from chrisbase.data import ProjectEnv, OptionData, ResultData, CommonArguments
 from chrisbase.io import files, LoggingFormat
@@ -35,8 +36,15 @@ class DataOption(OptionData):
     caching: bool = field(default=False)
     redownload: bool = field(default=False)
     num_check: int = field(default=3)
+
+    # for KG-S2S
     num_entity: int | None = field(default=None)
     num_relation: int | None = field(default=None)
+    src_max_length: int = field(default=512)
+    train_tgt_max_length: int = field(default=512)
+    eval_tgt_max_length: int = field(default=90)
+    src_descrip_max_length: int = field(default=0)
+    tgt_descrip_max_length: int = field(default=0)
 
     def __post_init__(self):
         if self.home:
@@ -48,8 +56,8 @@ class ModelOption(OptionData):
     pretrained: str | Path = field()
     home: str | Path = field()
     name: str | Path | None = field(default=None)  # filename or filename format of downstream model
+    config: PretrainedConfig | None = field(default=None)
     seq_len: int = field(default=128)  # maximum total input sequence length after tokenization
-    seq_len2: int | None = field(default=None)  # maximum total input sequence length after tokenization
 
     def __post_init__(self):
         self.home = Path(self.home).absolute()
@@ -336,12 +344,16 @@ class TrainerArguments(TesterArguments):
             valid_file: str = None,
             test_file: str = None,
             num_check: int = 2,
+            src_max_length: int = 512,
+            train_tgt_max_length: int = 512,
+            eval_tgt_max_length: int = 90,
+            src_descrip_max_length: int = 0,
+            tgt_descrip_max_length: int = 0,
             # model
             pretrained: str = "klue/roberta-small",
             model_home: str = "output",
             model_name: str = None,
             seq_len: int = 128,
-            seq_len2: int = None,
             # hardware
             accelerator: str = "gpu",
             precision: str = "32-true",
@@ -383,13 +395,17 @@ class TrainerArguments(TesterArguments):
                     test=test_file,
                 ),
                 num_check=num_check,
+                src_max_length=src_max_length,
+                train_tgt_max_length=train_tgt_max_length,
+                eval_tgt_max_length=eval_tgt_max_length,
+                src_descrip_max_length=src_descrip_max_length,
+                tgt_descrip_max_length=tgt_descrip_max_length,
             ),
             model=ModelOption(
                 pretrained=pretrained,
                 home=model_home,
                 name=model_name,
                 seq_len=seq_len,
-                seq_len2=seq_len2,
             ),
             hardware=HardwareOption(
                 accelerator=accelerator,
