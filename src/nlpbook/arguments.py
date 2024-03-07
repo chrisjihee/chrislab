@@ -35,6 +35,8 @@ class DataOption(OptionData):
     caching: bool = field(default=False)
     redownload: bool = field(default=False)
     num_check: int = field(default=3)
+    num_entity: int | None = field(default=None)
+    num_relation: int | None = field(default=None)
 
     def __post_init__(self):
         if self.home:
@@ -47,6 +49,7 @@ class ModelOption(OptionData):
     home: str | Path = field()
     name: str | Path | None = field(default=None)  # filename or filename format of downstream model
     seq_len: int = field(default=128)  # maximum total input sequence length after tokenization
+    seq_len2: int | None = field(default=None)  # maximum total input sequence length after tokenization
 
     def __post_init__(self):
         self.home = Path(self.home).absolute()
@@ -338,6 +341,7 @@ class TrainerArguments(TesterArguments):
             model_home: str = "output",
             model_name: str = None,
             seq_len: int = 128,
+            seq_len2: int = None,
             # hardware
             accelerator: str = "gpu",
             precision: str = "32-true",
@@ -385,6 +389,7 @@ class TrainerArguments(TesterArguments):
                 home=model_home,
                 name=model_name,
                 seq_len=seq_len,
+                seq_len2=seq_len2,
             ),
             hardware=HardwareOption(
                 accelerator=accelerator,
