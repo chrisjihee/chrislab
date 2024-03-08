@@ -135,9 +135,9 @@ class MLArguments(CommonArguments):
             if not self.env.argument_file.stem.endswith(self.tag):
                 self.env.argument_file = self.env.argument_file.with_stem(f"{self.env.argument_file.stem}-{self.tag}")
 
-        if self.data and self.model and self.model.home and self.data.name:
+        if self.data and self.data.name and self.model and self.model.home:
             self.env.output_home = self.model.home / self.data.name
-        elif self.data:
+        elif self.data and self.data.home:
             self.env.output_home = self.data.home
 
     def configure_csv_logger(self, version=None):
