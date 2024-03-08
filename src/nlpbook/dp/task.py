@@ -71,7 +71,7 @@ class DPTask(LightningModule):
         return metric_tool.compute()
 
     def _log_value(self, name: str, value: torch.Tensor | float):
-        self.log(name, value, batch_size=self.args.hardware.batch_size, sync_dist=True, prog_bar=True, logger=True)
+        self.log(name, value, batch_size=self.args.hardware.train_batch, sync_dist=True, prog_bar=True, logger=True)
 
     def configure_optimizers(self):
         optimizer = AdamW(self.parameters(), lr=self.args.learning.learning_rate)

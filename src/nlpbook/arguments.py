@@ -66,9 +66,9 @@ class ModelOption(OptionData):
 @dataclass
 class HardwareOption(OptionData):
     cpu_workers: int = field(default=os.cpu_count())
+    train_batch: int = field(default=32)
+    infer_batch: int = field(default=32)
     accelerator: str | Accelerator = field(default="auto")  # possbile value: "cpu", "gpu", "tpu", "ipu", "hpu", "mps", "auto"
-    batch_size: int = field(default=32)
-    val_batch_size: int = field(default=32)
     precision: int | str = field(default=32)  # floating-point precision type
     strategy: str | Strategy = field(default="auto")  # multi-device strategies
     devices: List[int] | int | str = field(default="auto")  # devices to use
@@ -269,11 +269,12 @@ class TesterArguments(ServerArguments):
             model_name: str = None,
             seq_len: int = 128,
             # hardware
+            train_batch: int = 100,
+            infer_batch: int = 100,
             accelerator: str = "gpu",
             precision: str = "32-true",
             strategy: str = "auto",
             device: List[int] = (0,),
-            batch_size: int = 100,
     ) -> "TesterArguments":
         pretrained = Path(pretrained)
         return TesterArguments(
@@ -301,11 +302,12 @@ class TesterArguments(ServerArguments):
                 seq_len=seq_len,
             ),
             hardware=HardwareOption(
+                train_batch=train_batch,
+                infer_batch=infer_batch,
                 accelerator=accelerator,
                 precision=precision,
                 strategy=strategy,
                 devices=device,
-                batch_size=batch_size,
             ),
         )
 
@@ -355,11 +357,12 @@ class TrainerArguments(TesterArguments):
             model_name: str = None,
             seq_len: int = 128,
             # hardware
+            train_batch: int = 100,
+            infer_batch: int = 100,
             accelerator: str = "gpu",
             precision: str = "32-true",
             strategy: str = "auto",
             device: List[int] = (0,),
-            batch_size: int = 100,
             # learning
             learning_rate: float = 5e-5,
             saving_policy: str = None,
@@ -408,11 +411,12 @@ class TrainerArguments(TesterArguments):
                 seq_len=seq_len,
             ),
             hardware=HardwareOption(
+                train_batch=train_batch,
+                infer_batch=infer_batch,
                 accelerator=accelerator,
                 precision=precision,
                 strategy=strategy,
                 devices=device,
-                batch_size=batch_size,
             ),
             learning=LearningOption(
                 seed=seed,

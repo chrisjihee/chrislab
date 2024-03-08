@@ -43,7 +43,7 @@ def fabric_train(args_file: Path | str):
         train_dataloader = DataLoader(train_dataset,
                                       sampler=RandomSampler(train_dataset, replacement=False),
                                       num_workers=args.hardware.cpu_workers,
-                                      batch_size=args.hardware.batch_size,
+                                      batch_size=args.hardware.train_batch,
                                       collate_fn=corpus.encoded_examples_to_batch,
                                       drop_last=True)
         logger.info(f"Created train_dataset providing {len(train_dataset)} examples")
@@ -54,7 +54,7 @@ def fabric_train(args_file: Path | str):
         valid_dataloader = DataLoader(valid_dataset,
                                       sampler=SequentialSampler(valid_dataset),
                                       num_workers=args.hardware.cpu_workers,
-                                      batch_size=args.hardware.batch_size,
+                                      batch_size=args.hardware.infer_batch,
                                       collate_fn=corpus.encoded_examples_to_batch,
                                       drop_last=True)
         logger.info(f"Created valid_dataset providing {len(valid_dataset)} examples")
@@ -200,7 +200,7 @@ def train(args_file: Path | str):
         train_dataset = NERDataset("train", corpus=corpus, tokenizer=tokenizer)
         train_dataloader = DataLoader(train_dataset, sampler=RandomSampler(train_dataset, replacement=False),
                                       num_workers=args.hardware.cpu_workers,
-                                      batch_size=args.hardware.batch_size,
+                                      batch_size=args.hardware.train_batch,
                                       collate_fn=corpus.encoded_examples_to_batch,
                                       drop_last=False)
         err_hr(c='-')
@@ -208,7 +208,7 @@ def train(args_file: Path | str):
         val_dataset = NERDataset("valid", corpus=corpus, tokenizer=tokenizer)
         val_dataloader = DataLoader(val_dataset, sampler=SequentialSampler(val_dataset),
                                     num_workers=args.hardware.cpu_workers,
-                                    batch_size=args.hardware.batch_size,
+                                    batch_size=args.hardware.infer_batch,
                                     collate_fn=corpus.encoded_examples_to_batch,
                                     drop_last=False)
         err_hr(c='-')
@@ -256,7 +256,7 @@ def test(args_file: Path | str):
         assert isinstance(tokenizer, PreTrainedTokenizerFast), f"Our code support only PreTrainedTokenizerFast, but used {type(tokenizer)}"
         test_dataset = NERDataset("test", corpus=corpus, tokenizer=tokenizer)
         test_dataloader = DataLoader(test_dataset,
-                                     batch_size=args.hardware.batch_size,
+                                     batch_size=args.hardware.infer_batch,
                                      num_workers=args.hardware.cpu_workers,
                                      sampler=SequentialSampler(test_dataset),
                                      collate_fn=nlpbook.data_collator,

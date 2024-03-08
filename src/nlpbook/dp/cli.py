@@ -42,7 +42,7 @@ def fabric_train(args_file: Path | str):
                                       # sampler=SequentialSampler(train_dataset),  # TODO: temporary
                                       sampler=RandomSampler(train_dataset, replacement=False),
                                       num_workers=args.hardware.cpu_workers,
-                                      batch_size=args.hardware.batch_size,
+                                      batch_size=args.hardware.train_batch,
                                       collate_fn=corpus.encoded_examples_to_batch,
                                       # drop_last=True,
                                       drop_last=False,  # TODO: temporary
@@ -55,7 +55,7 @@ def fabric_train(args_file: Path | str):
         valid_dataloader = DataLoader(valid_dataset,
                                       sampler=SequentialSampler(valid_dataset),
                                       num_workers=args.hardware.cpu_workers,
-                                      batch_size=args.hardware.batch_size,
+                                      batch_size=args.hardware.infer_batch,
                                       collate_fn=corpus.encoded_examples_to_batch,
                                       # drop_last=True,
                                       drop_last=False,  # TODO: temporary

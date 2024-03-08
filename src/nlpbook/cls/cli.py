@@ -44,7 +44,7 @@ def train(args_file: Path | str):
         tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.model.pretrained, do_lower_case=False)
         train_dataset = ClassificationDataset("train", args=args, data=corpus, tokenizer=tokenizer)
         train_dataloader = DataLoader(train_dataset,
-                                      batch_size=args.hardware.batch_size,
+                                      batch_size=args.hardware.train_batch,
                                       num_workers=args.hardware.cpu_workers,
                                       sampler=RandomSampler(train_dataset, replacement=False),
                                       collate_fn=nlpbook.data_collator,
@@ -53,7 +53,7 @@ def train(args_file: Path | str):
 
         val_dataset = ClassificationDataset("valid", args=args, data=corpus, tokenizer=tokenizer)
         val_dataloader = DataLoader(val_dataset,
-                                    batch_size=args.hardware.batch_size,
+                                    batch_size=args.hardware.infer_batch,
                                     num_workers=args.hardware.cpu_workers,
                                     sampler=SequentialSampler(val_dataset),
                                     collate_fn=nlpbook.data_collator,
@@ -104,7 +104,7 @@ def test(args_file: Path | str):
         tokenizer: BertTokenizer = BertTokenizer.from_pretrained(args.model.pretrained, do_lower_case=False)
         test_dataset = ClassificationDataset("test", args=args, data=corpus, tokenizer=tokenizer)
         test_dataloader = DataLoader(test_dataset,
-                                     batch_size=args.hardware.batch_size,
+                                     batch_size=args.hardware.infer_batch,
                                      num_workers=args.hardware.cpu_workers,
                                      sampler=SequentialSampler(test_dataset),
                                      collate_fn=nlpbook.data_collator,
