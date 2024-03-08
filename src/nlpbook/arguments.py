@@ -59,6 +59,10 @@ class ModelOption(OptionData):
     config: PretrainedConfig | None = field(default=None)
     seq_len: int = field(default=128)  # maximum total input sequence length after tokenization
 
+    # for KG-S2S
+    num_beams: int = field(default=40)
+    num_beam_groups: int = field(default=1)
+
     def __post_init__(self):
         self.home = Path(self.home).absolute()
 
@@ -356,6 +360,8 @@ class TrainerArguments(TesterArguments):
             model_home: str = "output",
             model_name: str = None,
             seq_len: int = 128,
+            num_beams: int = 40,
+            num_beam_groups: int = 1,
             # hardware
             train_batch: int = 100,
             infer_batch: int = 100,
@@ -409,6 +415,8 @@ class TrainerArguments(TesterArguments):
                 home=model_home,
                 name=model_name,
                 seq_len=seq_len,
+                num_beams=num_beams,
+                num_beam_groups=num_beam_groups,
             ),
             hardware=HardwareOption(
                 train_batch=train_batch,
