@@ -117,7 +117,6 @@ class ProgressChecker(ResultData):
     global_rank: int = field(init=False, default=0)
     global_step: int = field(init=False, default=0)
     global_epoch: float = field(init=False, default=0.0)
-    # epoch_per_step: float = field(init=False, default=0.0)  # TODO: Remove someday!
 
 
 @dataclass
