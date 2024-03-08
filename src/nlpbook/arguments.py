@@ -68,6 +68,7 @@ class HardwareOption(OptionData):
     cpu_workers: int = field(default=os.cpu_count())
     accelerator: str | Accelerator = field(default="auto")  # possbile value: "cpu", "gpu", "tpu", "ipu", "hpu", "mps", "auto"
     batch_size: int = field(default=32)
+    val_batch_size: int = field(default=32)
     precision: int | str = field(default=32)  # floating-point precision type
     strategy: str | Strategy = field(default="auto")  # multi-device strategies
     devices: List[int] | int | str = field(default="auto")  # devices to use
