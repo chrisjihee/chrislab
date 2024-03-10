@@ -40,11 +40,6 @@ class DataOption(OptionData):
     # for KG-S2S
     num_entity: int | None = field(default=None)
     num_relation: int | None = field(default=None)
-    src_max_length: int = field(default=512)
-    train_tgt_max_length: int = field(default=512)
-    eval_tgt_max_length: int = field(default=90)
-    src_descrip_max_length: int = field(default=0)
-    tgt_descrip_max_length: int = field(default=0)
 
     def __post_init__(self):
         if self.home:
@@ -60,8 +55,17 @@ class ModelOption(OptionData):
     seq_len: int = field(default=128)  # maximum total input sequence length after tokenization
 
     # for KG-S2S
+    src_max_length: int = field(default=512)
+    train_tgt_max_length: int = field(default=512)
+    eval_tgt_max_length: int = field(default=90)
+    src_descrip_max_length: int = field(default=0)
+    tgt_descrip_max_length: int = field(default=0)
+    seq_dropout: float = field(default=0.1)
+    decoder: str = field(default="beam_search")  # "[beam_search, diverse_beam_search, do_sample]"
     num_beams: int = field(default=40)
     num_beam_groups: int = field(default=1)
+    diversity_penalty: float = field(default=0.0)
+    use_prefix_search: bool = field(default=False)
 
     def __post_init__(self):
         self.home = Path(self.home).absolute()
@@ -88,10 +92,12 @@ class HardwareOption(OptionData):
 @dataclass
 class LearningOption(OptionData):
     seed: int | None = field(default=None)  # random seed
+    optimizer_cls: str = field(default="Adam")
     learning_rate: float = field(default=5e-5)
     saving_policy: str = field(default="min val_loss")
     num_saving: int = field(default=3)
     num_epochs: int = field(default=1)
+    log_text: bool = field(default=False)
     check_rate_on_training: float = field(default=1.0)
     print_rate_on_training: float = field(default=0.0333)
     print_rate_on_validate: float = field(default=0.334)
@@ -350,18 +356,22 @@ class TrainerArguments(TesterArguments):
             valid_file: str = None,
             test_file: str = None,
             num_check: int = 2,
-            src_max_length: int = 512,
-            train_tgt_max_length: int = 512,
-            eval_tgt_max_length: int = 90,
-            src_descrip_max_length: int = 0,
-            tgt_descrip_max_length: int = 0,
             # model
             pretrained: str = "klue/roberta-small",
             model_home: str = "output",
             model_name: str = None,
             seq_len: int = 128,
+            src_max_length: int = 512,
+            train_tgt_max_length: int = 512,
+            eval_tgt_max_length: int = 90,
+            src_descrip_max_length: int = 0,
+            tgt_descrip_max_length: int = 0,
+            seq_dropout: float = 0.1,
+            decoder: str = "beam_search",
             num_beams: int = 40,
             num_beam_groups: int = 1,
+            diversity_penalty: float = 0.0,
+            use_prefix_search: bool = False,
             # hardware
             train_batch: int = 100,
             infer_batch: int = 100,
@@ -370,10 +380,12 @@ class TrainerArguments(TesterArguments):
             strategy: str = "auto",
             device: List[int] = (0,),
             # learning
+            optimizer_cls: str = "Adam",
             learning_rate: float = 5e-5,
             saving_policy: str = None,
             num_saving: int = 1,
             num_epochs: int = 1,
+            log_text: bool = False,
             check_rate_on_training: float = 0.2,
             print_rate_on_training: float = 0.0333,
             print_rate_on_validate: float = 0.334,
@@ -404,19 +416,23 @@ class TrainerArguments(TesterArguments):
                     test=test_file,
                 ),
                 num_check=num_check,
-                src_max_length=src_max_length,
-                train_tgt_max_length=train_tgt_max_length,
-                eval_tgt_max_length=eval_tgt_max_length,
-                src_descrip_max_length=src_descrip_max_length,
-                tgt_descrip_max_length=tgt_descrip_max_length,
             ),
             model=ModelOption(
                 pretrained=pretrained,
                 home=model_home,
                 name=model_name,
                 seq_len=seq_len,
+                src_max_length=src_max_length,
+                train_tgt_max_length=train_tgt_max_length,
+                eval_tgt_max_length=eval_tgt_max_length,
+                src_descrip_max_length=src_descrip_max_length,
+                tgt_descrip_max_length=tgt_descrip_max_length,
+                seq_dropout=seq_dropout,
+                decoder=decoder,
                 num_beams=num_beams,
                 num_beam_groups=num_beam_groups,
+                diversity_penalty=diversity_penalty,
+                use_prefix_search=use_prefix_search,
             ),
             hardware=HardwareOption(
                 train_batch=train_batch,
@@ -428,10 +444,12 @@ class TrainerArguments(TesterArguments):
             ),
             learning=LearningOption(
                 seed=seed,
+                optimizer_cls=optimizer_cls,
                 learning_rate=learning_rate,
                 saving_policy=saving_policy,
                 num_saving=num_saving,
                 num_epochs=num_epochs,
+                log_text=log_text,
                 check_rate_on_training=check_rate_on_training,
                 print_rate_on_training=print_rate_on_training,
                 print_rate_on_validate=print_rate_on_validate,
