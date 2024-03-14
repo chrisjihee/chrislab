@@ -11,8 +11,8 @@ def make_trainer(args: TrainerArguments) -> Trainer:
         dirpath=args.env.output_home,
         filename=args.model.name,
         save_top_k=args.learning.num_saving,
-        monitor=args.learning.saving_policy.split()[1],
-        mode=args.learning.saving_policy.split()[0],
+        monitor=args.learning.saving_mode.split()[1],
+        mode=args.learning.saving_mode.split()[0],
     )
     trainer = Trainer(
         logger=args.prog.csv_logger,

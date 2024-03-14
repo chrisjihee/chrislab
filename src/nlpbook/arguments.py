@@ -49,8 +49,8 @@ class DataOption(OptionData):
 @dataclass
 class ModelOption(OptionData):
     pretrained: str | Path = field()
-    home: str | Path = field()
-    name: str | Path | None = field(default=None)  # filename or filename format of downstream model
+    finetuning: str | Path = field()
+    name: str | Path | None = field(default=None)
     config: PretrainedConfig | None = field(default=None)
     seq_len: int = field(default=128)  # maximum total input sequence length after tokenization
 
@@ -68,7 +68,7 @@ class ModelOption(OptionData):
     use_prefix_search: bool = field(default=False)
 
     def __post_init__(self):
-        self.home = Path(self.home).absolute()
+        self.finetuning = Path(self.finetuning).absolute()
 
 
 @dataclass
@@ -94,7 +94,7 @@ class LearningOption(OptionData):
     seed: int | None = field(default=None)  # random seed
     optimizer_cls: str = field(default="Adam")
     learning_rate: float = field(default=5e-5)
-    saving_policy: str = field(default="min val_loss")
+    saving_mode: str = field(default="min val_loss")
     num_saving: int = field(default=3)
     num_epochs: int = field(default=1)
     log_text: bool = field(default=False)
@@ -108,6 +108,7 @@ class LearningOption(OptionData):
     tag_format_on_training: str = field(default="")
     tag_format_on_validate: str = field(default="")
     tag_format_on_evaluate: str = field(default="")
+    name_format_on_saving: str = field(default="")
 
     def __post_init__(self):
         self.check_rate_on_training = abs(self.check_rate_on_training)
@@ -145,15 +146,15 @@ class MLArguments(CommonArguments):
             if not self.env.argument_file.stem.endswith(self.tag):
                 self.env.argument_file = self.env.argument_file.with_stem(f"{self.env.argument_file.stem}-{self.tag}")
 
-        if self.data and self.data.name and self.model and self.model.home:
-            self.env.output_home = self.model.home / self.data.name
+        if self.data and self.data.name and self.model and self.model.finetuning:
+            self.env.output_home = self.model.finetuning / self.data.name
         elif self.data and self.data.home:
             self.env.output_home = self.data.home
 
-    def configure_csv_logger(self, version=None):
+    def configure_csv_logger(self, version=None):  # TODO: Remove someday
         if not version:
             version = now('%m%d.%H%M%S')
-        self.prog.csv_logger = CSVLogger(self.model.home, name=self.data.name,
+        self.prog.csv_logger = CSVLogger(self.model.finetuning, name=self.data.name,
                                          version=f'{self.tag}-{self.env.job_name}-{version}',
                                          flush_logs_every_n_steps=1)
         self.env.output_home = Path(self.prog.csv_logger.log_dir)
@@ -178,8 +179,8 @@ class ServerArguments(MLArguments):
     def __post_init__(self):
         super().__post_init__()
         if self.tag in ("serve", "test"):
-            assert self.model.home.exists() and self.model.home.is_dir(), \
-                f"No finetuning home: {self.model.home}"
+            assert self.model.finetuning.exists() and self.model.finetuning.is_dir(), \
+                f"No finetuning home: {self.model.finetuning}"
             if not self.model.name:
                 ckpt_files: List[Path] = files(self.env.output_home / "**/*.ckpt")
                 assert ckpt_files, f"No checkpoint file in {self.env.output_home}"
@@ -208,7 +209,7 @@ class ServerArguments(MLArguments):
             num_check: int = 2,
             # model
             pretrained: str = "klue/roberta-small",
-            model_home: str = "finetuning",
+            finetuning: str = "finetuning",
             model_name: str = None,
             seq_len: int = 128,
             # hardware
@@ -239,7 +240,7 @@ class ServerArguments(MLArguments):
             ),
             model=ModelOption(
                 pretrained=pretrained,
-                home=model_home,
+                finetuning=finetuning,
                 name=model_name,
                 seq_len=seq_len,
             ),
@@ -275,7 +276,7 @@ class TesterArguments(ServerArguments):
             num_check: int = 2,
             # model
             pretrained: str = "klue/roberta-small",
-            model_home: str = "finetuning",
+            finetuning: str = "finetuning",
             model_name: str = None,
             seq_len: int = 128,
             # hardware
@@ -307,7 +308,7 @@ class TesterArguments(ServerArguments):
             ),
             model=ModelOption(
                 pretrained=pretrained,
-                home=model_home,
+                finetuning=finetuning,
                 name=model_name,
                 seq_len=seq_len,
             ),
@@ -358,7 +359,7 @@ class TrainerArguments(TesterArguments):
             num_check: int = 2,
             # model
             pretrained: str = "klue/roberta-small",
-            model_home: str = "output",
+            finetuning: str = "finetuning",
             model_name: str = None,
             seq_len: int = 128,
             src_max_length: int = 512,
@@ -396,6 +397,7 @@ class TrainerArguments(TesterArguments):
             tag_format_on_training: str = "",
             tag_format_on_validate: str = "",
             tag_format_on_evaluate: str = "",
+            name_format_on_saving: str = "",
             seed: int = 7,
     ) -> "TrainerArguments":
         pretrained = Path(pretrained)
@@ -419,7 +421,7 @@ class TrainerArguments(TesterArguments):
             ),
             model=ModelOption(
                 pretrained=pretrained,
-                home=model_home,
+                finetuning=finetuning,
                 name=model_name,
                 seq_len=seq_len,
                 src_max_length=src_max_length,
@@ -446,7 +448,7 @@ class TrainerArguments(TesterArguments):
                 seed=seed,
                 optimizer_cls=optimizer_cls,
                 learning_rate=learning_rate,
-                saving_policy=saving_policy,
+                saving_mode=saving_policy,
                 num_saving=num_saving,
                 num_epochs=num_epochs,
                 log_text=log_text,
@@ -460,5 +462,6 @@ class TrainerArguments(TesterArguments):
                 tag_format_on_training=tag_format_on_training,
                 tag_format_on_validate=tag_format_on_validate,
                 tag_format_on_evaluate=tag_format_on_evaluate,
+                name_format_on_saving=name_format_on_saving,
             ),
         )

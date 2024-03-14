@@ -92,8 +92,8 @@ def train_with_fabric(fabric: L.Fabric, args: TrainerArguments, model: torch.nn.
     mute_tqdm = mute_tqdm_cls()
     val_interval: float = args.learning.validate_on * len(train_dataloader) if args.learning.validate_on <= 1.0 else args.learning.validate_on
     sorted_checkpoints: List[Tuple[float, Path]] = []
-    sorting_reverse: bool = not args.learning.saving_policy.split()[0].lower().startswith("min")
-    sorting_metric: str = args.learning.saving_policy.split()[-1]
+    sorting_reverse: bool = not args.learning.saving_mode.split()[0].lower().startswith("min")
+    sorting_metric: str = args.learning.saving_mode.split()[-1]
     metrics: Dict[str, Any] = {}
     args.prog.global_step = 0
     args.prog.global_epoch = 0.0
