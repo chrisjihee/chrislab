@@ -9,8 +9,6 @@ import pytorch_lightning
 import transformers
 from dataclasses_json import DataClassJsonMixin
 from lightning.fabric.loggers import CSVLogger, TensorBoardLogger
-from pytorch_lightning.accelerators import Accelerator
-from pytorch_lightning.strategies import Strategy
 from transformers import PretrainedConfig
 
 from chrisbase.data import ProjectEnv, OptionData, ResultData, CommonArguments
@@ -50,9 +48,9 @@ class DataOption(OptionData):
 class ModelOption(OptionData):
     pretrained: str | Path = field()
     finetuning: str | Path = field()
-    name: str | Path | None = field(default=None)
-    config: PretrainedConfig | None = field(default=None)
     seq_len: int = field(default=128)  # maximum total input sequence length after tokenization
+    config: PretrainedConfig | None = field(default=None)
+    name: str | Path | None = field(default=None)
 
     # for KG-S2S
     src_max_length: int = field(default=512)
@@ -76,9 +74,9 @@ class HardwareOption(OptionData):
     cpu_workers: int = field(default=os.cpu_count())
     train_batch: int = field(default=32)
     infer_batch: int = field(default=32)
-    accelerator: str | Accelerator = field(default="auto")  # possbile value: "cpu", "gpu", "tpu", "ipu", "hpu", "mps", "auto"
+    accelerator: str = field(default="auto")  # possbile value: "cpu", "gpu", "tpu", "ipu", "hpu", "mps", "auto"
     precision: int | str = field(default=32)  # floating-point precision type
-    strategy: str | Strategy = field(default="auto")  # multi-device strategies
+    strategy: str = field(default="auto")  # multi-device strategies
     devices: List[int] | int | str = field(default="auto")  # devices to use
 
     def __post_init__(self):
@@ -91,7 +89,7 @@ class HardwareOption(OptionData):
 
 @dataclass
 class LearningOption(OptionData):
-    seed: int | None = field(default=None)  # random seed
+    random_seed: int | None = field(default=None)
     optimizer_cls: str = field(default="Adam")
     learning_rate: float = field(default=5e-5)
     saving_mode: str = field(default="min val_loss")
@@ -337,15 +335,15 @@ class TrainerArguments(TesterArguments):
         ]).reset_index(drop=True)
         return df
 
-    def set_seed(self) -> None:
-        if self.learning.seed is not None:
-            transformers.set_seed(self.learning.seed)
-            pytorch_lightning.seed_everything(self.learning.seed)
+    def set_seed(self) -> None:  # TODO: Remove someday
+        if self.learning.random_seed is not None:
+            transformers.set_seed(self.learning.random_seed)
+            pytorch_lightning.seed_everything(self.learning.random_seed)
         else:
             logger.warning("not fixed seed")
 
     @staticmethod
-    def from_args(
+    def from_args(  # TODO: Remove someday
             # env
             project: str = None,
             job_name: str = None,
@@ -445,7 +443,7 @@ class TrainerArguments(TesterArguments):
                 devices=device,
             ),
             learning=LearningOption(
-                seed=seed,
+                random_seed=seed,
                 optimizer_cls=optimizer_cls,
                 learning_rate=learning_rate,
                 saving_mode=saving_policy,

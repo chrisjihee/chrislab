@@ -217,11 +217,11 @@ def download_pretrained_model(args, config_only=False):
 
 
 def set_seed(args: TrainerArguments):  # TODO: Remove someday
-    if args.learning.seed is not None:
+    if args.learning.random_seed is not None:
         from transformers import set_seed
-        set_seed(args.learning.seed)
+        set_seed(args.learning.random_seed)
         from pytorch_lightning import seed_everything
-        seed_everything(args.learning.seed)
+        seed_everything(args.learning.random_seed)
     else:
         logger.warning("not fixed seed")
 

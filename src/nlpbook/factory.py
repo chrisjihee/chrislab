@@ -20,7 +20,7 @@ def make_trainer(args: TrainerArguments) -> Trainer:
         strategy=args.hardware.strategy,
         precision=args.hardware.precision,
         accelerator=args.hardware.accelerator,
-        deterministic=torch.cuda.is_available() and args.learning.seed is not None,
+        deterministic=torch.cuda.is_available() and args.learning.random_seed is not None,
         log_every_n_steps=1,
         # enable_progress_bar=False,
         num_sanity_val_steps=0,
