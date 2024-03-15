@@ -35,9 +35,9 @@ class DataOption(OptionData):
     redownload: bool = field(default=False)
     num_check: int = field(default=3)
 
-    # for KG-S2S
-    num_entity: int | None = field(default=None)
-    num_relation: int | None = field(default=None)
+    # for research
+    # num_entity: int | None = field(default=None)
+    # num_relation: int | None = field(default=None)
 
     def __post_init__(self):
         if self.home:
@@ -52,18 +52,18 @@ class ModelOption(OptionData):
     config: PretrainedConfig | None = field(default=None)
     name: str | Path | None = field(default=None)
 
-    # for KG-S2S
-    src_max_length: int = field(default=512)
-    train_tgt_max_length: int = field(default=512)
-    eval_tgt_max_length: int = field(default=90)
-    src_descrip_max_length: int = field(default=0)
-    tgt_descrip_max_length: int = field(default=0)
-    seq_dropout: float = field(default=0.1)
-    decoder: str = field(default="beam_search")  # "[beam_search, diverse_beam_search, do_sample]"
-    num_beams: int = field(default=40)
-    num_beam_groups: int = field(default=1)
-    diversity_penalty: float = field(default=0.0)
-    use_prefix_search: bool = field(default=False)
+    # for research
+    # src_max_length: int = field(default=512)
+    # train_tgt_max_length: int = field(default=512)
+    # eval_tgt_max_length: int = field(default=90)
+    # src_descrip_max_length: int = field(default=0)
+    # tgt_descrip_max_length: int = field(default=0)
+    # seq_dropout: float = field(default=0.1)
+    # decoder: str = field(default="beam_search")  # "[beam_search, diverse_beam_search, do_sample]"
+    # num_beams: int = field(default=40)
+    # num_beam_groups: int = field(default=1)
+    # diversity_penalty: float = field(default=0.0)
+    # use_prefix_search: bool = field(default=False)
 
     def __post_init__(self):
         self.finetuning = Path(self.finetuning).absolute()
@@ -137,17 +137,6 @@ class MLArguments(CommonArguments):
 
     def __post_init__(self):
         super().__post_init__()
-        if self.env.logging_file:
-            if not self.env.logging_file.stem.endswith(self.tag):
-                self.env.logging_file = self.env.logging_file.with_stem(f"{self.env.logging_file.stem}-{self.tag}")
-        if self.env.argument_file:
-            if not self.env.argument_file.stem.endswith(self.tag):
-                self.env.argument_file = self.env.argument_file.with_stem(f"{self.env.argument_file.stem}-{self.tag}")
-
-        if self.data and self.data.name and self.model and self.model.finetuning:
-            self.env.output_home = self.model.finetuning / self.data.name
-        elif self.data and self.data.home:
-            self.env.output_home = self.data.home
 
     def configure_csv_logger(self, version=None):  # TODO: Remove someday
         if not version:
@@ -193,7 +182,7 @@ class ServerArguments(MLArguments):
                 f"No checkpoint file: {self.env.output_home / self.model.name}"
 
     @staticmethod
-    def from_args(
+    def from_args(  # TODO: Remove someday
             # env
             project: str = None,
             job_name: str = None,
@@ -260,7 +249,7 @@ class TesterArguments(ServerArguments):
         return df
 
     @staticmethod
-    def from_args(
+    def from_args(  # TODO: Remove someday
             # env
             project: str = None,
             job_name: str = None,
@@ -422,17 +411,17 @@ class TrainerArguments(TesterArguments):
                 finetuning=finetuning,
                 name=model_name,
                 seq_len=seq_len,
-                src_max_length=src_max_length,
-                train_tgt_max_length=train_tgt_max_length,
-                eval_tgt_max_length=eval_tgt_max_length,
-                src_descrip_max_length=src_descrip_max_length,
-                tgt_descrip_max_length=tgt_descrip_max_length,
-                seq_dropout=seq_dropout,
-                decoder=decoder,
-                num_beams=num_beams,
-                num_beam_groups=num_beam_groups,
-                diversity_penalty=diversity_penalty,
-                use_prefix_search=use_prefix_search,
+                # src_max_length=src_max_length,
+                # train_tgt_max_length=train_tgt_max_length,
+                # eval_tgt_max_length=eval_tgt_max_length,
+                # src_descrip_max_length=src_descrip_max_length,
+                # tgt_descrip_max_length=tgt_descrip_max_length,
+                # seq_dropout=seq_dropout,
+                # decoder=decoder,
+                # num_beams=num_beams,
+                # num_beam_groups=num_beam_groups,
+                # diversity_penalty=diversity_penalty,
+                # use_prefix_search=use_prefix_search,
             ),
             hardware=HardwareOption(
                 train_batch=train_batch,

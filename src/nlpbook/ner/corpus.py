@@ -16,7 +16,7 @@ from transformers import PreTrainedTokenizerFast, BatchEncoding
 from transformers.tokenization_utils_base import PaddingStrategy, TruncationStrategy
 
 from chrisbase.data import AppTyper, ProjectEnv, InputOption, FileOption, IOArguments, OutputOption, JobTimer, FileStreamer, OptionData, ResultData
-from chrisbase.io import hr, LoggingFormat, file_size, configure_unit_logger
+from chrisbase.io import hr, LoggingFormat, file_size, setup_unit_logger
 from chrisbase.io import make_parent_dir, merge_dicts
 from chrisbase.util import mute_tqdm_cls, LF, HT, NO
 from chrisbase.util import to_dataframe
@@ -24,7 +24,7 @@ from nlpbook.arguments import MLArguments
 from nlpbook.metrics import NER_Char_MacroF1, NER_Entity_MacroF1
 
 logger = logging.getLogger(__name__)
-configure_unit_logger(fmt=LoggingFormat.CHECK_24)
+setup_unit_logger(fmt=LoggingFormat.CHECK_24)
 
 
 @dataclass
