@@ -1,15 +1,11 @@
 import logging
 import os
 import re
-import sys
-from pathlib import Path
-from typing import List, Tuple
 
 import requests
 import tqdm
-from transformers import HfArgumentParser
 
-from .arguments import TrainerArguments, TesterArguments
+from .arguments import TesterArguments
 
 logger = logging.getLogger(__name__)
 
@@ -214,45 +210,3 @@ def download_pretrained_model(args, config_only=False):
                     )
     else:
         raise ValueError(f"not valid model name({pretrained_model_name}), cannot download resources")
-
-
-def set_seed(args: TrainerArguments):  # TODO: Remove someday
-    if args.learning.random_seed is not None:
-        from transformers import set_seed
-        set_seed(args.learning.random_seed)
-        from pytorch_lightning import seed_everything
-        seed_everything(args.learning.random_seed)
-    else:
-        logger.warning("not fixed seed")
-
-
-def load_arguments(argument_class, json_file_path=None):
-    parser = HfArgumentParser(argument_class)
-    if json_file_path is not None:
-        args, = parser.parse_json_file(json_file=json_file_path)
-    elif len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
-        args, = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
-    else:
-        args, = parser.parse_args_into_dataclasses()
-    return args
-
-
-# https://lightning.ai/docs/fabric/stable/guide/checkpoint.html
-def save_checkpoint(fabric, args, metric_values, model, optimizer,
-                    sorted_checkpoints: List[Tuple[float, Path]], sorting_reverse, sorting_metric):
-    checkpoint_state = {"model": model, "optimizer": optimizer, "args": args}
-    terms = [m.group(1) for m in TERM_IN_NAME_FORMAT.finditer(args.model.name)]
-    terms = {term: metric_values[term] for term in terms}
-    checkpoint_stem = args.model.name.format(**terms)
-    checkpoint_path: Path = (args.env.output_home / "model.out").with_stem(checkpoint_stem).with_suffix(".ckpt")
-
-    sorted_checkpoints.append((metric_values[sorting_metric], checkpoint_path))
-    sorted_checkpoints.sort(key=lambda x: x[0], reverse=sorting_reverse)
-    for _, path in sorted_checkpoints[args.learning.num_saving:]:
-        path.unlink(missing_ok=True)
-    sorted_checkpoints = [(value, path) for value, path in sorted_checkpoints[:args.learning.num_saving] if path.exists()]
-    if len(sorted_checkpoints) < args.learning.num_saving:
-        fabric.save(checkpoint_path, checkpoint_state)
-        sorted_checkpoints.append((metric_values[sorting_metric], checkpoint_path))
-        sorted_checkpoints.sort(key=lambda x: x[0], reverse=sorting_reverse)
-    return sorted_checkpoints
