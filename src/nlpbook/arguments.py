@@ -5,15 +5,12 @@ from pathlib import Path
 from typing import List
 
 import pandas as pd
-import pytorch_lightning
-import transformers
 from dataclasses_json import DataClassJsonMixin
 from lightning.fabric.loggers import CSVLogger, TensorBoardLogger
 from transformers import PretrainedConfig
 
-from chrisbase.data import ProjectEnv, OptionData, ResultData, CommonArguments
-from chrisbase.io import files, LoggingFormat
-from chrisbase.time import now
+from chrisbase.data import OptionData, ResultData, CommonArguments
+from chrisbase.io import files
 from chrisbase.util import to_dataframe
 
 logger = logging.getLogger(__name__)
@@ -35,10 +32,6 @@ class DataOption(OptionData):
     redownload: bool = field(default=False)
     num_check: int = field(default=3)
 
-    # for research
-    # num_entity: int | None = field(default=None)
-    # num_relation: int | None = field(default=None)
-
     def __post_init__(self):
         if self.home:
             self.home = Path(self.home).absolute()
@@ -51,19 +44,6 @@ class ModelOption(OptionData):
     seq_len: int = field(default=128)  # maximum total input sequence length after tokenization
     config: PretrainedConfig | None = field(default=None)
     name: str | Path | None = field(default=None)
-
-    # for research
-    # src_max_length: int = field(default=512)
-    # train_tgt_max_length: int = field(default=512)
-    # eval_tgt_max_length: int = field(default=90)
-    # src_descrip_max_length: int = field(default=0)
-    # tgt_descrip_max_length: int = field(default=0)
-    # seq_dropout: float = field(default=0.1)
-    # decoder: str = field(default="beam_search")  # "[beam_search, diverse_beam_search, do_sample]"
-    # num_beams: int = field(default=40)
-    # num_beam_groups: int = field(default=1)
-    # diversity_penalty: float = field(default=0.0)
-    # use_prefix_search: bool = field(default=False)
 
     def __post_init__(self):
         self.finetuning = Path(self.finetuning).absolute()
@@ -138,15 +118,6 @@ class MLArguments(CommonArguments):
     def __post_init__(self):
         super().__post_init__()
 
-    def configure_csv_logger(self, version=None):  # TODO: Remove someday
-        if not version:
-            version = now('%m%d.%H%M%S')
-        self.prog.csv_logger = CSVLogger(self.model.finetuning, name=self.data.name,
-                                         version=f'{self.tag}-{self.env.job_name}-{version}',
-                                         flush_logs_every_n_steps=1)
-        self.env.output_home = Path(self.prog.csv_logger.log_dir)
-        return self
-
     def dataframe(self, columns=None) -> pd.DataFrame:
         if not columns:
             columns = [self.data_type, "value"]
@@ -181,58 +152,6 @@ class ServerArguments(MLArguments):
             assert (self.env.output_home / self.model.name).exists() and (self.env.output_home / self.model.name).is_file(), \
                 f"No checkpoint file: {self.env.output_home / self.model.name}"
 
-    @staticmethod
-    def from_args(  # TODO: Remove someday
-            # env
-            project: str = None,
-            job_name: str = None,
-            debugging: bool = False,
-            # data
-            data_home: str = "data",
-            data_name: str = None,
-            train_file: str = None,
-            valid_file: str = None,
-            test_file: str = None,
-            num_check: int = 2,
-            # model
-            pretrained: str = "klue/roberta-small",
-            finetuning: str = "finetuning",
-            model_name: str = None,
-            seq_len: int = 128,
-            # hardware
-            accelerator: str = "gpu",
-            precision: str = "32-true",
-            strategy: str = "auto",
-            device: List[int] = (0,),
-            batch_size: int = 100,
-    ) -> "ServerArguments":
-        pretrained = Path(pretrained)
-        return ServerArguments(
-            env=ProjectEnv(
-                project=project,
-                job_name=job_name if job_name else pretrained.name,
-                debugging=debugging,
-                msg_level=logging.DEBUG if debugging else logging.INFO,
-                msg_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_40,
-            ),
-            data=DataOption(
-                home=data_home,
-                name=data_name,
-                files=DataFiles(
-                    train=train_file,
-                    valid=valid_file,
-                    test=test_file,
-                ),
-                num_check=num_check,
-            ),
-            model=ModelOption(
-                pretrained=pretrained,
-                finetuning=finetuning,
-                name=model_name,
-                seq_len=seq_len,
-            ),
-        )
-
 
 @dataclass
 class TesterArguments(ServerArguments):
@@ -248,67 +167,6 @@ class TesterArguments(ServerArguments):
         ]).reset_index(drop=True)
         return df
 
-    @staticmethod
-    def from_args(  # TODO: Remove someday
-            # env
-            project: str = None,
-            job_name: str = None,
-            debugging: bool = False,
-            # data
-            data_home: str = "data",
-            data_name: str = None,
-            train_file: str = None,
-            valid_file: str = None,
-            test_file: str = None,
-            num_check: int = 2,
-            # model
-            pretrained: str = "klue/roberta-small",
-            finetuning: str = "finetuning",
-            model_name: str = None,
-            seq_len: int = 128,
-            # hardware
-            train_batch: int = 100,
-            infer_batch: int = 100,
-            accelerator: str = "gpu",
-            precision: str = "32-true",
-            strategy: str = "auto",
-            device: List[int] = (0,),
-    ) -> "TesterArguments":
-        pretrained = Path(pretrained)
-        return TesterArguments(
-            env=ProjectEnv(
-                project=project,
-                job_name=job_name if job_name else pretrained.name,
-                debugging=debugging,
-                msg_level=logging.DEBUG if debugging else logging.INFO,
-                msg_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_40,
-            ),
-            data=DataOption(
-                home=data_home,
-                name=data_name,
-                files=DataFiles(
-                    train=train_file,
-                    valid=valid_file,
-                    test=test_file,
-                ),
-                num_check=num_check,
-            ),
-            model=ModelOption(
-                pretrained=pretrained,
-                finetuning=finetuning,
-                name=model_name,
-                seq_len=seq_len,
-            ),
-            hardware=HardwareOption(
-                train_batch=train_batch,
-                infer_batch=infer_batch,
-                accelerator=accelerator,
-                precision=precision,
-                strategy=strategy,
-                devices=device,
-            ),
-        )
-
 
 @dataclass
 class TrainerArguments(TesterArguments):
@@ -323,132 +181,3 @@ class TrainerArguments(TesterArguments):
             to_dataframe(columns=columns, raw=self.learning, data_prefix="learning"),
         ]).reset_index(drop=True)
         return df
-
-    def set_seed(self) -> None:  # TODO: Remove someday
-        if self.learning.random_seed is not None:
-            transformers.set_seed(self.learning.random_seed)
-            pytorch_lightning.seed_everything(self.learning.random_seed)
-        else:
-            logger.warning("not fixed seed")
-
-    @staticmethod
-    def from_args(  # TODO: Remove someday
-            # env
-            project: str = None,
-            job_name: str = None,
-            debugging: bool = False,
-            # data
-            data_home: str = "data",
-            data_name: str = None,
-            train_file: str = None,
-            valid_file: str = None,
-            test_file: str = None,
-            num_check: int = 2,
-            # model
-            pretrained: str = "klue/roberta-small",
-            finetuning: str = "finetuning",
-            model_name: str = None,
-            seq_len: int = 128,
-            src_max_length: int = 512,
-            train_tgt_max_length: int = 512,
-            eval_tgt_max_length: int = 90,
-            src_descrip_max_length: int = 0,
-            tgt_descrip_max_length: int = 0,
-            seq_dropout: float = 0.1,
-            decoder: str = "beam_search",
-            num_beams: int = 40,
-            num_beam_groups: int = 1,
-            diversity_penalty: float = 0.0,
-            use_prefix_search: bool = False,
-            # hardware
-            train_batch: int = 100,
-            infer_batch: int = 100,
-            accelerator: str = "gpu",
-            precision: str = "32-true",
-            strategy: str = "auto",
-            device: List[int] = (0,),
-            # learning
-            optimizer_cls: str = "Adam",
-            learning_rate: float = 5e-5,
-            saving_policy: str = None,
-            num_saving: int = 1,
-            num_epochs: int = 1,
-            log_text: bool = False,
-            check_rate_on_training: float = 0.2,
-            print_rate_on_training: float = 0.0333,
-            print_rate_on_validate: float = 0.334,
-            print_rate_on_evaluate: float = 0.334,
-            print_step_on_training: int = -1,
-            print_step_on_validate: int = -1,
-            print_step_on_evaluate: int = -1,
-            tag_format_on_training: str = "",
-            tag_format_on_validate: str = "",
-            tag_format_on_evaluate: str = "",
-            name_format_on_saving: str = "",
-            seed: int = 7,
-    ) -> "TrainerArguments":
-        pretrained = Path(pretrained)
-        return TrainerArguments(
-            env=ProjectEnv(
-                project=project,
-                job_name=job_name if job_name else pretrained.name,
-                debugging=debugging,
-                msg_level=logging.DEBUG if debugging else logging.INFO,
-                msg_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_40,
-            ),
-            data=DataOption(
-                home=data_home,
-                name=data_name,
-                files=DataFiles(
-                    train=train_file,
-                    valid=valid_file,
-                    test=test_file,
-                ),
-                num_check=num_check,
-            ),
-            model=ModelOption(
-                pretrained=pretrained,
-                finetuning=finetuning,
-                name=model_name,
-                seq_len=seq_len,
-                # src_max_length=src_max_length,
-                # train_tgt_max_length=train_tgt_max_length,
-                # eval_tgt_max_length=eval_tgt_max_length,
-                # src_descrip_max_length=src_descrip_max_length,
-                # tgt_descrip_max_length=tgt_descrip_max_length,
-                # seq_dropout=seq_dropout,
-                # decoder=decoder,
-                # num_beams=num_beams,
-                # num_beam_groups=num_beam_groups,
-                # diversity_penalty=diversity_penalty,
-                # use_prefix_search=use_prefix_search,
-            ),
-            hardware=HardwareOption(
-                train_batch=train_batch,
-                infer_batch=infer_batch,
-                accelerator=accelerator,
-                precision=precision,
-                strategy=strategy,
-                devices=device,
-            ),
-            learning=LearningOption(
-                random_seed=seed,
-                optimizer_cls=optimizer_cls,
-                learning_rate=learning_rate,
-                saving_mode=saving_policy,
-                num_saving=num_saving,
-                num_epochs=num_epochs,
-                log_text=log_text,
-                check_rate_on_training=check_rate_on_training,
-                print_rate_on_training=print_rate_on_training,
-                print_rate_on_validate=print_rate_on_validate,
-                print_rate_on_evaluate=print_rate_on_evaluate,
-                print_step_on_training=print_step_on_training,
-                print_step_on_validate=print_step_on_validate,
-                print_step_on_evaluate=print_step_on_evaluate,
-                tag_format_on_training=tag_format_on_training,
-                tag_format_on_validate=tag_format_on_validate,
-                tag_format_on_evaluate=tag_format_on_evaluate,
-                name_format_on_saving=name_format_on_saving,
-            ),
-        )
