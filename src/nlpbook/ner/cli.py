@@ -243,7 +243,7 @@ def test(args_file: Path | str):
     args = TesterArguments.from_json(args_file.read_text()).info_args()
 
     with JobTimer(f"chrialab.nlpbook.ner test {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
-        checkpoint_path = args.env.output_home / args.model.name
+        checkpoint_path = args.env.logging_home / args.model.name
         assert checkpoint_path.exists(), f"No checkpoint file: {checkpoint_path}"
         logger.info(f"Using finetuned checkpoint file at {checkpoint_path}")
         err_hr(c='-')
@@ -288,7 +288,7 @@ def serve(args_file: Path | str):
     args: ServerArguments = ServerArguments.from_json(args_file.read_text()).info_args()
 
     with JobTimer(f"chrialab.nlpbook serve_ner {args_file}", mt=1, mb=1, rt=1, rb=1, rc='=', verbose=True, flush_sec=0.3):
-        checkpoint_path = args.env.output_home / args.model.name
+        checkpoint_path = args.env.logging_home / args.model.name
         assert checkpoint_path.exists(), f"No checkpoint file: {checkpoint_path}"
         checkpoint: dict = torch.load(checkpoint_path, map_location=torch.device("cpu"))
         logger.info(f"Using finetuned checkpoint file at {checkpoint_path}")
@@ -296,7 +296,7 @@ def serve(args_file: Path | str):
 
         tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(args.model.pretrained, use_fast=True)
         assert isinstance(tokenizer, PreTrainedTokenizerFast), f"Our code support only PreTrainedTokenizerFast, but used {type(tokenizer)}"
-        label_map_path: Path = args.env.output_home / "label_map.txt"
+        label_map_path: Path = args.env.logging_home / "label_map.txt"
         assert label_map_path.exists(), f"No downstream label file: {label_map_path}"
         labels = label_map_path.read_text().splitlines(keepends=False)
         id_to_label = {idx: label for idx, label in enumerate(labels)}

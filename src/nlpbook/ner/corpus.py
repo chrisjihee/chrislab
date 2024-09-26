@@ -164,7 +164,7 @@ class NERCorpus:
         return labels
 
     def get_labels(self) -> List[str]:
-        label_path = make_parent_dir(self.args.env.output_home / "label_map.txt")
+        label_path = make_parent_dir(self.args.env.logging_home / "label_map.txt")
         train_data_path = self.args.data.home / self.args.data.name / self.args.data.files.train if self.args.data.files.train else None
         valid_data_path = self.args.data.home / self.args.data.name / self.args.data.files.valid if self.args.data.files.valid else None
         test_data_path = self.args.data.home / self.args.data.name / self.args.data.files.test if self.args.data.files.test else None
@@ -549,10 +549,10 @@ class CLI:
         env = ProjectEnv(
             project=project,
             debugging=debugging,
-            output_home=output_home,
+            logging_home=output_home,
             logging_file=logging_file,
-            msg_level=logging.DEBUG if debugging else logging.INFO,
-            msg_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_24,
+            message_level=logging.DEBUG if debugging else logging.INFO,
+            message_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_24,
         )
         input_opt = InputOption(
             inter=input_inter,
@@ -697,10 +697,10 @@ class CLI:
         env = ProjectEnv(
             project=project,
             debugging=debugging,
-            output_home=output_home,
+            logging_home=output_home,
             logging_file=logging_file,
-            msg_level=logging.DEBUG if debugging else logging.INFO,
-            msg_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_24,
+            message_level=logging.DEBUG if debugging else logging.INFO,
+            message_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_24,
         )
         refer_opt = InputOption(
             file=FileOption(

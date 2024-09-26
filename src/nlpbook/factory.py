@@ -8,7 +8,7 @@ from nlpbook.arguments import TrainerArguments, TesterArguments
 
 def make_trainer(args: TrainerArguments) -> Trainer:
     checkpoint_callback = ModelCheckpoint(
-        dirpath=args.env.output_home,
+        dirpath=args.env.logging_home,
         filename=args.model.name,
         save_top_k=args.learning.num_saving,
         monitor=args.learning.saving_mode.split()[1],

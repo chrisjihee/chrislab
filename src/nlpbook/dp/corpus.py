@@ -620,10 +620,10 @@ class CLI:
         env = ProjectEnv(
             project=project,
             debugging=debugging,
-            output_home=output_home,
+            logging_home=output_home,
             logging_file=logging_file,
-            msg_level=logging.DEBUG if debugging else logging.INFO,
-            msg_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_24,
+            message_level=logging.DEBUG if debugging else logging.INFO,
+            message_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_24,
         )
         input_opt = InputOption(
             inter=input_inter,
@@ -728,10 +728,10 @@ class CLI:
         env = ProjectEnv(
             project=project,
             debugging=debugging,
-            output_home=output_home,
+            logging_home=output_home,
             logging_file=logging_file,
-            msg_level=logging.DEBUG if debugging else logging.INFO,
-            msg_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_24,
+            message_level=logging.DEBUG if debugging else logging.INFO,
+            message_format=LoggingFormat.DEBUG_36 if debugging else LoggingFormat.CHECK_24,
         )
         refer_opt = InputOption(
             file=FileOption(
