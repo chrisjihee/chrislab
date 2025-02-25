@@ -19,7 +19,7 @@ class GenerationTrainArguments:
         metadata={"help": "The name of the downstream data."}
     )
     downstream_corpus_root_dir: str = field(
-        default="/content/Korpora",
+        default="data",
         metadata={"help": "The root directory of the downstream data."}
     )
     downstream_model_dir: str = field(
